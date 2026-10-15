@@ -614,6 +614,45 @@ input:focus-visible { outline: 3px solid #63e7f4; outline-offset: 3px; }
 .skip-vote { width: 100%; border: 1px solid #4c626b; border-radius: 5px; background: transparent; color: #97aeb5; padding: 13px; margin-top: 16px; font: 900 10px var(--font-geist-mono), monospace; cursor: pointer; }
 .skip-vote:hover { color: white; border-color: #819ba4; }
 
+.vote-reveal { display: grid; gap: 18px; }
+.vote-verdict { padding: 19px 21px; border: 1px solid #3b5662; border-radius: 7px; background: linear-gradient(135deg, #132531, #0b171f); }
+.vote-verdict.ejected { border-color: rgba(255,83,98,.62); background: linear-gradient(135deg, rgba(105,24,34,.72), #17161e); }
+.vote-verdict small { color: #72909a; font: 850 8px var(--font-geist-mono), monospace; letter-spacing: .12em; }
+.vote-verdict h3 { margin: 5px 0 6px; color: #f1f9f8; font: 950 clamp(20px, 3vw, 29px) var(--font-geist-sans), Arial, sans-serif; letter-spacing: -.035em; text-transform: uppercase; }
+.vote-verdict.ejected h3 { color: #ff9da5; }
+.vote-verdict p { margin: 0; color: #78929b; font-size: 11px; }
+.ballot-list { display: grid; gap: 7px; }
+.ballot-row {
+  min-height: 64px;
+  display: grid;
+  grid-template-columns: minmax(145px, 1fr) 118px minmax(170px, 1fr);
+  align-items: center;
+  gap: 13px;
+  padding: 9px 13px;
+  border: 1px solid #263f4b;
+  border-radius: 6px;
+  background: #111e27;
+}
+.ballot-row.your-ballot { border-color: rgba(84,219,239,.75); background: linear-gradient(90deg, rgba(25,70,82,.58), #111e27); }
+.ballot-player,
+.ballot-target { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.ballot-player > span:last-child,
+.ballot-target > span:last-child { min-width: 0; display: grid; gap: 2px; }
+.ballot-player small,
+.ballot-target small { color: #627d87; font: 800 7px var(--font-geist-mono), monospace; letter-spacing: .08em; }
+.ballot-player b,
+.ballot-target b { overflow: hidden; color: #e8f2f2; font: 900 11px var(--font-geist-mono), monospace; text-overflow: ellipsis; white-space: nowrap; }
+.your-ballot .ballot-player small { color: var(--cyan); }
+.ballot-target { justify-self: end; width: 100%; justify-content: flex-start; }
+.ballot-target.skipped b { color: #8399a1; }
+.vote-arrow { color: #617b85; text-align: center; font: 800 8px var(--font-geist-mono), monospace; letter-spacing: .08em; }
+.vote-arrow b { color: var(--red); font-size: 16px; margin-left: 5px; }
+.ballot-slime { --ballot-color: #20d8ed; flex: 0 0 auto; display: block; width: 35px; height: 31px; border: 3px solid #060b10; border-radius: 50% 50% 35% 38%; background: var(--ballot-color); position: relative; box-shadow: inset 7px 6px rgba(255,255,255,.18); }
+.ballot-slime i { position: absolute; top: 12px; left: 10px; width: 4px; height: 5px; border-radius: 50%; background: #111827; }
+.ballot-slime i + i { left: 21px; }
+.continue-vote { width: 100%; border: 0; border-radius: 5px; background: linear-gradient(135deg, #66edec, #31c6de); color: #061219; padding: 14px; font: 950 10px var(--font-geist-mono), monospace; letter-spacing: .07em; cursor: pointer; }
+.continue-vote:hover { filter: brightness(1.1); }
+
 .result-card { width: min(650px, 100%); border: 1px solid #4d6873; border-radius: 10px; background: radial-gradient(circle at 50% 0, #183847, #0b161e 60%); padding: 55px; text-align: center; box-shadow: 0 35px 100px #000; }
 .result-card small { color: var(--cyan); font: 850 10px var(--font-geist-mono), monospace; letter-spacing: .13em; }
 .result-card h2 { margin: 16px 0; color: white; font: 950 clamp(32px, 5vw, 52px)/.97 var(--font-geist-sans), Arial, sans-serif; letter-spacing: -.05em; }
@@ -667,6 +706,9 @@ input:focus-visible { outline: 3px solid #63e7f4; outline-offset: 3px; }
   .meeting-alert > b { display: none; }
   .meeting-content { padding: 20px 16px; }
   .vote-grid { grid-template-columns: repeat(2, 1fr); }
+  .ballot-row { grid-template-columns: 1fr auto; gap: 8px; }
+  .vote-arrow { grid-column: 1 / -1; grid-row: 2; text-align: left; padding-left: 44px; }
+  .ballot-target { justify-self: stretch; }
   .result-card { padding: 38px 22px; }
 }
 

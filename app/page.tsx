@@ -58,7 +58,23 @@ type Snapshot = {
   message: string;
 };
 
-type Meeting = { reason: string; reporter: string; candidates: Player[] };
+type Ballot = {
+  voterId: string;
+  voterName: string;
+  voterColor: string;
+  targetId: string | null;
+  targetName: string;
+  targetColor: string | null;
+};
+
+type Meeting = {
+  reason: string;
+  reporter: string;
+  candidates: Player[];
+  ballots?: Ballot[];
+  ejectedId?: string | null;
+  verdict?: string;
+};
 
 const W = 1280;
 const H = 760;
@@ -118,6 +134,7 @@ class OrdealEngine {
   emitAt = 0;
   running = true;
   paused = false;
+  activeMeeting: Meeting | null = null;
   message = "Walk to a perimeter console and hold E to calibrate.";
   messageUntil = 4;
   onSnapshot: (snapshot: Snapshot) => void;
@@ -313,15 +330,29 @@ class OrdealEngine {
     if (this.paused) return;
     this.paused = true;
     this.phase = "DISCUSSION";
-    this.onMeeting({ reason, reporter, candidates: this.players.map((player) => ({ ...player })) });
+    this.activeMeeting = { reason, reporter, candidates: this.players.map((player) => ({ ...player })) };
+    this.onMeeting(this.activeMeeting);
     this.emit(true);
   }
 
   vote(targetId: string | null) {
-    if (!this.paused) return;
+    if (!this.paused || !this.activeMeeting || this.activeMeeting.ballots) return;
     const tally = new Map<string, number>();
-    const add = (id: string) => tally.set(id, (tally.get(id) || 0) + 1);
-    add(targetId || "SKIP");
+    const ballots: Ballot[] = [];
+    const cast = (voter: Player, accusedId: string | null) => {
+      const tallyId = accusedId || "SKIP";
+      tally.set(tallyId, (tally.get(tallyId) || 0) + 1);
+      const accused = accusedId ? this.players.find((player) => player.id === accusedId) : null;
+      ballots.push({
+        voterId: voter.id,
+        voterName: voter.name,
+        voterColor: voter.color,
+        targetId: accused?.id || null,
+        targetName: accused?.name || "SKIP",
+        targetColor: accused?.color || null,
+      });
+    };
+    cast(this.human, targetId);
     const living = this.players.filter((player) => player.alive);
     for (const voter of living.filter((player) => player.ai)) {
       const options = living.filter((player) => player.id !== voter.id);
@@ -331,12 +362,12 @@ class OrdealEngine {
       } else if (Math.random() < 0.36) {
         pick = living.find((player) => player.role === "IMPOSTOR" && player.id !== voter.id);
       } else if (Math.random() < 0.22) {
-        add("SKIP");
+        cast(voter, null);
         continue;
       } else {
         pick = choose(options);
       }
-      if (pick) add(pick.id);
+      if (pick) cast(voter, pick.id);
     }
     const ranked = [...tally.entries()].sort((a, b) => b[1] - a[1]);
     const tied = ranked.length > 1 && ranked[0][1] === ranked[1][1];
@@ -345,12 +376,29 @@ class OrdealEngine {
       const ejected = this.players.find((player) => player.id === ejectedId);
       if (ejected) {
         ejected.alive = false;
-        this.flashMessage(`${ejected.name} was ejected. ${ejected.role === "IMPOSTOR" ? "They were the Impostor." : "They were Crew."}`);
+        this.activeMeeting = {
+          ...this.activeMeeting,
+          ballots,
+          ejectedId,
+          verdict: `${ejected.name} was ejected — ${ejected.role === "IMPOSTOR" ? "THE IMPOSTOR" : "CREWMATE"}`,
+        };
       }
     } else {
-      this.flashMessage(tied ? "Vote tied. No one was ejected." : "The crew skipped the vote.");
+      this.activeMeeting = {
+        ...this.activeMeeting,
+        ballots,
+        ejectedId: null,
+        verdict: tied ? "Vote tied — no one was ejected" : "Vote skipped — no one was ejected",
+      };
     }
+    this.onMeeting(this.activeMeeting);
+    this.emit(true);
+  }
+
+  resolveMeeting() {
+    if (!this.activeMeeting?.ballots) return;
     this.bodies = [];
+    this.activeMeeting = null;
     this.onMeeting(null);
     this.paused = false;
     if (!this.checkWin()) {
@@ -1246,18 +1294,46 @@ function Game({ count, roleChoice, onExit }: { count: number; roleChoice: RoleCh
       {meeting && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="meeting-title">
           <div className="meeting-card">
-            <div className="meeting-alert"><span>!</span><div><small>SHIPWIDE ALERT</small><h2 id="meeting-title">{meeting.reason}</h2></div><b>DISCUSS + VOTE</b></div>
+            <div className="meeting-alert"><span>!</span><div><small>{meeting.ballots ? "VOTES TRANSMITTED" : `REPORTED BY ${meeting.reporter}`}</small><h2 id="meeting-title">{meeting.reason}</h2></div><b>{meeting.ballots ? "VOTE REVEAL" : "DISCUSS + VOTE"}</b></div>
             <div className="meeting-content">
-              <p>Select the slime you distrust. AI crewmates will cast their own private votes.</p>
-              <div className="vote-grid">
-                {meeting.candidates.map((player) => (
-                  <button key={player.id} disabled={!player.alive || player.id === "you"} onClick={() => engineRef.current?.vote(player.id)}>
-                    <span className="vote-slime" style={{ "--vote-color": player.alive ? player.color : "#53616b" } as React.CSSProperties}><i /><i /></span>
-                    <b>{player.name}</b><small>{player.alive ? (player.id === "you" ? "YOU" : "VOTE") : "ELIMINATED"}</small>
-                  </button>
-                ))}
-              </div>
-              <button className="skip-vote" onClick={() => engineRef.current?.vote(null)}>SKIP VOTE</button>
+              {meeting.ballots ? (
+                <div className="vote-reveal">
+                  <div className={`vote-verdict ${meeting.ejectedId ? "ejected" : "no-ejection"}`}>
+                    <small>FINAL VERDICT</small>
+                    <h3>{meeting.verdict}</h3>
+                    <p>Every accusation is shown below. A vote means suspicion—not proof.</p>
+                  </div>
+                  <div className="ballot-list" aria-label="Individual voting results">
+                    {meeting.ballots.map((ballot) => (
+                      <div className={`ballot-row ${ballot.voterId === "you" ? "your-ballot" : ""}`} key={ballot.voterId}>
+                        <div className="ballot-player">
+                          <span className="ballot-slime" style={{ "--ballot-color": ballot.voterColor } as React.CSSProperties}><i /><i /></span>
+                          <span><small>{ballot.voterId === "you" ? "YOUR VOTE" : "VOTER"}</small><b>{ballot.voterName}</b></span>
+                        </div>
+                        <span className="vote-arrow">VOTED FOR <b>→</b></span>
+                        <div className={`ballot-target ${ballot.targetId ? "" : "skipped"}`}>
+                          {ballot.targetColor && <span className="ballot-slime" style={{ "--ballot-color": ballot.targetColor } as React.CSSProperties}><i /><i /></span>}
+                          <span><small>{ballot.targetId ? "SUSPECTED IMPOSTOR" : "NO ACCUSATION"}</small><b>{ballot.targetName}</b></span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button className="continue-vote" onClick={() => engineRef.current?.resolveMeeting()}>CONTINUE MATCH</button>
+                </div>
+              ) : (
+                <>
+                  <p>Select the slime you distrust. The next screen will reveal who every player accused.</p>
+                  <div className="vote-grid">
+                    {meeting.candidates.map((player) => (
+                      <button key={player.id} disabled={!player.alive || player.id === "you"} onClick={() => engineRef.current?.vote(player.id)}>
+                        <span className="vote-slime" style={{ "--vote-color": player.alive ? player.color : "#53616b" } as React.CSSProperties}><i /><i /></span>
+                        <b>{player.name}</b><small>{player.alive ? (player.id === "you" ? "YOU" : "VOTE") : "ELIMINATED"}</small>
+                      </button>
+                    ))}
+                  </div>
+                  <button className="skip-vote" onClick={() => engineRef.current?.vote(null)}>SKIP VOTE</button>
+                </>
+              )}
             </div>
           </div>
         </div>

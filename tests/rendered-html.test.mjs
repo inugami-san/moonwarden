@@ -33,6 +33,9 @@ test("ships the complete social-deduction simulation", async () => {
   assert.match(source, /TOTAL BLACKOUT/);
   assert.match(source, /THICK SEA FOG/);
   assert.match(source, /startMeeting/);
+  assert.match(source, /VOTES TRANSMITTED/);
+  assert.match(source, /SUSPECTED IMPOSTOR/);
+  assert.match(source, /resolveMeeting/);
   assert.match(source, /checkWin/);
   assert.match(source, /roleChoice === "IMPOSTOR"/);
   assert.match(source, /roleChoice === "CREWMATE"/);
