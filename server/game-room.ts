@@ -103,6 +103,7 @@ export class GameRoom {
   flares: NetFlare[] = [];
   killCooldownUntil: number = 0;
   killUsedThisOrdeal: boolean = false;
+  sealedStations = new Set<string>();
   completedStations = new Map<string, Set<string>>();
   itemCharges = new Map<string, Record<ItemKind, number>>();
 
@@ -305,11 +306,31 @@ export class GameRoom {
           const expectedReward = STATION_REWARDS.get(msg.stationId);
           const completed = this.completedStations.get(player.id);
           const charges = this.itemCharges.get(player.id);
-          if (!expectedReward || expectedReward !== msg.reward || !completed || !charges || completed.has(msg.stationId)) break;
+          if (
+            !expectedReward
+            || expectedReward !== msg.reward
+            || !completed
+            || !charges
+            || completed.has(msg.stationId)
+            || this.sealedStations.has(msg.stationId)
+          ) {
+            break;
+          }
           completed.add(msg.stationId);
           charges[msg.reward] = Math.min(3, charges[msg.reward] + 1);
           if (player.role === "CREWMATE") {
+            this.sealedStations.add(msg.stationId);
             this.taskProgress = Math.min(100, this.taskProgress + TASK_PROGRESS_REWARD);
+            this.broadcast({
+              type: "SYNC_WORLD",
+              phase: this.phase,
+              time: Math.max(0, this.phaseTime),
+              hazard: this.hazard,
+              taskProgress: this.taskProgress,
+              bodies: this.bodies,
+              flares: this.flares,
+              completedStations: Array.from(this.sealedStations),
+            });
             if (this.taskProgress >= 100) {
               this.endMatch("CREW VICTORY — ALL MOON WARDS RESTORED");
             }
@@ -361,6 +382,7 @@ export class GameRoom {
     this.flares = [];
     this.killCooldownUntil = 0;
     this.killUsedThisOrdeal = false;
+    this.sealedStations.clear();
     this.completedStations.clear();
     this.itemCharges.clear();
     for (const player of this.players.values()) {
@@ -552,6 +574,16 @@ export class GameRoom {
       this.phase = "CALM";
       this.phaseTime = 15;
       this.killCooldownUntil = 0;
+      this.broadcast({
+        type: "SYNC_WORLD",
+        phase: this.phase,
+        time: this.phaseTime,
+        hazard: this.hazard,
+        taskProgress: this.taskProgress,
+        bodies: this.bodies,
+        flares: this.flares,
+        completedStations: Array.from(this.sealedStations),
+      });
     }
   }
 
@@ -660,6 +692,7 @@ export class GameRoom {
         taskProgress: this.taskProgress,
         bodies: this.bodies,
         flares: this.flares,
+        completedStations: Array.from(this.sealedStations),
       });
     }
   }

@@ -116,6 +116,7 @@ export type S2CMessage =
       taskProgress: number;
       bodies: NetBody[];
       flares: NetFlare[];
+      completedStations?: string[];
     }
   | { type: "BODY_SPAWNED"; body: NetBody }
   | { type: "FLARE_SPAWNED"; flare: NetFlare }

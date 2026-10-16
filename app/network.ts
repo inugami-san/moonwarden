@@ -33,6 +33,7 @@ export class MultiplayerClient {
   private httpPollTimer: number | null = null;
   private httpInFlight: boolean = false;
   private httpFlushRequested: boolean = false;
+  private lastHttpFlushAt: number = 0;
 
   private messageHandlers = new Set<(msg: S2CMessage) => void>();
   private stateHandlers = new Set<(state: MultiplayerState) => void>();
@@ -135,8 +136,11 @@ export class MultiplayerClient {
       window.clearInterval(this.httpPollTimer);
     }
     this.httpPollTimer = window.setInterval(() => {
-      void this.flushHttp();
-    }, 105);
+      const targetInterval = this.state === "PLAYING" ? 55 : 140;
+      if (performance.now() - this.lastHttpFlushAt >= targetInterval) {
+        void this.flushHttp();
+      }
+    }, 30);
   }
 
   private async flushHttp(): Promise<void> {
@@ -147,9 +151,10 @@ export class MultiplayerClient {
     }
     this.httpInFlight = true;
     this.httpFlushRequested = false;
+    this.lastHttpFlushAt = performance.now();
 
     const batch = this.httpOutbox.splice(0, this.httpOutbox.length);
-    const t0 = performance.now();
+    const t0 = this.lastHttpFlushAt;
 
     try {
       const res = await fetch("/api/mp", {
@@ -409,6 +414,9 @@ export class MultiplayerClient {
           this.httpOutbox[existingIdx] = msg;
         } else {
           this.httpOutbox.push(msg);
+        }
+        if (!this.httpInFlight && performance.now() - this.lastHttpFlushAt >= 48) {
+          void this.flushHttp();
         }
       } else {
         this.httpOutbox.push(msg);

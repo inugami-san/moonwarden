@@ -78,14 +78,21 @@ test("Multiplayer GameRoom: Lifecycle, Input Sync, Tasks, Meetings, and Voting",
   assert.equal(updatedA.y, 390);
   assert.equal(updatedA.flashlight, true);
 
-  // 5. Task Progress
+  // 5. Task Progress & Shared Station Completion Sync
+  playerA.role = "CREWMATE";
   const initialTask = room.taskProgress;
   room.handleMessage("player-a", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT" });
-  assert.equal(room.taskProgress, initialTask + (playerA.role === "CREWMATE" ? 17 : 0));
+  assert.equal(room.taskProgress, initialTask + 17);
   assert.equal(room.itemCharges.get("player-a").FLASHLIGHT, 1);
-  // The same shrine cannot be claimed twice by the same player.
+  assert.equal(room.sealedStations.has("FROST FONT"), true);
+  const worldSyncForB = clientB.popMessage("SYNC_WORLD");
+  assert.ok(worldSyncForB);
+  assert.deepEqual(worldSyncForB.completedStations, ["FROST FONT"]);
+  // Neither the same player nor another player can re-seal an already sealed shrine.
   room.handleMessage("player-a", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT" });
   assert.equal(room.itemCharges.get("player-a").FLASHLIGHT, 1);
+  room.handleMessage("player-b", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT" });
+  assert.equal(room.itemCharges.get("player-b").FLASHLIGHT, 0);
 
   // 6. Emergency Meeting Trigger
   room.handleMessage("player-a", { type: "TRIGGER_REPORT" });

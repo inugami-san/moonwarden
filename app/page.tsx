@@ -20,6 +20,7 @@ type Player = {
   y: number;
   vx: number;
   vy: number;
+  angle?: number;
   color: string;
   hat: Hat;
   alive: boolean;
@@ -251,6 +252,57 @@ function initialSnapshot(role: Role = "CREWMATE"): Snapshot {
   };
 }
 
+const MUTED_COLOR_CACHE = new Map<string, string>();
+/** Precomputes saturate(.34) brightness(.72) in hex so drawSlime avoids expensive per-frame ctx.filter passes. */
+function muteHexColor(hex: string): string {
+  const cached = MUTED_COLOR_CACHE.get(hex);
+  if (cached) return cached;
+  const clean = hex.replace("#", "");
+  if (clean.length !== 6) return hex;
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+  const mr = Math.round((lum * 0.66 + r * 0.34) * 0.72);
+  const mg = Math.round((lum * 0.66 + g * 0.34) * 0.72);
+  const mb = Math.round((lum * 0.66 + b * 0.34) * 0.72);
+  const out = `#${mr.toString(16).padStart(2, "0")}${mg.toString(16).padStart(2, "0")}${mb.toString(16).padStart(2, "0")}`;
+  MUTED_COLOR_CACHE.set(hex, out);
+  return out;
+}
+
+function snapshotsEqual(a: Snapshot, b: Snapshot): boolean {
+  return (
+    a.phase === b.phase
+    && a.time === b.time
+    && a.hazard === b.hazard
+    && a.taskProgress === b.taskProgress
+    && a.selectedItem === b.selectedItem
+    && a.charges.FLASHLIGHT === b.charges.FLASHLIGHT
+    && a.charges.FLARE === b.charges.FLARE
+    && a.charges.SONAR === b.charges.SONAR
+    && a.role === b.role
+    && a.living === b.living
+    && a.total === b.total
+    && a.canKill === b.canKill
+    && a.killCooldown === b.killCooldown
+    && a.killSpent === b.killSpent
+    && a.canUseMoonSight === b.canUseMoonSight
+    && a.moonSightActive === b.moonSightActive
+    && a.canReport === b.canReport
+    && a.taskPrompt === b.taskPrompt
+    && a.taskMode === b.taskMode
+    && a.humanAlive === b.humanAlive
+    && a.message === b.message
+    && a.localPlayerId === b.localPlayerId
+    && a.stationStatus?.label === b.stationStatus?.label
+    && a.stationStatus?.completed === b.stationStatus?.completed
+    && a.stationStatus?.reward === b.stationStatus?.reward
+    && a.rewardNotice?.item === b.rewardNotice?.item
+    && a.rewardNotice?.station === b.rewardNotice?.station
+  );
+}
+
 class OrdealEngine {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
@@ -304,6 +356,7 @@ class OrdealEngine {
   emitAt = 0;
   running = true;
   paused = false;
+  roleRevealActive = false;
   gameOver = false;
   activeMeeting: Meeting | null = null;
   activePuzzle: TaskPuzzle | null = null;
@@ -319,6 +372,9 @@ class OrdealEngine {
   localPlayerId: string = "you";
   private unsubscribeNet: (() => void) | null = null;
   private inputSendTimer = 0;
+  private canvasRect: DOMRect | null = null;
+  private lastSnapshot: Snapshot | null = null;
+  private lastSentInput = { x: -1, y: -1, vx: 0, vy: 0, angle: 0, flashlight: false };
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -368,12 +424,13 @@ class OrdealEngine {
     }
     this.resize();
     window.addEventListener("resize", this.resize);
+    window.addEventListener("scroll", this.updateRect, { passive: true });
     window.addEventListener("keydown", this.keyDown);
     window.addEventListener("keyup", this.keyUp);
     canvas.addEventListener("pointermove", this.pointerMove);
     canvas.addEventListener("pointerdown", this.pointerMove);
     canvas.addEventListener("contextmenu", this.contextMenu);
-    this.onSnapshot(this.snapshot());
+    this.emit(true);
     this.frame = requestAnimationFrame(this.loop);
   }
 
@@ -392,6 +449,7 @@ class OrdealEngine {
         y: p.y,
         vx: p.vx,
         vy: p.vy,
+        angle: p.angle,
         color: p.color,
         hat: p.hat,
         alive: p.alive,
@@ -427,6 +485,7 @@ class OrdealEngine {
               y: p.y,
               vx: p.vx,
               vy: p.vy,
+              angle: p.angle,
               color: p.color,
               hat: p.hat,
               alive: p.alive,
@@ -441,10 +500,15 @@ class OrdealEngine {
             };
             this.players.push(existing);
           } else {
+            if (Math.hypot(p.x - existing.x, p.y - existing.y) > 190) {
+              existing.x = p.x;
+              existing.y = p.y;
+            }
             existing.targetX = p.x;
             existing.targetY = p.y;
             existing.vx = p.vx;
             existing.vy = p.vy;
+            existing.angle = p.angle;
             existing.alive = p.alive;
             existing.flashlight = p.flashlight;
           }
@@ -455,11 +519,35 @@ class OrdealEngine {
       case "SYNC_WORLD": {
         const previousPhase = this.phase;
         this.phase = msg.phase;
-        this.phaseTime = msg.time;
+        if (previousPhase !== msg.phase || Math.abs(this.phaseTime - msg.time) > 0.45) {
+          this.phaseTime = msg.time;
+        } else {
+          this.phaseTime += (msg.time - this.phaseTime) * 0.35;
+        }
         this.hazard = msg.hazard;
         this.taskProgress = msg.taskProgress;
         this.bodies = msg.bodies.map((b) => ({ id: b.id, x: b.x, y: b.y, color: b.color, name: b.name, age: b.age }));
         this.flares = msg.flares.map((f) => ({ x: f.x, y: f.y, life: f.life, owner: f.owner }));
+        let stationSealedNow = false;
+        if (msg.completedStations) {
+          const sealedSet = new Set(msg.completedStations);
+          for (const station of this.stations) {
+            if (sealedSet.has(station.label) && !station.completed) {
+              station.completed = true;
+              station.cooldown = 0;
+              stationSealedNow = true;
+              this.burst(station.x, station.y, "#61f3c0", 36);
+              if (this.activePuzzle && this.stations[this.activePuzzle.stationIndex]?.label === station.label) {
+                this.cancelPuzzle(`${station.label} was just sealed by another Warden!`);
+              }
+            }
+          }
+        }
+        if (this.activeMeeting && msg.phase !== "DISCUSSION") {
+          this.activeMeeting = null;
+          this.onMeeting(null);
+          if (!this.gameOver) this.paused = false;
+        }
         if (this.phase === "ORDEAL" && previousPhase !== "ORDEAL") {
           this.killUsedThisOrdeal = false;
           this.moonSightUsedThisOrdeal = false;
@@ -469,7 +557,7 @@ class OrdealEngine {
         if (this.phase === "ORDEAL" && this.activePuzzle) {
           this.cancelPuzzle("An Ordeal began! Shrines are locked.");
         }
-        this.emit();
+        this.emit(stationSealedNow);
         break;
       }
 
@@ -597,10 +685,15 @@ class OrdealEngine {
     }
   }
 
+  updateRect = () => {
+    this.canvasRect = this.canvas.getBoundingClientRect();
+  };
+
   resize = () => {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.canvas.width = Math.round(W * dpr);
     this.canvas.height = Math.round(H * dpr);
+    this.canvasRect = this.canvas.getBoundingClientRect();
   };
 
   keyDown = (event: KeyboardEvent) => {
@@ -619,7 +712,7 @@ class OrdealEngine {
       if (!event.repeat && event.code === "Escape") this.cancelPuzzle();
       return;
     }
-    if (event.repeat || this.paused) return;
+    if (event.repeat || this.paused || this.roleRevealActive) return;
     if (event.code === "KeyE") this.tryOpenPuzzle();
     if (event.code === "KeyF") this.useItem();
     if (event.code === "KeyR") this.report();
@@ -635,7 +728,10 @@ class OrdealEngine {
   };
 
   pointerMove = (event: PointerEvent) => {
-    const rect = this.canvas.getBoundingClientRect();
+    const rect = (this.canvasRect && this.canvasRect.width > 0)
+      ? this.canvasRect
+      : (this.canvasRect = this.canvas.getBoundingClientRect());
+    if (rect.width <= 0 || rect.height <= 0) return;
     this.mouse.x = ((event.clientX - rect.left) / rect.width) * W;
     this.mouse.y = ((event.clientY - rect.top) / rect.height) * H;
   };
@@ -653,6 +749,7 @@ class OrdealEngine {
       this.unsubscribeNet = null;
     }
     window.removeEventListener("resize", this.resize);
+    window.removeEventListener("scroll", this.updateRect);
     window.removeEventListener("keydown", this.keyDown);
     window.removeEventListener("keyup", this.keyUp);
     this.canvas.removeEventListener("pointermove", this.pointerMove);
@@ -1115,20 +1212,28 @@ class OrdealEngine {
     const nearbyBody = this.bodies.some((body) => dist(body, this.human) < 96);
     const nearButton = this.phase === "CALM" && dist(this.human, { x: 640, y: 382 }) < 92;
     const nearestStation = this.stations.find((station) => dist(station, this.human) < 84);
-    const victimNear = this.players.some((player) => player.alive && player.role === "CREWMATE" && dist(player, this.human) < 84);
-    const killCooldown = Math.max(0, this.killCooldownUntil - this.elapsed);
+    const victimNear = this.players.some(
+      (player) =>
+        player.alive
+        && player.id !== this.human.id
+        && player.role === "CREWMATE"
+        && dist(player, this.human) < 84
+        && (this.hazard !== "ROOTWAKE" || sharesRootCell(player, this.human)),
+    );
+    const rawKillCooldown = Math.max(0, this.killCooldownUntil - this.elapsed);
+    const killCooldown = Math.round(rawKillCooldown * 10) / 10;
     const moonSightActive = this.elapsed < this.moonSightUntil;
     return {
       phase: this.phase,
-      time: Math.max(0, this.phaseTime),
+      time: Math.ceil(Math.max(0, this.phaseTime)),
       hazard: this.hazard,
-      taskProgress: this.taskProgress,
+      taskProgress: Math.floor(this.taskProgress),
       selectedItem: this.selectedItem,
       charges: { ...this.charges },
       role: this.human.role,
       living: this.players.filter((player) => player.alive).length,
       total: this.players.length,
-      canKill: this.human.role === "IMPOSTOR" && this.phase === "ORDEAL" && !this.killUsedThisOrdeal && killCooldown <= 0 && victimNear,
+      canKill: this.human.role === "IMPOSTOR" && this.phase === "ORDEAL" && !this.killUsedThisOrdeal && rawKillCooldown <= 0 && victimNear,
       killCooldown,
       killSpent: this.killUsedThisOrdeal,
       canUseMoonSight: this.human.role === "IMPOSTOR" && this.phase === "ORDEAL" && !this.moonSightUsedThisOrdeal,
@@ -1146,8 +1251,11 @@ class OrdealEngine {
 
   emit(force = false) {
     if (!force && this.elapsed < this.emitAt) return;
-    this.emitAt = this.elapsed + 0.12;
-    this.onSnapshot(this.snapshot());
+    this.emitAt = this.elapsed + 0.1;
+    const next = this.snapshot();
+    if (!force && this.lastSnapshot && snapshotsEqual(this.lastSnapshot, next)) return;
+    this.lastSnapshot = next;
+    this.onSnapshot(next);
   }
 
   loop = (now: number) => {
@@ -1155,7 +1263,9 @@ class OrdealEngine {
     const dt = this.last ? Math.min((now - this.last) / 1000, 0.035) : 0;
     this.last = now;
     this.elapsed += dt;
-    if (!this.paused) this.update(dt);
+    if (!this.paused && (!this.roleRevealActive || this.multiplayerClient)) {
+      this.update(dt);
+    }
     this.draw();
     this.emit();
     this.frame = requestAnimationFrame(this.loop);
@@ -1213,28 +1323,46 @@ class OrdealEngine {
       p.life -= dt;
     }
     this.particles = this.particles.filter((p) => p.life > 0);
-    this.updateHuman(dt);
+    if (!this.roleRevealActive) {
+      this.updateHuman(dt);
+    }
 
     if (this.multiplayerClient) {
+      const rootLocked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72;
       for (const p of this.players) {
         if (p.id === this.localPlayerId) continue;
         if (p.targetX !== undefined) {
-          p.x += (p.targetX - p.x) * Math.min(1, dt * 14);
-          p.y += (p.targetY - p.y) * Math.min(1, dt * 14);
+          // Dead-reckoning prediction between server sync ticks
+          const predX = clamp(p.targetX + p.vx * dt, ROOM.left + 36, ROOM.right - 36);
+          const predY = clamp(p.targetY + p.vy * dt, ROOM.top + 48, ROOM.bottom - 32);
+          const resolved = rootLocked ? resolveRootPosition(predX, predY) : { x: predX, y: predY };
+          p.targetX = resolved.x;
+          p.targetY = resolved.y;
+          p.x += (p.targetX - p.x) * Math.min(1, dt * 18);
+          p.y += (p.targetY - p.y) * Math.min(1, dt * 18);
         }
       }
       this.inputSendTimer = (this.inputSendTimer || 0) + dt;
-      if (this.inputSendTimer >= 0.05) {
+      if (this.inputSendTimer >= 0.033) {
         this.inputSendTimer = 0;
-        const aim = Math.atan2(this.mouse.y - this.human.y, this.mouse.x - this.human.x);
-        this.multiplayerClient.sendInput(
-          Math.round(this.human.x),
-          Math.round(this.human.y),
-          Math.round(this.human.vx),
-          Math.round(this.human.vy),
-          Number(aim.toFixed(2)),
-          this.human.flashlight
-        );
+        const aim = Number(Math.atan2(this.mouse.y - this.human.y, this.mouse.x - this.human.x).toFixed(2));
+        const rx = Math.round(this.human.x);
+        const ry = Math.round(this.human.y);
+        const rvx = Math.round(this.human.vx);
+        const rvy = Math.round(this.human.vy);
+        const fl = this.human.flashlight;
+        const prev = this.lastSentInput;
+        if (
+          rx !== prev.x
+          || ry !== prev.y
+          || rvx !== prev.vx
+          || rvy !== prev.vy
+          || Math.abs(aim - prev.angle) > 0.04
+          || fl !== prev.flashlight
+        ) {
+          this.lastSentInput = { x: rx, y: ry, vx: rvx, vy: rvy, angle: aim, flashlight: fl };
+          this.multiplayerClient.sendInput(rx, ry, rvx, rvy, aim, fl);
+        }
       }
     } else {
       this.updateBots(dt);
@@ -1244,6 +1372,7 @@ class OrdealEngine {
   updateHuman(dt: number) {
     const player = this.human;
     if (!player.alive) return;
+    player.flashlight = this.phase === "ORDEAL" && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil;
     if (this.activePuzzle) {
       player.vx = 0;
       player.vy = 0;
@@ -1463,12 +1592,12 @@ class OrdealEngine {
     ctx.fill("evenodd");
 
     const pulse = 0.5 + Math.sin(this.elapsed * 4.8) * 0.5;
-    ctx.shadowColor = `rgba(108,255,181,${0.28 + pulse * 0.24})`;
-    ctx.shadowBlur = 12 + pulse * 9;
+    ctx.strokeStyle = `rgba(108,255,181,${strength * (0.14 + pulse * 0.12)})`;
+    ctx.lineWidth = 9;
+    ctx.strokeRect(cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6);
     ctx.strokeStyle = `rgba(139,247,181,${strength * (0.5 + pulse * 0.22)})`;
     ctx.lineWidth = 2.5;
     ctx.strokeRect(cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6);
-    ctx.shadowBlur = 0;
     ctx.fillStyle = `rgba(205,255,222,${strength * 0.82})`;
     ctx.font = "900 11px ui-monospace, monospace";
     ctx.textAlign = "left";
@@ -1491,21 +1620,21 @@ class OrdealEngine {
       ctx.translate(centerX, centerY);
       if (horizontal) ctx.rotate(Math.PI / 2);
       ctx.scale(0.75 + strength * 0.25, 0.08 + strength * 0.92);
-      ctx.shadowColor = `rgba(111,255,181,${0.2 + pulse * 0.22})`;
-      ctx.shadowBlur = 18 + pulse * 12;
       const rootGradient = ctx.createLinearGradient(-rootWidth / 2, 0, rootWidth / 2, 0);
       rootGradient.addColorStop(0, "#13291f");
       rootGradient.addColorStop(0.45, "#3c744c");
       rootGradient.addColorStop(0.7, "#203d2b");
       rootGradient.addColorStop(1, "#091a13");
       ctx.fillStyle = rootGradient;
-      ctx.strokeStyle = "rgba(139,238,172,.72)";
-      ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.roundRect(-rootWidth / 2, -rootLength / 2, rootWidth, rootLength, 18);
       ctx.fill();
+      ctx.strokeStyle = `rgba(111,255,181,${0.14 + pulse * 0.14})`;
+      ctx.lineWidth = 11;
       ctx.stroke();
-      ctx.shadowBlur = 0;
+      ctx.strokeStyle = "rgba(139,238,172,.72)";
+      ctx.lineWidth = 3;
+      ctx.stroke();
       for (let strand = -1; strand <= 1; strand += 1) {
         ctx.strokeStyle = strand === 0 ? "rgba(204,255,199,.5)" : "rgba(72,123,78,.9)";
         ctx.lineWidth = strand === 0 ? 3 : 5;
@@ -1517,29 +1646,31 @@ class OrdealEngine {
         ctx.stroke();
       }
       ctx.fillStyle = "rgba(188,244,147,.72)";
+      ctx.beginPath();
       for (let y = -rootLength / 2 + 22; y < rootLength / 2; y += 43) {
         const side = (Math.floor(y / 43) + barrierIndex) % 2 ? 1 : -1;
-        ctx.beginPath();
         ctx.moveTo(side * rootWidth * 0.34, y);
         ctx.lineTo(side * (rootWidth * 0.5 + 13), y - 7);
         ctx.lineTo(side * rootWidth * 0.43, y + 8);
         ctx.closePath();
-        ctx.fill();
       }
+      ctx.fill();
       ctx.restore();
     }
     ctx.globalCompositeOperation = "lighter";
     ctx.fillStyle = `rgba(83,222,143,${0.05 + strength * 0.05})`;
+    ctx.beginPath();
     for (let i = 0; i < 24; i += 1) {
       const barrier = ROOT_BARRIERS[i % ROOT_BARRIERS.length];
       const horizontal = barrier.w > barrier.h;
       const travel = ((i * 0.173 + this.elapsed * 0.035) % 1) - 0.5;
       const x = barrier.x + barrier.w / 2 + (horizontal ? travel * barrier.w : Math.sin(this.elapsed * 1.8 + i) * 30);
       const y = barrier.y + barrier.h / 2 + (horizontal ? Math.sin(this.elapsed * 1.8 + i) * 30 : travel * barrier.h);
-      ctx.beginPath();
-      ctx.arc(x, y, 2 + (i % 3), 0, Math.PI * 2);
-      ctx.fill();
+      const r = 2 + (i % 3);
+      ctx.moveTo(x + r, y);
+      ctx.arc(x, y, r, 0, Math.PI * 2);
     }
+    ctx.fill();
     ctx.restore();
   }
 
@@ -1756,14 +1887,18 @@ class OrdealEngine {
     // 1. Blit the pre-rendered static mountain sanctuary in 0.05ms
     ctx.drawImage(this.bgCanvas, 0, 0);
 
-    // 2. Dynamic twinkling stars
-    for (let i = 0; i < 72; i += 1) {
-      const x = (i * 149 + 37) % W;
-      const y = 12 + ((i * 83) % 260);
-      const twinkle = 0.2 + (Math.sin(this.elapsed * (0.7 + (i % 5) * 0.12) + i) + 1) * 0.18;
-      ctx.fillStyle = `rgba(215,229,255,${twinkle})`;
+    // 2. Dynamic twinkling stars (batched into 3 alpha buckets for 24x fewer draw calls)
+    for (let bucket = 0; bucket < 3; bucket += 1) {
+      const twinkle = 0.22 + (Math.sin(this.elapsed * (0.75 + bucket * 0.22) + bucket * 2.1) + 1) * 0.18;
+      ctx.fillStyle = `rgba(215,229,255,${twinkle.toFixed(2)})`;
       ctx.beginPath();
-      ctx.arc(x, y, i % 9 === 0 ? 1.8 : 0.9, 0, Math.PI * 2);
+      for (let i = bucket; i < 72; i += 3) {
+        const x = (i * 149 + 37) % W;
+        const y = 12 + ((i * 83) % 260);
+        const r = i % 9 === 0 ? 1.8 : 0.9;
+        ctx.moveTo(x + r, y);
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+      }
       ctx.fill();
     }
 
@@ -2062,10 +2197,14 @@ class OrdealEngine {
 
   drawBeams(ctx: CanvasRenderingContext2D) {
     if (this.phase !== "ORDEAL") return;
-    for (const player of this.players.filter((entry) => entry.alive)) {
-      const humanActive = player.id === "you" && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil;
+    for (const player of this.players) {
+      if (!player.alive) continue;
+      const isLocal = player.id === this.localPlayerId;
+      const humanActive = isLocal && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil;
       if (!player.flashlight && !humanActive) continue;
-      const angle = player.id === "you" ? Math.atan2(this.mouse.y - player.y, this.mouse.x - player.x) : Math.atan2(player.vy, player.vx);
+      const angle = isLocal
+        ? Math.atan2(this.mouse.y - player.y, this.mouse.x - player.x)
+        : (typeof player.angle === "number" ? player.angle : Math.atan2(player.vy, player.vx));
       const gradient = ctx.createRadialGradient(player.x, player.y, 15, player.x, player.y, 330);
       gradient.addColorStop(0, "rgba(255,244,181,.24)");
       gradient.addColorStop(1, "rgba(255,244,181,0)");
@@ -2124,10 +2263,10 @@ class OrdealEngine {
     const lean = clamp(player.vx / 32, -7, 7);
     const x = player.x;
     const y = player.y + bounce;
+    const baseColor = colorMuted ? muteHexColor(player.color) : player.color;
 
     ctx.save();
     ctx.globalAlpha = visibilityAlpha;
-    if (colorMuted) ctx.filter = "saturate(.34) brightness(.72)";
     if (moonSightMarked) {
       const aura = ctx.createRadialGradient(x, y, 18, x, y, 64);
       aura.addColorStop(0, "rgba(244,116,255,.24)");
@@ -2150,7 +2289,7 @@ class OrdealEngine {
     ctx.ellipse(x, y + 34, 39, 13, 0, 0, Math.PI * 2);
     ctx.fill();
     if (speed > 55 && !silhouette) {
-      ctx.fillStyle = player.color;
+      ctx.fillStyle = baseColor;
       ctx.globalAlpha = visibilityAlpha * 0.58;
       ctx.beginPath();
       ctx.arc(x - clamp(player.vx / speed, -1, 1) * 36, y + 24 - clamp(player.vy / speed, -1, 1) * 14, 6, 0, Math.PI * 2);
@@ -2164,8 +2303,8 @@ class OrdealEngine {
       gradient.addColorStop(0, "rgba(137,150,157,.94)");
       gradient.addColorStop(1, "rgba(63,75,84,.96)");
     } else {
-      gradient.addColorStop(0, `${player.color}f2`);
-      gradient.addColorStop(1, `${player.color}a6`);
+      gradient.addColorStop(0, `${baseColor}f2`);
+      gradient.addColorStop(1, `${baseColor}a6`);
     }
     ctx.fillStyle = gradient;
     ctx.strokeStyle = silhouette ? "rgba(31,42,49,.9)" : "#111827";
@@ -2180,14 +2319,14 @@ class OrdealEngine {
       return;
     }
 
-    ctx.save();
-    this.bodyPath(ctx, x, y, width - 8, height - 8, lean);
-    ctx.clip();
     ctx.globalAlpha = visibilityAlpha * 0.22;
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
+    ctx.moveTo(x - 10, y + 9);
     ctx.arc(x - 16, y + 9, 6, 0, Math.PI * 2);
+    ctx.moveTo(x + 23, y + 18);
     ctx.arc(x + 19, y + 18, 4, 0, Math.PI * 2);
+    ctx.moveTo(x + 14, y - 21);
     ctx.arc(x + 11, y - 21, 3, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = visibilityAlpha * 0.7;
@@ -2198,11 +2337,13 @@ class OrdealEngine {
     ctx.moveTo(x - 21, y - 20);
     ctx.quadraticCurveTo(x - 12, y - 36, x + 5, y - 34);
     ctx.stroke();
-    ctx.restore();
+    ctx.lineCap = "butt";
+    ctx.globalAlpha = visibilityAlpha;
 
     ctx.fillStyle = "#111827";
     ctx.beginPath();
     ctx.arc(x - 11 + lean * 0.25, y - 5, 4.4, 0, Math.PI * 2);
+    ctx.moveTo(x + 16.4 + lean * 0.25, y - 5);
     ctx.arc(x + 12 + lean * 0.25, y - 5, 4.4, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = "#111827";
@@ -2211,15 +2352,15 @@ class OrdealEngine {
     ctx.arc(x + lean * 0.2, y + 4, 7, 0.12, Math.PI - 0.12);
     ctx.stroke();
 
-    this.drawHat(ctx, player.hat, x + lean * 0.6, y - 43, false);
+    this.drawHat(ctx, player.hat, x + lean * 0.6, y - 43, colorMuted);
     ctx.font = "900 12px ui-monospace, monospace";
     ctx.textAlign = "center";
     ctx.lineWidth = 4;
     ctx.strokeStyle = "rgba(5,10,15,.92)";
-    const privateRed = player.id === "you" && this.human.role === "IMPOSTOR";
+    const privateRed = player.id === this.localPlayerId && this.human.role === "IMPOSTOR";
     const label = player.name;
     ctx.strokeText(label, x, y - 61);
-    ctx.fillStyle = privateRed ? "#ff5362" : "#ffffff";
+    ctx.fillStyle = privateRed ? "#ff5362" : (colorMuted ? "#cfd8dc" : "#ffffff");
     ctx.fillText(label, x, y - 61);
     ctx.restore();
   }
@@ -2461,13 +2602,16 @@ class OrdealEngine {
     ctx.save();
     ctx.globalAlpha = this.human.role === "IMPOSTOR" ? 0.12 : 0.34;
     ctx.fillStyle = "#d7eaeb";
+    ctx.beginPath();
     for (let i = 0; i < 18; i += 1) {
       const x = ((i * 137 + this.elapsed * (12 + (i % 4) * 5)) % (W + 180)) - 90;
       const y = 90 + ((i * 73) % 570);
-      ctx.beginPath();
-      ctx.ellipse(x, y, 58 + (i % 3) * 25, 9 + (i % 4) * 3, 0, 0, Math.PI * 2);
-      ctx.fill();
+      const rx = 58 + (i % 3) * 25;
+      const ry = 9 + (i % 4) * 3;
+      ctx.moveTo(x + rx, y);
+      ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
     }
+    ctx.fill();
     ctx.restore();
   }
 
@@ -3540,11 +3684,13 @@ function Game({
       assignedRole,
     );
     engineRef.current = engine;
-    engine.paused = true;
+    engine.roleRevealActive = true;
+    engine.paused = !multiplayerClient;
     setRoleReveal(engine.human.role);
     const revealTimer = window.setTimeout(() => {
       setRoleReveal(null);
-      engine.paused = false;
+      engine.roleRevealActive = false;
+      if (!engine.activeMeeting && !engine.gameOver) engine.paused = false;
     }, 4900);
     let unsubChat: (() => void) | undefined;
     if (multiplayerClient) {
@@ -3686,7 +3832,12 @@ function Game({
   const dismissRoleReveal = () => {
     if (musicEnabled) primeBackgroundMusic();
     setRoleReveal(null);
-    if (engineRef.current) engineRef.current.paused = false;
+    if (engineRef.current) {
+      engineRef.current.roleRevealActive = false;
+      if (!engineRef.current.activeMeeting && !engineRef.current.gameOver) {
+        engineRef.current.paused = false;
+      }
+    }
   };
   const dismissDeathReveal = () => {
     setDeathReveal(null);
