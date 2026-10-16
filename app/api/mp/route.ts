@@ -10,6 +10,8 @@ interface HttpPlayerSession {
   sessionId: string;
   outbox: S2CMessage[];
   lastSeen: number;
+  lastRequestId?: number;
+  lastResponse?: { ok: boolean; sessionId: string; messages: S2CMessage[] };
   socket: IWebSocketClient;
   handler: {
     onMessage: (data: string) => void;
@@ -55,11 +57,12 @@ function getOrCreateSession(requestedId?: string): HttpPlayerSession {
     send(data: string) {
       try {
         const parsed: S2CMessage = JSON.parse(data);
-        if (parsed.type === "SYNC_PLAYERS" || parsed.type === "SYNC_WORLD") {
+        if (parsed.type === "SYNC_PLAYERS" || parsed.type === "SYNC_MOVEMENT" || parsed.type === "SYNC_WORLD") {
           const existingIdx = outbox.findIndex((m) => m.type === parsed.type);
           if (existingIdx >= 0) {
-            outbox[existingIdx] = parsed;
-            return;
+            // Keep events in chronological order; a newer world sync must not
+            // arrive before a kill/meeting event that preceded it.
+            outbox.splice(existingIdx, 1);
           }
         }
         outbox.push(parsed);
@@ -90,11 +93,25 @@ export async function POST(request: Request) {
     sessionId?: string;
     messages?: C2SMessage[];
     disconnect?: boolean;
+    requestId?: number;
   } = {};
 
   try {
     body = await request.json();
-  } catch {}
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
+  }
+
+  if (!body || typeof body !== "object" || (body.sessionId !== undefined && typeof body.sessionId !== "string")) {
+    return NextResponse.json({ ok: false, error: "Invalid session" }, { status: 400 });
+  }
+  if (body.requestId !== undefined && (!Number.isSafeInteger(body.requestId) || body.requestId < 1)) {
+    return NextResponse.json({ ok: false, error: "Invalid request ID" }, { status: 400 });
+  }
+  // Never silently manufacture a new player inside a different server instance.
+  if (body.sessionId && !sessions.has(body.sessionId) && !body.disconnect) {
+    return NextResponse.json({ ok: false, error: "SESSION_EXPIRED" }, { status: 409 });
+  }
 
   if (body.disconnect && body.sessionId) {
     const existing = sessions.get(body.sessionId);
@@ -110,9 +127,12 @@ export async function POST(request: Request) {
 
   const session = getOrCreateSession(body.sessionId);
   session.lastSeen = now;
+  if (body.requestId !== undefined && body.requestId === session.lastRequestId && session.lastResponse) {
+    return NextResponse.json(session.lastResponse, { headers: { "Cache-Control": "no-store" } });
+  }
 
   if (Array.isArray(body.messages)) {
-    for (const msg of body.messages) {
+    for (const msg of body.messages.slice(0, 64)) {
       if (msg && typeof msg.type === "string") {
         session.handler.onMessage(JSON.stringify(msg));
       }
@@ -122,9 +142,12 @@ export async function POST(request: Request) {
   gameRegistry.tickActiveRooms();
 
   const drained = session.outbox.splice(0, session.outbox.length);
-  return NextResponse.json({
+  const response = {
     ok: true,
     sessionId: session.sessionId,
     messages: drained,
-  });
+  };
+  session.lastRequestId = body.requestId;
+  session.lastResponse = response;
+  return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
 }

@@ -70,12 +70,29 @@ test("includes the complete social-deduction simulation", async () => {
   assert.match(source, /resumeAfterDeathReveal/);
   assert.match(source, /KILLED BY/);
   assert.match(source, /CONTINUE AS SPECTATOR/);
-  assert.match(source, /kill-cinematic/);
-  assert.match(source, /A WARDEN/);
-  assert.match(source, /WAS DISSOLVED/);
+  assert.match(source, /kill-notice/);
+  assert.match(source, /A Warden was dissolved/);
   assert.match(source, /hostile-moon\.mp3/);
   assert.match(source, /moonlit-deduction\.mp3/);
   assert.match(source, /crossfadeTo/);
   assert.match(source, /BGM ON/);
   assert.match(source, /WARDENS GATHERED/);
+});
+
+test("shared kill notice is compact, non-blocking, and preserves private killer reveal", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const notice = source.match(/\{killNotice && \(([\s\S]*?)\n      \)\}/)?.[1];
+  assert.ok(notice);
+  assert.match(notice, /role="status" aria-live="polite" aria-atomic="true"/);
+  assert.match(notice, /A Warden was dissolved/);
+  assert.doesNotMatch(notice, /killerName|killerColor|victim|aria-modal|role="dialog"/);
+  const style = css.match(/\.kill-notice \{([^}]+)\}/)?.[1];
+  assert.match(style ?? "", /top: 64px/);
+  assert.match(style ?? "", /width: max-content/);
+  assert.match(style ?? "", /pointer-events: none/);
+  assert.doesNotMatch(style ?? "", /inset:|position: fixed|backdrop-filter/);
+  assert.doesNotMatch(css, /kill-cinematic|kill-whiteout|kill-camera-shock/);
+  assert.match(source, /setTimeout\(\(\) => setKillNotice\(null\), 2400\)/);
+  assert.match(source, /className="death-reveal" role="dialog"/);
 });

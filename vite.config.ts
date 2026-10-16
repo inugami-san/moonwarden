@@ -42,20 +42,32 @@ function gameWebSocketPlugin() {
     name: "moonwarden-ws",
     async configureServer(server: ViteDevServer) {
       if (!server.httpServer) return;
+      const httpServer = server.httpServer;
       const { WebSocketServer } = await import("ws");
       const { handleSocketConnection } = await import("./server/ws-handler");
       const wss = new WebSocketServer({ noServer: true });
-      server.httpServer.on("upgrade", (req: http.IncomingMessage, socket: stream.Duplex, head: Buffer) => {
-        const url = req.url || "";
-        if (url.startsWith("/api/ws") || url.startsWith("/ws")) {
+      const isGameUpgrade = (req: http.IncomingMessage) => ["/api/ws", "/ws"].includes((req.url || "").split("?")[0]);
+      // Install after the preview runtime's handlers. Otherwise Cloudflare also
+      // forwards /api/ws to its Worker and destroys our already-upgraded socket.
+      return () => {
+        for (const listener of httpServer.listeners("upgrade")) {
+          const original = listener as (req: http.IncomingMessage, socket: stream.Duplex, head: Buffer) => void;
+          httpServer.removeListener("upgrade", original);
+          httpServer.on("upgrade", (req, socket, head) => {
+            if (!isGameUpgrade(req)) original.call(httpServer, req, socket, head);
+          });
+        }
+        httpServer.on("upgrade", (req: http.IncomingMessage, socket: stream.Duplex, head: Buffer) => {
+          if (!isGameUpgrade(req)) return;
           wss.handleUpgrade(req, socket, head, (ws) => {
             const { onMessage, onClose } = handleSocketConnection(ws);
             ws.on("message", (data: Buffer | string) => onMessage(data.toString()));
             ws.on("close", () => onClose());
             ws.on("error", () => onClose());
           });
-        }
-      });
+        });
+        httpServer.once("close", () => wss.close());
+      };
     },
   };
 }

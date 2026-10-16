@@ -23,6 +23,7 @@ export interface MultiplayerState {
   lastError: string;
   connected: boolean;
   ping: number;
+  transport: "NONE" | "WS" | "HTTP";
 }
 
 export class MultiplayerClient {
@@ -34,6 +35,15 @@ export class MultiplayerClient {
   private httpInFlight: boolean = false;
   private httpFlushRequested: boolean = false;
   private lastHttpFlushAt: number = 0;
+  private connectPromise: Promise<void> | null = null;
+  private cancelConnect: (() => void) | null = null;
+  private generation = 0;
+  private inputSeq = 0;
+  private httpFailures = 0;
+  private httpRequestId = 0;
+  private httpRetry: { messages: C2SMessage[]; requestId: number } | null = null;
+  private lastLatencyNotification = 0;
+  private lastReceivedAt = 0;
 
   private messageHandlers = new Set<(msg: S2CMessage) => void>();
   private stateHandlers = new Set<(state: MultiplayerState) => void>();
@@ -49,7 +59,7 @@ export class MultiplayerClient {
   public lobbyChat: NetChatMessage[] = [];
   public lastError: string = "";
   public connected: boolean = false;
-  public ping: number = 14;
+  public ping: number = 0;
   private pingInterval: number | null = null;
 
   constructor() {
@@ -81,6 +91,7 @@ export class MultiplayerClient {
       lastError: this.lastError,
       connected: this.connected,
       ping: this.ping,
+      transport: this.transport,
     };
   }
 
@@ -100,6 +111,7 @@ export class MultiplayerClient {
 
   private async startHttpTransport(): Promise<void> {
     if (this.transport === "HTTP" && this.connected) return;
+    const generation = this.generation;
     const t0 = performance.now();
     const res = await fetch("/api/mp", {
       method: "POST",
@@ -108,6 +120,8 @@ export class MultiplayerClient {
         sessionId: this.httpSessionId || undefined,
         messages: [],
       }),
+      signal: AbortSignal.timeout(8000),
+      cache: "no-store",
     });
     if (!res.ok) {
       throw new Error(`HTTP relay failed with status ${res.status}`);
@@ -117,7 +131,8 @@ export class MultiplayerClient {
       sessionId?: string;
       messages?: S2CMessage[];
     };
-    this.ping = Math.max(8, Math.round(performance.now() - t0));
+    if (generation !== this.generation) throw new Error("Connection cancelled");
+    this.ping = Math.max(1, Math.round(performance.now() - t0));
     if (data.sessionId) {
       this.httpSessionId = data.sessionId;
     }
@@ -153,8 +168,10 @@ export class MultiplayerClient {
     this.httpFlushRequested = false;
     this.lastHttpFlushAt = performance.now();
 
-    const batch = this.httpOutbox.splice(0, this.httpOutbox.length);
+    const request = this.httpRetry ?? { messages: this.httpOutbox.splice(0, this.httpOutbox.length), requestId: ++this.httpRequestId };
+    const batch = request.messages;
     const t0 = this.lastHttpFlushAt;
+    const generation = this.generation;
 
     try {
       const res = await fetch("/api/mp", {
@@ -163,10 +180,23 @@ export class MultiplayerClient {
         body: JSON.stringify({
           sessionId: this.httpSessionId || undefined,
           messages: batch,
+          requestId: request.requestId,
         }),
+        signal: AbortSignal.timeout(5000),
+        cache: "no-store",
       });
-      if (res.ok) {
-        this.ping = Math.max(8, Math.round(performance.now() - t0));
+      if (generation !== this.generation) return;
+      if (res.status === 409) {
+        this.connected = false;
+        this.lastError = "The room session expired or moved to another server. Return to the lobby to reconnect.";
+        this.notifyState();
+        return;
+      }
+      if (!res.ok) throw new Error(`Relay returned ${res.status}`);
+      {
+        this.ping = Math.max(1, Math.round(performance.now() - t0));
+        this.httpFailures = 0;
+        this.httpRetry = null;
         const data = (await res.json()) as {
           sessionId?: string;
           messages?: S2CMessage[];
@@ -179,13 +209,28 @@ export class MultiplayerClient {
             this.handleIncoming(msg);
           }
         }
+        if (performance.now() - this.lastLatencyNotification > 2000) {
+          this.lastLatencyNotification = performance.now();
+          this.notifyState();
+        }
       }
     } catch {
-      // Ignore transient network hiccup during poll
+      if (generation !== this.generation) return;
+      // Retry the same request ID. The relay replays its response rather than
+      // charging gear twice or duplicating chat after a dropped response.
+      this.httpRetry = request;
+      this.httpFailures += 1;
+      if (this.httpFailures >= 3) {
+        this.connected = false;
+        this.lastError = "Connection to the game room was lost. Return to the lobby to reconnect.";
+        this.notifyState();
+      }
     } finally {
-      this.httpInFlight = false;
-      if (this.httpFlushRequested && this.httpOutbox.length > 0) {
-        void this.flushHttp();
+      if (generation === this.generation) {
+        this.httpInFlight = false;
+        if (this.httpFlushRequested && this.httpOutbox.length > 0) {
+          void this.flushHttp();
+        }
       }
     }
   }
@@ -195,7 +240,11 @@ export class MultiplayerClient {
       return Promise.resolve();
     }
 
-    return new Promise((resolve, reject) => {
+    if (this.connectPromise) return this.connectPromise;
+    if (this.transport !== "NONE") this.disconnect();
+    const generation = this.generation;
+    this.connectPromise = new Promise<void>((resolve, reject) => {
+      this.cancelConnect = () => reject(new Error("Connection cancelled"));
       if (typeof window === "undefined") {
         reject(new Error("Cannot connect on server side"));
         return;
@@ -215,9 +264,11 @@ export class MultiplayerClient {
       const primaryUrl = customWsUrl || `${protocol}//${host}/api/ws`;
 
       let hasResolved = false;
+      let tryingHttp = false;
 
       const fallbackToHttp = () => {
-        if (hasResolved) return;
+        if (hasResolved || tryingHttp || generation !== this.generation) return;
+        tryingHttp = true;
         this.startHttpTransport()
           .then(() => {
             if (!hasResolved) {
@@ -238,19 +289,44 @@ export class MultiplayerClient {
           const socket = new WebSocket(url);
           this.ws = socket;
 
-          const connectTimeout = window.setTimeout(() => {
-            if (socket.readyState !== WebSocket.OPEN) {
-              try {
-                socket.close();
-              } catch {}
+          let failed = false;
+          const fail = () => {
+            if (failed || hasResolved || generation !== this.generation) return;
+            failed = true;
+            window.clearTimeout(connectTimeout);
+            socket.onopen = socket.onclose = socket.onerror = socket.onmessage = null;
+            socket.close();
+            if (customWsUrl) {
+              hasResolved = true;
+              this.lastError = "The realtime game server is unavailable. Please try again.";
+              this.notifyState();
+              reject(new Error(this.lastError));
+            } else if (!isFallback && ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname)) {
+              tryConnect(`${protocol}//${window.location.hostname}:3001`, true);
+            } else {
+              fallbackToHttp();
             }
-          }, 1600);
+          };
+          const connectTimeout = window.setTimeout(fail, customWsUrl ? 12_000 : 4000);
 
           socket.onopen = () => {
+            if (generation !== this.generation) { socket.close(); reject(new Error("Connection cancelled")); return; }
             window.clearTimeout(connectTimeout);
             this.transport = "WS";
             this.connected = true;
             this.lastError = "";
+            this.lastReceivedAt = Date.now();
+            if (this.pingInterval) window.clearInterval(this.pingInterval);
+            const ping = () => {
+              if (socket.readyState !== WebSocket.OPEN) return;
+              if (Date.now() - this.lastReceivedAt > 30_000 && document.visibilityState === "visible") {
+                socket.close();
+                return;
+              }
+              this.send({ type: "PING", sentAt: performance.now() });
+            };
+            this.pingInterval = window.setInterval(ping, 2500);
+            ping();
             this.notifyState();
             if (!hasResolved) {
               hasResolved = true;
@@ -259,6 +335,8 @@ export class MultiplayerClient {
           };
 
           socket.onmessage = (event) => {
+            if (generation !== this.generation || this.ws !== socket) return;
+            this.lastReceivedAt = Date.now();
             try {
               const msg: S2CMessage = JSON.parse(event.data);
               this.handleIncoming(msg);
@@ -269,40 +347,37 @@ export class MultiplayerClient {
 
           socket.onclose = () => {
             window.clearTimeout(connectTimeout);
+            if (generation !== this.generation || this.ws !== socket) return;
             if (this.transport === "WS") {
               this.connected = false;
+              this.lastError = "Connection to the game room was lost. Return to the lobby to reconnect.";
+              if (this.pingInterval) window.clearInterval(this.pingInterval);
+              this.pingInterval = null;
               this.notifyState();
             }
-            if (!hasResolved && !isFallback && window.location.hostname === "localhost") {
-              const fallbackUrl = `${protocol}//${window.location.hostname}:3001`;
-              tryConnect(fallbackUrl, true);
-            } else if (!hasResolved) {
-              fallbackToHttp();
-            }
+            fail();
           };
 
-          socket.onerror = () => {
-            window.clearTimeout(connectTimeout);
-            if (!hasResolved && !isFallback && window.location.hostname === "localhost") {
-              socket.close();
-              const fallbackUrl = `${protocol}//${window.location.hostname}:3001`;
-              tryConnect(fallbackUrl, true);
-            } else if (!hasResolved) {
-              socket.close();
-              fallbackToHttp();
-            }
-          };
+          socket.onerror = fail;
         } catch {
-          fallbackToHttp();
+          if (customWsUrl) { hasResolved = true; reject(new Error("Invalid realtime server URL")); }
+          else fallbackToHttp();
         }
       };
 
       tryConnect(primaryUrl);
+    }).finally(() => {
+      if (generation === this.generation) { this.connectPromise = null; this.cancelConnect = null; }
     });
+    return this.connectPromise;
   }
 
   private handleIncoming(msg: S2CMessage) {
     switch (msg.type) {
+      case "PONG":
+        this.ping = Math.max(1, Math.round(performance.now() - msg.sentAt));
+        this.notifyState();
+        return;
       case "ROOM_STATE":
         this.roomCode = msg.roomCode;
         this.playerId = msg.playerId;
@@ -404,6 +479,8 @@ export class MultiplayerClient {
 
   public send(msg: C2SMessage) {
     if (this.transport === "WS" && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      // Drop disposable movement packets instead of building seconds of lag.
+      if (msg.type === "PLAYER_INPUT" && this.ws.bufferedAmount > 16_384) return;
       this.ws.send(JSON.stringify(msg));
       return;
     }
@@ -454,7 +531,9 @@ export class MultiplayerClient {
   }
 
   public sendInput(x: number, y: number, vx: number, vy: number, angle: number, flashlight: boolean) {
-    this.send({ type: "PLAYER_INPUT", x, y, vx, vy, angle, flashlight });
+    const seq = ++this.inputSeq;
+    this.send({ type: "PLAYER_INPUT", x, y, vx, vy, angle, flashlight, seq });
+    return seq;
   }
 
   public sendKill(victimId: string) {
@@ -469,8 +548,8 @@ export class MultiplayerClient {
     this.send({ type: "USE_ITEM", item, x, y });
   }
 
-  public sendTask(stationId: string, reward: ItemKind) {
-    this.send({ type: "TASK_UPDATE", stationId, reward });
+  public sendTask(stationId: string, reward: ItemKind, roundId?: number) {
+    this.send({ type: "TASK_UPDATE", stationId, reward, roundId });
   }
 
   public sendChat(text: string) {
@@ -486,6 +565,7 @@ export class MultiplayerClient {
   }
 
   public leaveRoom() {
+    this.httpOutbox = this.httpOutbox.filter((msg) => msg.type !== "PLAYER_INPUT");
     this.send({ type: "LEAVE_ROOM" });
     this.roomCode = "";
     this.playerId = "";
@@ -497,6 +577,15 @@ export class MultiplayerClient {
   }
 
   public disconnect() {
+    this.cancelConnect?.();
+    this.cancelConnect = null;
+    this.generation += 1;
+    this.connectPromise = null;
+    this.httpOutbox = [];
+    this.httpInFlight = false;
+    this.httpFlushRequested = false;
+    this.httpFailures = 0;
+    this.httpRetry = null;
     if (this.pingInterval) {
       window.clearInterval(this.pingInterval);
       this.pingInterval = null;
@@ -520,6 +609,7 @@ export class MultiplayerClient {
       this.ws = null;
     }
     this.transport = "NONE";
+    this.httpSessionId = "";
     this.connected = false;
     this.roomCode = "";
     this.playerId = "";

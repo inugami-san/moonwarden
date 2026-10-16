@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MultiplayerClient, type MultiplayerState } from "./network";
-import type { NetPlayer, S2CMessage } from "../server/game-types";
+import type { NetMovement, NetPlayer, S2CMessage } from "../server/game-types";
+import { MovementBuffer } from "./movement";
+import { slimeOutline, slimeSkin } from "./slime-art";
+import { drawForestSanctum } from "./sanctum-art";
+import { PLAYER_COLORS as COLORS } from "../server/palette";
 
 type Role = "CREWMATE" | "IMPOSTOR";
 type RoleChoice = Role | "RANDOM";
@@ -42,6 +46,8 @@ type Station = {
   pulse: number;
   cooldown: number;
   completed: boolean;
+  completedAt?: number;
+  rootClosure?: number;
   reward: ItemKind;
   puzzle?: PuzzleKind;
 };
@@ -91,7 +97,7 @@ type DeathReveal = {
   killerColor: string;
 };
 
-type KillCinematic = {
+type KillNotice = {
   key: string;
 };
 
@@ -143,7 +149,6 @@ const PHANTOM_SEEDS = [
   { x: 965, y: 500, rx: 124, ry: 88, speed: 0.72, phase: 4.4 },
   { x: 1040, y: 220, rx: 92, ry: 105, speed: 0.9, phase: 5.6 },
 ];
-const COLORS = ["#20d8ed", "#95ef45", "#ff5d9e", "#ffd94a", "#a879ff", "#ff9843", "#5ea7ff", "#48e0a4"];
 const NAMES = ["Bubbles", "Mochi", "Gloop", "Pebble", "Nori", "Fizz", "Wobble", "Pip"];
 const HATS: Hat[] = ["antlers", "hood", "moth", "mooncap"];
 const ITEM_LABELS: Record<ItemKind, string> = { FLASHLIGHT: "Flashlight", FLARE: "Signal Flare", SONAR: "Sonar" };
@@ -312,6 +317,8 @@ class OrdealEngine {
   bgCtx: CanvasRenderingContext2D;
   players: Player[] = [];
   stations: Station[] = [];
+  stationRound = 1;
+  private lastStationCompletionSequence = 0;
   bodies: Body[] = [];
   flares: Flare[] = [];
   particles: Particle[] = [];
@@ -365,13 +372,16 @@ class OrdealEngine {
   onSnapshot: (snapshot: Snapshot) => void;
   onMeeting: (meeting: Meeting | null) => void;
   onPuzzle: (puzzle: TaskPuzzle | null) => void;
-  onKill: (event: KillCinematic) => void;
+  onKill: (event: KillNotice) => void;
   onDeath: (death: DeathReveal) => void;
   onEnd: (result: string) => void;
   multiplayerClient: MultiplayerClient | null = null;
   localPlayerId: string = "you";
   private unsubscribeNet: (() => void) | null = null;
   private inputSendTimer = 0;
+  private movementBuffer = new MovementBuffer();
+  private pendingInputs = new Map<number, { x: number; y: number }>();
+  private lastInputHeartbeat = 0;
   private canvasRect: DOMRect | null = null;
   private lastSnapshot: Snapshot | null = null;
   private lastSentInput = { x: -1, y: -1, vx: 0, vy: 0, angle: 0, flashlight: false };
@@ -383,7 +393,7 @@ class OrdealEngine {
     onSnapshot: (snapshot: Snapshot) => void,
     onMeeting: (meeting: Meeting | null) => void,
     onPuzzle: (puzzle: TaskPuzzle | null) => void,
-    onKill: (event: KillCinematic) => void,
+    onKill: (event: KillNotice) => void,
     onDeath: (death: DeathReveal) => void,
     onEnd: (result: string) => void,
     multiplayerClient?: MultiplayerClient | null,
@@ -467,6 +477,39 @@ class OrdealEngine {
 
   handleNetworkMessage(msg: S2CMessage) {
     switch (msg.type) {
+      case "KILL_RESULT":
+        this.killUsedThisOrdeal = msg.spent;
+        if (!msg.accepted) this.flashMessage(msg.spent ? "Your single strike is already spent for this Ordeal." : "Strike missed — the target moved out of reach. Your strike is still available.");
+        this.emit(true);
+        break;
+      case "GEAR_SYNC": {
+        if (msg.roundId !== undefined && msg.roundId < this.stationRound) break;
+        if (msg.roundId !== undefined && msg.roundId > this.stationRound) this.resetStations(msg.roundId);
+        this.charges = { ...msg.charges };
+        if (msg.stationId) {
+          const station = this.stations.find((s) => s.label === msg.stationId);
+          if (station) station.completed = Boolean(msg.stationCompleted);
+        }
+        if (!msg.accepted) {
+          if (msg.item === this.selectedItem) this.itemActiveUntil = 0;
+          this.rewardNotice = null;
+          this.flashMessage(msg.stationId ? "That shrine was already sealed or the trial ended. No item was awarded." : "That gear charge is no longer available.");
+        }
+        this.emit(true);
+        break;
+      }
+      case "STATION_COMPLETED": {
+        if (msg.roundId < this.stationRound || msg.sequence <= this.lastStationCompletionSequence) break;
+        if (msg.roundId > this.stationRound) this.resetStations(msg.roundId);
+        this.lastStationCompletionSequence = msg.sequence;
+        const station = this.stations.find((entry) => entry.label === msg.stationId);
+        if (station) station.completedAt = this.elapsed;
+        break;
+      }
+      case "SYNC_MOVEMENT": {
+        this.applyMovement(msg.players, msg.serverTime);
+        break;
+      }
       case "SYNC_PLAYERS": {
         for (const p of msg.players) {
           if (p.id === this.localPlayerId) {
@@ -500,6 +543,8 @@ class OrdealEngine {
             };
             this.players.push(existing);
           } else {
+            existing.color = p.color;
+            existing.hat = p.hat;
             if (Math.hypot(p.x - existing.x, p.y - existing.y) > 190) {
               existing.x = p.x;
               existing.y = p.y;
@@ -513,11 +558,23 @@ class OrdealEngine {
             existing.flashlight = p.flashlight;
           }
         }
+        this.applyMovement(msg.players);
         break;
       }
 
+      case "PLAYER_LEFT":
+        this.players = this.players.filter((p) => p.id !== msg.playerId);
+        this.movementBuffer.remove(msg.playerId);
+        this.emit(true);
+        break;
+
       case "SYNC_WORLD": {
+        if (msg.roundId !== undefined && msg.roundId < this.stationRound) break;
         const previousPhase = this.phase;
+        const stationResetNow = msg.roundId !== undefined
+          ? msg.roundId > this.stationRound
+          : previousPhase !== "CALM" && msg.phase === "CALM";
+        if (stationResetNow) this.resetStations(msg.roundId ?? this.stationRound + 1);
         this.phase = msg.phase;
         if (previousPhase !== msg.phase || Math.abs(this.phaseTime - msg.time) > 0.45) {
           this.phaseTime = msg.time;
@@ -536,7 +593,8 @@ class OrdealEngine {
               station.completed = true;
               station.cooldown = 0;
               stationSealedNow = true;
-              this.burst(station.x, station.y, "#61f3c0", 36);
+              // A fallback for a client that missed the completion event.
+              station.completedAt ??= this.elapsed;
               if (this.activePuzzle && this.stations[this.activePuzzle.stationIndex]?.label === station.label) {
                 this.cancelPuzzle(`${station.label} was just sealed by another Warden!`);
               }
@@ -557,7 +615,7 @@ class OrdealEngine {
         if (this.phase === "ORDEAL" && this.activePuzzle) {
           this.cancelPuzzle("An Ordeal began! Shrines are locked.");
         }
-        this.emit(stationSealedNow);
+        this.emit(stationSealedNow || stationResetNow);
         break;
       }
 
@@ -577,6 +635,9 @@ class OrdealEngine {
       }
 
       case "MEETING_CALLED": {
+        this.movementBuffer.clear();
+        this.pendingInputs.clear();
+        for (const player of this.players) { player.vx = 0; player.vy = 0; }
         this.cancelPuzzle("");
         this.paused = true;
         this.phase = "DISCUSSION";
@@ -645,6 +706,35 @@ class OrdealEngine {
     }
   }
 
+  private applyMovement(players: NetMovement[], serverTime?: number) {
+    this.movementBuffer.push(players.filter((p) => p.id !== this.localPlayerId), serverTime, performance.now());
+    for (const next of players) {
+      const player = this.players.find((p) => p.id === next.id);
+      if (!player) continue;
+      player.alive = next.alive;
+      if (player.id !== this.localPlayerId) {
+        player.flashlight = next.flashlight;
+        continue;
+      }
+      if (!next.alive) { player.vx = 0; player.vy = 0; }
+      if (next.inputSeq === undefined) continue;
+      const sent = this.pendingInputs.get(next.inputSeq);
+      if (sent) {
+        // Correct the acknowledged input while preserving movement made since it.
+        const dx = next.x - sent.x;
+        const dy = next.y - sent.y;
+        if (Math.hypot(dx, dy) > 2) {
+          player.x += dx;
+          player.y += dy;
+          for (const [seq, pending] of this.pendingInputs) {
+            if (seq > next.inputSeq) { pending.x += dx; pending.y += dy; }
+          }
+        }
+      }
+      for (const seq of this.pendingInputs.keys()) if (seq <= next.inputSeq) this.pendingInputs.delete(seq);
+    }
+  }
+
   makeStations() {
     this.stations = [
       { x: 250, y: 104, side: "top", label: "FROST FONT", pulse: 0, cooldown: 0, completed: false, reward: "FLASHLIGHT", puzzle: "MATH" },
@@ -654,6 +744,17 @@ class OrdealEngine {
       { x: 844, y: 658, side: "bottom", label: "MOONWELL", pulse: 4.2, cooldown: 0, completed: false, reward: "FLARE" },
       { x: 116, y: 402, side: "left", label: "ROOT SEAL", pulse: 5.1, cooldown: 0, completed: false, reward: "SONAR", puzzle: "LINK" },
     ];
+  }
+
+  resetStations(roundId = this.stationRound + 1) {
+    this.stationRound = roundId;
+    this.cancelPuzzle("");
+    this.taskHold = 0;
+    for (const station of this.stations) {
+      station.completed = false;
+      station.completedAt = undefined;
+      station.cooldown = 0;
+    }
   }
 
   makePlayers(count: number, roleChoice: RoleChoice) {
@@ -853,13 +954,13 @@ class OrdealEngine {
     this.rewardNotice = { item: reward, station: station.label };
     this.rewardNoticeUntil = this.elapsed + 5.5;
     if (this.multiplayerClient) {
-      this.multiplayerClient.sendTask(station.label, reward);
+      this.multiplayerClient.sendTask(station.label, reward, this.stationRound);
     } else if (!wasFake) {
       this.taskProgress = Math.min(100, this.taskProgress + TASK_PROGRESS_REWARD);
     }
     const prefix = wasFake ? "Counterfeit rite accepted" : `${station.label} sealed`;
     this.flashMessage(`${prefix}. ${ITEM_LABELS[reward]} acquired for the next Ordeal.`);
-    this.burst(station.x, station.y, wasFake ? "#c897ff" : "#61f3c0", 42);
+    if (!this.multiplayerClient) station.completedAt = this.elapsed;
     if (!wasFake && !this.multiplayerClient) this.checkWin();
   }
 
@@ -881,10 +982,9 @@ class OrdealEngine {
       return;
     }
     this.charges[this.selectedItem] -= 1;
+    this.multiplayerClient?.useItem(this.selectedItem, this.human.x, this.human.y);
     if (this.selectedItem === "FLARE") {
-      if (this.multiplayerClient) {
-        this.multiplayerClient.useItem("FLARE", this.human.x, this.human.y);
-      } else {
+      if (!this.multiplayerClient) {
         this.flares.push({ x: this.human.x, y: this.human.y, life: 5, owner: "you" });
       }
       this.flashMessage("Signal flare deployed — shared light holds for 5 seconds.");
@@ -946,7 +1046,7 @@ class OrdealEngine {
       this.multiplayerClient.sendKill(victim.id);
       this.killUsedThisOrdeal = true;
       this.killCooldownUntil = this.elapsed + KILL_COOLDOWN_SECONDS;
-      this.flashMessage("Strike complete. Your claws are spent until the next Ordeal.");
+      this.flashMessage("Strike sent — awaiting the sanctuary's verdict.");
       return;
     }
     const victims = this.players.filter((player) =>
@@ -1168,6 +1268,7 @@ class OrdealEngine {
     if (!this.checkWin()) {
       this.phase = "CALM";
       this.phaseTime = 15;
+      this.resetStations();
       this.killCooldownUntil = 0;
       this.moonSightUntil = 0;
     }
@@ -1305,14 +1406,19 @@ class OrdealEngine {
         } else if (this.phase === "ORDEAL") {
           this.phase = "CALM";
           this.phaseTime = 15;
+          this.resetStations();
           this.itemActiveUntil = 0;
           this.moonSightUntil = 0;
-          this.flashMessage("Visibility restored. Find the missing. Finish the tasks.");
+          this.flashMessage("The sanctums have awakened. New trials are available for this round.");
         }
       }
     }
 
-    for (const station of this.stations) station.cooldown = Math.max(0, station.cooldown - dt);
+    for (const station of this.stations) {
+      station.cooldown = Math.max(0, station.cooldown - dt);
+      const targetClosure = this.phase === "CALM" ? 0 : 1;
+      station.rootClosure = (station.rootClosure ?? targetClosure) + (targetClosure - (station.rootClosure ?? targetClosure)) * Math.min(1, dt * 8);
+    }
     for (const body of this.bodies) body.age += dt;
     this.flares = this.flares.filter((flare) => (flare.life -= dt) > 0);
     for (const p of this.particles) {
@@ -1331,19 +1437,22 @@ class OrdealEngine {
       const rootLocked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72;
       for (const p of this.players) {
         if (p.id === this.localPlayerId) continue;
-        if (p.targetX !== undefined) {
-          // Dead-reckoning prediction between server sync ticks
-          const predX = clamp(p.targetX + p.vx * dt, ROOM.left + 36, ROOM.right - 36);
-          const predY = clamp(p.targetY + p.vy * dt, ROOM.top + 48, ROOM.bottom - 32);
+        const sample = this.movementBuffer.sample(p.id, performance.now());
+        if (sample) {
+          const predX = clamp(sample.x, ROOM.left + 36, ROOM.right - 36);
+          const predY = clamp(sample.y, ROOM.top + 48, ROOM.bottom - 32);
           const resolved = rootLocked ? resolveRootPosition(predX, predY) : { x: predX, y: predY };
           p.targetX = resolved.x;
           p.targetY = resolved.y;
-          p.x += (p.targetX - p.x) * Math.min(1, dt * 18);
-          p.y += (p.targetY - p.y) * Math.min(1, dt * 18);
+          p.x = p.targetX;
+          p.y = p.targetY;
+          p.vx = sample.vx;
+          p.vy = sample.vy;
+          p.angle = sample.angle;
         }
       }
       this.inputSendTimer = (this.inputSendTimer || 0) + dt;
-      if (this.inputSendTimer >= 0.033) {
+      if (this.inputSendTimer >= 0.05) {
         this.inputSendTimer = 0;
         const aim = Number(Math.atan2(this.mouse.y - this.human.y, this.mouse.x - this.human.x).toFixed(2));
         const rx = Math.round(this.human.x);
@@ -1359,9 +1468,13 @@ class OrdealEngine {
           || rvy !== prev.vy
           || Math.abs(aim - prev.angle) > 0.04
           || fl !== prev.flashlight
+          || this.elapsed - this.lastInputHeartbeat >= 0.5
         ) {
+          this.lastInputHeartbeat = this.elapsed;
           this.lastSentInput = { x: rx, y: ry, vx: rvx, vy: rvy, angle: aim, flashlight: fl };
-          this.multiplayerClient.sendInput(rx, ry, rvx, rvy, aim, fl);
+          const seq = this.multiplayerClient.sendInput(rx, ry, rvx, rvy, aim, fl);
+          this.pendingInputs.set(seq, { x: rx, y: ry });
+          if (this.pendingInputs.size > 180) this.pendingInputs.delete(this.pendingInputs.keys().next().value!);
         }
       }
     } else {
@@ -1372,6 +1485,7 @@ class OrdealEngine {
   updateHuman(dt: number) {
     const player = this.human;
     if (!player.alive) return;
+    if (this.multiplayerClient && !this.multiplayerClient.connected) { player.vx = 0; player.vy = 0; return; }
     player.flashlight = this.phase === "ORDEAL" && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil;
     if (this.activePuzzle) {
       player.vx = 0;
@@ -1462,7 +1576,9 @@ class OrdealEngine {
 
       if (this.phase === "CALM" && player.role === "CREWMATE") {
         const station = this.stations[player.atStation % this.stations.length];
-        if (dist(player, station) < 78 && station.cooldown <= 0) {
+        if (station.completed) {
+          player.atStation = (player.atStation + 1) % this.stations.length;
+        } else if (dist(player, station) < 78 && station.cooldown <= 0) {
           this.taskProgress = Math.min(100, this.taskProgress + dt * 0.34);
           if (Math.random() < dt * 0.2) {
             station.cooldown = 3;
@@ -2033,100 +2149,7 @@ class OrdealEngine {
   }
 
   drawStation(ctx: CanvasRenderingContext2D, station: Station) {
-    const vertical = station.side === "left" || station.side === "right";
-    const completed = station.completed;
-    const w = vertical ? 68 : 138;
-    const h = vertical ? 134 : 70;
-    const x = station.x - w / 2;
-    const y = station.y - h / 2;
-    ctx.save();
-
-    // Floating glass-and-stone shrine shell.
-    ctx.fillStyle = completed ? "rgba(42,246,183,.13)" : "rgba(0,0,0,0.42)";
-    ctx.beginPath();
-    ctx.roundRect(x + 2, y + 4, w, h, vertical ? 20 : 22);
-    ctx.fill();
-
-    const shell = ctx.createLinearGradient(x, y, x + w, y + h);
-    shell.addColorStop(0, completed ? "#7cbcaf" : "#a7b4bd");
-    shell.addColorStop(0.34, completed ? "#315f59" : "#536b73");
-    shell.addColorStop(1, completed ? "#123a36" : "#1c2d35");
-    ctx.fillStyle = shell;
-    ctx.strokeStyle = completed ? "#143c37" : "#0b141a";
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, h, vertical ? 20 : 22);
-    ctx.fill();
-    ctx.stroke();
-
-    const glow = completed ? "#62f2bd" : station.cooldown > 0 ? "#647174" : Math.sin(this.elapsed * 3.6 + station.pulse) > -0.2 ? "#7ce9ff" : "#bc8cff";
-    ctx.fillStyle = completed ? "rgba(8,49,44,.94)" : "rgba(8,25,34,.95)";
-    ctx.beginPath();
-    ctx.roundRect(x + 11, y + 10, w - 22, h - 30, vertical ? 15 : 14);
-    ctx.fill();
-
-    const renderRune = () => {
-      ctx.beginPath();
-      if (vertical) {
-        ctx.moveTo(station.x, station.y - 42);
-        ctx.lineTo(station.x - 13, station.y - 8);
-        ctx.lineTo(station.x + 12, station.y + 24);
-        ctx.lineTo(station.x, station.y + 44);
-      } else {
-        ctx.moveTo(station.x - 43, station.y - 7);
-        ctx.lineTo(station.x - 14, station.y - 18);
-        ctx.lineTo(station.x + 12, station.y + 4);
-        ctx.lineTo(station.x + 43, station.y - 10);
-      }
-    };
-
-    if (station.cooldown <= 0) {
-      // Soft bloom halo stroke
-      ctx.save();
-      ctx.strokeStyle = glow;
-      ctx.globalAlpha = completed ? 0.42 + Math.sin(this.elapsed * 4 + station.pulse) * 0.1 : 0.28;
-      ctx.lineWidth = completed ? 18 : 12;
-      renderRune();
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    ctx.strokeStyle = glow;
-    ctx.lineWidth = 4.5;
-    ctx.globalAlpha = 0.95;
-    renderRune();
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-
-    if (completed) {
-      ctx.save();
-      ctx.translate(station.x, station.y - (vertical ? 7 : 9));
-      ctx.strokeStyle = "#dffff4";
-      ctx.lineWidth = 4;
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(-10, 0);
-      ctx.lineTo(-2, 8);
-      ctx.lineTo(14, -10);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    ctx.fillStyle = completed ? "#bfffea" : "rgba(225,236,244,.76)";
-    ctx.beginPath();
-    ctx.arc(station.x - (vertical ? 0 : 20), station.y - (vertical ? 24 : 8), 3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.font = "900 8px ui-monospace, monospace";
-    ctx.fillStyle = completed ? "#baffdf" : "#e7eef5";
-    ctx.textAlign = "center";
-    if (vertical) {
-      ctx.save();
-      ctx.translate(station.x, station.y + 28);
-      ctx.rotate(-Math.PI / 2);
-      ctx.fillText(completed ? "WARD SEALED" : station.label, 0, 0);
-      ctx.restore();
-    } else ctx.fillText(completed ? `${station.label}  •  SEALED` : `${station.label}  •  ${ITEM_LABELS[station.reward].toUpperCase()}`, station.x, y + h - 8);
-    ctx.restore();
+    drawForestSanctum(ctx, station, this.elapsed, this.phase !== "CALM", dist(station, this.human) < 128);
   }
 
   drawEmergency(ctx: CanvasRenderingContext2D) {
@@ -2244,23 +2267,22 @@ class OrdealEngine {
   }
 
   bodyPath(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, lean = 0) {
-    ctx.beginPath();
-    ctx.moveTo(x - width * 0.5, y + height * 0.35);
-    ctx.bezierCurveTo(x - width * 0.62, y - height * 0.08, x - width * 0.34 + lean, y - height * 0.55, x + lean, y - height * 0.56);
-    ctx.bezierCurveTo(x + width * 0.36 + lean, y - height * 0.55, x + width * 0.58, y - height * 0.08, x + width * 0.5, y + height * 0.34);
-    ctx.bezierCurveTo(x + width * 0.38, y + height * 0.52, x + width * 0.22, y + height * 0.42, x + width * 0.1, y + height * 0.36);
-    ctx.bezierCurveTo(x, y + height * 0.56, x - width * 0.22, y + height * 0.48, x - width * 0.3, y + height * 0.36);
-    ctx.bezierCurveTo(x - width * 0.36, y + height * 0.48, x - width * 0.48, y + height * 0.45, x - width * 0.5, y + height * 0.35);
-    ctx.closePath();
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.transform(width / 64, 0, -lean / 70, height / 68, 0, 0);
+    slimeOutline(ctx);
+    ctx.restore();
   }
 
   drawSlime(ctx: CanvasRenderingContext2D, player: Player, silhouette = false, moonSightMarked = false, colorMuted = false, visibilityAlpha = 1) {
     const speed = Math.hypot(player.vx, player.vy);
-    const bounce = Math.sin(this.elapsed * 8 + Number(player.id.replace(/\D/g, "")) * 0.7) * Math.min(3, speed / 38);
-    const squash = 1 + Math.min(0.14, speed / 900);
-    const width = 58 * squash;
-    const height = 70 / squash;
-    const lean = clamp(player.vx / 32, -7, 7);
+    const seed = Array.from(player.id).reduce((sum, letter) => (sum * 31 + letter.charCodeAt(0)) % 997, 0);
+    const stride = this.elapsed * 4.2 + seed * 0.13;
+    const bounce = Math.sin(stride) * Math.min(0.6, speed / 240);
+    const squash = 1 + Math.sin(stride) * Math.min(0.022, speed / 7000) + Math.sin(this.elapsed * 1.6 + seed) * 0.006;
+    const width = 64 * squash;
+    const height = 68 / squash;
+    const lean = clamp(player.vx / 60, -3, 3);
     const x = player.x;
     const y = player.y + bounce;
     const baseColor = colorMuted ? muteHexColor(player.color) : player.color;
@@ -2284,73 +2306,58 @@ class OrdealEngine {
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    ctx.fillStyle = "rgba(2,7,12,.35)";
+    const contact = ctx.createRadialGradient(x, player.y + 29, 4, x, player.y + 29, 39);
+    contact.addColorStop(0, "rgba(1,8,13,.52)");
+    contact.addColorStop(1, "rgba(1,8,13,0)");
+    ctx.fillStyle = contact;
     ctx.beginPath();
-    ctx.ellipse(x, y + 34, 39, 13, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, player.y + 31, 40, 11, 0, 0, Math.PI * 2);
     ctx.fill();
     if (speed > 55 && !silhouette) {
       ctx.fillStyle = baseColor;
-      ctx.globalAlpha = visibilityAlpha * 0.58;
+      ctx.globalAlpha = visibilityAlpha * 0.075;
       ctx.beginPath();
-      ctx.arc(x - clamp(player.vx / speed, -1, 1) * 36, y + 24 - clamp(player.vy / speed, -1, 1) * 14, 6, 0, Math.PI * 2);
+      ctx.ellipse(x - clamp(player.vx / speed, -1, 1) * 19, y + 29 - clamp(player.vy / speed, -1, 1) * 10, 18, 3, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = visibilityAlpha;
     }
 
-    this.bodyPath(ctx, x, y, width, height, lean);
-    const gradient = ctx.createLinearGradient(x - 25, y - 38, x + 28, y + 38);
     if (silhouette) {
+      this.bodyPath(ctx, x, y, width, height, lean);
+      const gradient = ctx.createLinearGradient(x - 25, y - 38, x + 28, y + 38);
       gradient.addColorStop(0, "rgba(137,150,157,.94)");
       gradient.addColorStop(1, "rgba(63,75,84,.96)");
-    } else {
-      gradient.addColorStop(0, `${baseColor}f2`);
-      gradient.addColorStop(1, `${baseColor}a6`);
-    }
-    ctx.fillStyle = gradient;
-    ctx.strokeStyle = silhouette ? "rgba(31,42,49,.9)" : "#111827";
-    ctx.lineWidth = silhouette ? 4 : 5;
-    ctx.fill();
-    ctx.stroke();
-
-    // Fog conceals every identifying detail. Only the shared base body shape
-    // remains until a halo, flashlight, or flare reveals the player.
-    if (silhouette) {
+      ctx.fillStyle = gradient;
+      ctx.strokeStyle = "rgba(31,42,49,.9)";
+      ctx.lineWidth = 1.3;
+      ctx.fill();
+      ctx.stroke();
       ctx.restore();
       return;
     }
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.transform(squash, 0, -lean / 70, 1 / squash, 0, 0);
+    ctx.drawImage(slimeSkin(baseColor), -48, -54, 96, 112);
+    ctx.restore();
 
-    ctx.globalAlpha = visibilityAlpha * 0.22;
-    ctx.fillStyle = "#ffffff";
+    const blink = (this.elapsed + seed * 0.037) % 6.3 < 0.16;
+    const gazeX = clamp(player.vx / 160, -0.8, 0.8) + lean * 0.2;
+    const gazeY = clamp(player.vy / 220, -0.6, 0.6);
+    ctx.fillStyle = "rgba(7,22,29,.82)";
     ctx.beginPath();
-    ctx.moveTo(x - 10, y + 9);
-    ctx.arc(x - 16, y + 9, 6, 0, Math.PI * 2);
-    ctx.moveTo(x + 23, y + 18);
-    ctx.arc(x + 19, y + 18, 4, 0, Math.PI * 2);
-    ctx.moveTo(x + 14, y - 21);
-    ctx.arc(x + 11, y - 21, 3, 0, Math.PI * 2);
+    ctx.ellipse(x - 7 + gazeX, y + 1 + gazeY, 2, blink ? 0.5 : 2.6, 0, 0, Math.PI * 2);
+    ctx.moveTo(x + 10 + gazeX, y + 1 + gazeY);
+    ctx.ellipse(x + 8 + gazeX, y + 1 + gazeY, 2, blink ? 0.5 : 2.6, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.globalAlpha = visibilityAlpha * 0.7;
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 5;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(x - 21, y - 20);
-    ctx.quadraticCurveTo(x - 12, y - 36, x + 5, y - 34);
-    ctx.stroke();
-    ctx.lineCap = "butt";
-    ctx.globalAlpha = visibilityAlpha;
-
-    ctx.fillStyle = "#111827";
-    ctx.beginPath();
-    ctx.arc(x - 11 + lean * 0.25, y - 5, 4.4, 0, Math.PI * 2);
-    ctx.moveTo(x + 16.4 + lean * 0.25, y - 5);
-    ctx.arc(x + 12 + lean * 0.25, y - 5, 4.4, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#111827";
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.arc(x + lean * 0.2, y + 4, 7, 0.12, Math.PI - 0.12);
-    ctx.stroke();
+    if (!blink) {
+      ctx.fillStyle = "rgba(170,199,206,.4)";
+      ctx.beginPath();
+      ctx.arc(x - 7.5 + gazeX, y + gazeY, 0.5, 0, Math.PI * 2);
+      ctx.moveTo(x + 8 + gazeX, y + gazeY);
+      ctx.arc(x + 7.5 + gazeX, y + gazeY, 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     this.drawHat(ctx, player.hat, x + lean * 0.6, y - 43, colorMuted);
     ctx.font = "900 12px ui-monospace, monospace";
@@ -2367,13 +2374,20 @@ class OrdealEngine {
 
   drawHat(ctx: CanvasRenderingContext2D, hat: Hat, x: number, y: number, muted: boolean) {
     ctx.save();
-    const pale = muted ? "#9ca9ae" : "#dce9e7";
-    const night = muted ? "#69767d" : "#2a3159";
-    ctx.strokeStyle = "#111827";
-    ctx.lineWidth = 4;
+    ctx.translate(x, y + 5);
+    ctx.scale(0.82, 0.82);
+    x = 0;
+    y = 0;
+    const pale = muted ? "#9ca9ae" : "#a1b4b8";
+    const cloth = ctx.createLinearGradient(-25, -15, 25, 20);
+    cloth.addColorStop(0, muted ? "#69767d" : "#475361");
+    cloth.addColorStop(1, muted ? "#48545b" : "#1b2935");
+    const night = cloth;
+    ctx.strokeStyle = "rgba(10,22,30,.6)";
+    ctx.lineWidth = 1.5;
     if (hat === "antlers") {
-      ctx.strokeStyle = muted ? "#66716f" : "#8d6a4c";
-      ctx.lineWidth = 5;
+      ctx.strokeStyle = muted ? "#66716f" : "#817b69";
+      ctx.lineWidth = 2.5;
       ctx.lineCap = "round";
       ctx.beginPath();
       ctx.moveTo(x - 14, y + 17);
@@ -2394,7 +2408,8 @@ class OrdealEngine {
       ctx.beginPath();
       ctx.ellipse(x, y + 14, 25, 7, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = "#111827";
+      ctx.strokeStyle = "rgba(10,22,30,.6)";
+      ctx.lineWidth = 1.5;
       ctx.stroke();
     } else if (hat === "hood") {
       ctx.fillStyle = night;
@@ -2405,29 +2420,29 @@ class OrdealEngine {
       ctx.quadraticCurveTo(x, y + 6, x - 26, y + 18);
       ctx.closePath();
       ctx.fill();
-      ctx.strokeStyle = "#111827";
+      ctx.strokeStyle = "rgba(10,22,30,.6)";
       ctx.stroke();
       ctx.fillStyle = pale;
       ctx.beginPath();
       ctx.arc(x - 2, y - 2, 8, -Math.PI * .6, Math.PI * .6);
       ctx.fill();
     } else if (hat === "moth") {
-      ctx.fillStyle = muted ? "#839093" : "#bfc6ff";
-      ctx.strokeStyle = "#111827";
-      ctx.lineWidth = 3;
+      ctx.fillStyle = muted ? "#839093" : "#9ca9bb";
+      ctx.strokeStyle = "rgba(10,22,30,.6)";
+      ctx.lineWidth = 1.3;
       ctx.beginPath();
       ctx.ellipse(x - 14, y + 5, 17, 10, -.48, 0, Math.PI * 2);
       ctx.ellipse(x + 14, y + 5, 17, 10, .48, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = muted ? "#647275" : "#6f78c8";
+      ctx.fillStyle = muted ? "#647275" : "#5d6c81";
       ctx.beginPath();
       ctx.ellipse(x, y + 7, 7, 15, 0, 0, Math.PI * 2);
       ctx.fill();
     } else {
       ctx.fillStyle = night;
-      ctx.strokeStyle = "#111827";
-      ctx.lineWidth = 4;
+      ctx.strokeStyle = "rgba(10,22,30,.6)";
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(x - 27, y + 17);
       ctx.quadraticCurveTo(x - 8, y - 7, x + 7, y - 22);
@@ -2840,6 +2855,19 @@ function Lobby({
   const myNetPlayer = inRoom && mpState ? mpState.players.find((p) => p.id === mpState.playerId) : undefined;
   const readyCount = inRoom && mpState ? mpState.players.filter((p) => p.ready || p.isHost).length : 0;
   const displayError = mpError || mpState?.lastError || "";
+  const occupiedColors = new Set(mpState?.players.filter((p) => p.id !== mpState.playerId).map((p) => p.color) ?? []);
+
+  useEffect(() => {
+    if (!multiplayerClient) return;
+    const unsubscribe = multiplayerClient.onStateChange((state) => {
+      const own = state.players.find((p) => p.id === state.playerId);
+      if (own) {
+        setSelectedColor(own.color);
+        setSelectedHat(own.hat);
+      }
+    });
+    return () => { unsubscribe(); };
+  }, [multiplayerClient]);
 
   const handleRefreshRooms = async () => {
     if (!multiplayerClient) return;
@@ -2865,7 +2893,8 @@ function Lobby({
 
   const handleRandomizeProfile = () => {
     const randomName = WARDEN_CALLSIGNS[Math.floor(Math.random() * WARDEN_CALLSIGNS.length)];
-    const randomColor = COLORS[Math.floor(Math.random() * COLORS.length)];
+    const available = COLORS.filter((color) => !occupiedColors.has(color));
+    const randomColor = available[Math.floor(Math.random() * available.length)] ?? selectedColor;
     const randomHat = HATS[Math.floor(Math.random() * HATS.length)];
     setNickname(randomName);
     setSelectedColor(randomColor);
@@ -2944,7 +2973,7 @@ function Lobby({
         <div className="nav-status">
           <span />
           {inRoom
-            ? `CONNECTED • ROOM ${hideRoomCode ? "••••" : mpState?.roomCode} • ${mpState?.ping ?? 14}MS`
+            ? `${mpState?.connected ? mpState.transport === "HTTP" ? "HTTP RELAY" : "REALTIME" : "DISCONNECTED"} • ROOM ${hideRoomCode ? "••••" : mpState?.roomCode} • ${mpState?.ping || "—"}MS`
             : tab === "MULTI"
               ? "SANCTUARY RELAY • WEBSOCKET READY"
               : "LOCAL NIGHT TRIAL"}
@@ -3134,8 +3163,11 @@ function Lobby({
                           type="button"
                           className={`mp-color-btn ${selectedColor === c ? "active" : ""}`}
                           style={{ backgroundColor: c, color: c }}
+                          role="radio"
+                          aria-checked={selectedColor === c}
+                          disabled={occupiedColors.has(c)}
                           onClick={() => handleProfileChange(nickname, c, selectedHat)}
-                          title={COLOR_NAMES[c]}
+                          title={`${COLOR_NAMES[c]}${occupiedColors.has(c) ? " — taken" : ""}`}
                           aria-label={`Select slime color ${COLOR_NAMES[c] || c}`}
                         />
                       ))}
@@ -3645,7 +3677,7 @@ function Game({
   const [snapshot, setSnapshot] = useState<Snapshot>(initialSnapshot());
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [puzzle, setPuzzle] = useState<TaskPuzzle | null>(null);
-  const [killCinematic, setKillCinematic] = useState<KillCinematic | null>(null);
+  const [killNotice, setKillNotice] = useState<KillNotice | null>(null);
   const [deathReveal, setDeathReveal] = useState<DeathReveal | null>(null);
   const [result, setResult] = useState("");
   const [roleReveal, setRoleReveal] = useState<Role | null>(null);
@@ -3654,6 +3686,12 @@ function Game({
   const [musicBlocked, setMusicBlocked] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
+  const [networkState, setNetworkState] = useState<MultiplayerState | null>(() => multiplayerClient?.getSnapshot() ?? null);
+
+  useEffect(() => {
+    const unsubscribe = multiplayerClient?.onStateChange(setNetworkState);
+    return () => { unsubscribe?.(); };
+  }, [multiplayerClient]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -3676,7 +3714,7 @@ function Game({
       setSnapshot,
       handleMeeting,
       setPuzzle,
-      setKillCinematic,
+      setKillNotice,
       setDeathReveal,
       setResult,
       multiplayerClient,
@@ -3747,9 +3785,9 @@ function Game({
       const ordealInitial = ordealMusic.volume;
       const startedAt = performance.now();
       const step = (now: number) => {
-        const progress = Math.min(1, (now - startedAt) / duration);
-        normalMusic.volume = normalInitial + (normalTarget - normalInitial) * progress;
-        ordealMusic.volume = ordealInitial + (ordealTarget - ordealInitial) * progress;
+        const progress = clamp((now - startedAt) / duration, 0, 1);
+        normalMusic.volume = clamp(normalInitial + (normalTarget - normalInitial) * progress, 0, 1);
+        ordealMusic.volume = clamp(ordealInitial + (ordealTarget - ordealInitial) * progress, 0, 1);
         if (progress < 1) {
           musicFadeRef.current = window.requestAnimationFrame(step);
         } else {
@@ -3795,10 +3833,10 @@ function Game({
   }, [deathReveal]);
 
   useEffect(() => {
-    if (!killCinematic) return;
-    const cinematicTimer = window.setTimeout(() => setKillCinematic(null), 2400);
-    return () => window.clearTimeout(cinematicTimer);
-  }, [killCinematic]);
+    if (!killNotice) return;
+    const noticeTimer = window.setTimeout(() => setKillNotice(null), 2400);
+    return () => window.clearTimeout(noticeTimer);
+  }, [killNotice]);
 
   useEffect(() => {
     const chatLog = chatLogRef.current;
@@ -3927,6 +3965,13 @@ function Game({
 
       <section className="game-stage">
         <canvas ref={canvasRef} aria-label="Top-down view of the Moonwarden mountain sanctuary" />
+        {networkState && !networkState.connected && (
+          <div className="connection-lost" role="alert">
+            <b>CONNECTION LOST</b>
+            <p>{networkState.lastError || "Return to the lobby to reconnect with your party."}</p>
+            <button type="button" onClick={onExit}>RETURN TO LOBBY</button>
+          </div>
+        )}
 
         <div className="task-hud">
           <div className="task-label"><span>MOON WARDS</span><b>{Math.floor(snapshot.taskProgress)}%</b></div>
@@ -3990,7 +4035,7 @@ function Game({
 
         {snapshot.stationStatus?.completed && snapshot.phase === "CALM" && (
           <div className="station-sealed-prompt" role="status">
-            <span>✓</span><div><b>WARD SEALED</b><small>{snapshot.stationStatus.label} is complete • choose another shrine</small></div>
+            <span>✓</span><div><b>WARD SEALED</b><small>{snapshot.stationStatus.label} reopens next round • choose another sanctum</small></div>
           </div>
         )}
 
@@ -4009,7 +4054,7 @@ function Game({
         <span>REPORT <kbd>R</kbd></span>
         {snapshot.role === "IMPOSTOR" && <span>MOON SIGHT <kbd>V</kbd></span>}
         {multiplayerClient ? (
-          <span className="latency"><i style={{ background: "#43efba" }} /> WS ROOM {multiplayerClient.roomCode} • {multiplayerClient.ping}ms</span>
+          <span className="latency"><i style={{ background: networkState?.connected ? "#43efba" : "#ff687c" }} /> {networkState?.connected ? networkState.transport === "HTTP" ? "HTTP RELAY" : "REALTIME" : "DISCONNECTED"} • ROOM {multiplayerClient.roomCode} • {networkState?.ping || "—"}ms</span>
         ) : (
           <span className="latency"><i /> AI LINK 12ms</span>
         )}
@@ -4035,21 +4080,12 @@ function Game({
         </div>
       )}
 
-      {killCinematic && (
-        <div key={killCinematic.key} className="kill-cinematic" role="status" aria-live="assertive" aria-label="A Warden is being dissolved during the Ordeal">
-          <div className="kill-whiteout" aria-hidden="true" />
-          <span className="kill-cut kill-cut-one" aria-hidden="true" />
-          <span className="kill-cut kill-cut-two" aria-hidden="true" />
-          <div className="kill-impact" aria-hidden="true">
-            <span className="kill-ring ring-one" />
-            <span className="kill-ring ring-two" />
-            <span className="kill-ring ring-three" />
-            <span className="kill-figure"><i /><i /><i /><i /><i /><i /></span>
-          </div>
-          <div className="kill-cinematic-copy">
-            <small>ORDEAL BREACH // LIFE SIGNAL SEVERED</small>
-            <h2><span>A WARDEN</span>WAS DISSOLVED</h2>
-            <b>THE HUNT CONTINUES</b>
+      {killNotice && (
+        <div key={killNotice.key} className="kill-notice" role="status" aria-live="polite" aria-atomic="true">
+          <span aria-hidden="true">☾</span>
+          <div className="kill-notice-copy">
+            <strong>A Warden was dissolved</strong>
+            <small>Stay alert. The hunt continues.</small>
           </div>
         </div>
       )}
@@ -4098,7 +4134,7 @@ function Game({
                   <button key={`${option}-${index}`} onClick={() => engineRef.current?.submitPuzzle(index)}><kbd>{index + 1}</kbd><b>{option}</b></button>
                 ))}
               </div>
-              <div className={`puzzle-feedback ${puzzle.error ? "error" : ""}`}>{puzzle.error || `Choose one answer. Completing this shrine permanently seals it and grants one ${ITEM_LABELS[puzzle.reward]} charge.`}</div>
+              <div className={`puzzle-feedback ${puzzle.error ? "error" : ""}`}>{puzzle.error || `Choose one answer. This sanctum seals for the current round and grants one ${ITEM_LABELS[puzzle.reward]} charge. It reopens at the next Calm.`}</div>
             </div>
           </div>
         </div>

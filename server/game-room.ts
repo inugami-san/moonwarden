@@ -12,11 +12,13 @@ import type {
   RoomSummary,
   S2CMessage,
 } from "./game-types";
+import { availablePlayerColor, PLAYER_COLORS as COLORS } from "./palette";
 
 export interface IWebSocketClient {
   send(data: string): void;
   close(): void;
   readyState: number;
+  bufferedAmount?: number;
 }
 
 const ROOM = { left: 76, top: 72, right: 1204, bottom: 690 };
@@ -25,7 +27,6 @@ const ROOT_BARRIERS = [
   { x: 812, y: ROOM.top, w: 36, h: ROOM.bottom - ROOM.top },
   { x: ROOM.left, y: 362, w: ROOM.right - ROOM.left, h: 36 },
 ] as const;
-const COLORS = ["#20d8ed", "#95ef45", "#ff5d9e", "#ffd94a", "#a879ff", "#ff9843", "#5ea7ff", "#48e0a4"];
 const BOT_NAMES = ["Mochi", "Bubbles", "Gloop", "Pebble", "Nori", "Fizz", "Pip", "Wobble"];
 const HATS: readonly Hat[] = ["antlers", "hood", "moth", "mooncap"];
 const STATION_REWARDS = new Map<string, ItemKind>([
@@ -86,6 +87,18 @@ function sharesRootCell(a: { x: number; y: number }, b: { x: number; y: number }
   return rootCellIndex(a) === rootCellIndex(b);
 }
 
+function keepInRootCell(previous: { x: number; y: number }, next: { x: number; y: number }) {
+  const origin = resolveRootPosition(previous.x, previous.y);
+  const column = rootCellIndex(origin) % 3;
+  const row = Math.floor(rootCellIndex(origin) / 3);
+  const [first, second, middle] = ROOT_BARRIERS;
+  const left = column === 0 ? ROOM.left + 36 : (column === 1 ? first.x + first.w : second.x + second.w) + 30;
+  const right = column === 2 ? ROOM.right - 36 : (column === 0 ? first.x : second.x) - 30;
+  const top = row === 0 ? ROOM.top + 48 : middle.y + middle.h + 30;
+  const bottom = row === 1 ? ROOM.bottom - 32 : middle.y - 30;
+  return { x: Math.max(left, Math.min(right, next.x)), y: Math.max(top, Math.min(bottom, next.y)) };
+}
+
 export class GameRoom {
   code: string;
   hostId: string = "";
@@ -104,6 +117,8 @@ export class GameRoom {
   killCooldownUntil: number = 0;
   killUsedThisOrdeal: boolean = false;
   sealedStations = new Set<string>();
+  roundId = 1;
+  private stationCompletionSequence = 0;
   completedStations = new Map<string, Set<string>>();
   itemCharges = new Map<string, Record<ItemKind, number>>();
 
@@ -116,12 +131,16 @@ export class GameRoom {
   private loopTimer: NodeJS.Timeout | null = null;
   private lastTick: number = 0;
   private syncTimer: number = 0;
+  private worldSyncTimer = 0;
+  private meetingTimers = new Set<ReturnType<typeof setTimeout>>();
 
   constructor(code: string) {
     this.code = code;
   }
 
   addClient(playerId: string, client: IWebSocketClient, name: string, color: string, hat: Hat): NetPlayer {
+    const assignedColor = availablePlayerColor(color, Array.from(this.players.values(), (p) => p.color));
+    if (!assignedColor || this.players.size >= COLORS.length) throw new Error("The room is full.");
     const isFirst = this.clients.size === 0;
     if (isFirst) this.hostId = playerId;
     this.clients.set(playerId, client);
@@ -129,9 +148,9 @@ export class GameRoom {
     const isHost = this.hostId === playerId;
     const player: NetPlayer = {
       id: playerId,
-      name: name.slice(0, 16) || `Warden-${this.clients.size}`,
-      color: color || COLORS[(this.clients.size - 1) % COLORS.length],
-      hat: hat || choose(HATS),
+      name: name.trim().slice(0, 16) || `Warden-${this.clients.size}`,
+      color: assignedColor,
+      hat: HATS.includes(hat) ? hat : choose(HATS),
       alive: true,
       x: 640 + (Math.random() - 0.5) * 160,
       y: 380 + (Math.random() - 0.5) * 100,
@@ -169,10 +188,15 @@ export class GameRoom {
   }
 
   removeClient(playerId: string) {
+    if (!this.players.has(playerId)) return;
     this.clients.delete(playerId);
     this.players.delete(playerId);
     this.completedStations.delete(playerId);
     this.itemCharges.delete(playerId);
+    this.votes.delete(playerId);
+    for (const [voter, target] of this.votes) {
+      if (target === playerId) this.votes.set(voter, null);
+    }
 
     let newHostId: string | undefined;
     if (this.hostId === playerId && this.clients.size > 0) {
@@ -194,7 +218,7 @@ export class GameRoom {
     if (this.clients.size === 0) {
       this.destroy();
     } else if (this.state === "PLAYING") {
-      this.checkWinConditions();
+      if (!this.checkWinConditions() && this.phase === "DISCUSSION" && !this.meetingTally) this.checkVotesComplete();
     }
   }
 
@@ -216,7 +240,10 @@ export class GameRoom {
       case "UPDATE_PROFILE":
         if (this.state === "LOBBY") {
           player.name = msg.playerName.trim().slice(0, 16) || player.name;
-          if (COLORS.includes(msg.color)) player.color = msg.color;
+          const color = msg.color.toLowerCase();
+          const taken = Array.from(this.players.values()).some((p) => p.id !== player.id && p.color === color);
+          if (COLORS.includes(color) && !taken) player.color = color;
+          else if (taken && player.color !== color) this.sendTo(this.clients.get(playerId)!, { type: "ERROR_ALERT", message: "That slime color is already taken. Choose an available color." });
           if (HATS.includes(msg.hat)) player.hat = msg.hat;
           this.broadcastLobbyUpdate();
         }
@@ -231,7 +258,7 @@ export class GameRoom {
 
       case "UPDATE_ROOM_CONFIG":
         if (player.isHost && this.state === "LOBBY") {
-          this.targetPlayers = Math.max(4, Math.min(8, Math.round(msg.targetPlayers)));
+          this.targetPlayers = Math.max(this.players.size, 4, Math.min(8, Math.round(msg.targetPlayers)));
           this.botFill = Boolean(msg.botFill);
           this.broadcastLobbyUpdate();
         }
@@ -240,41 +267,50 @@ export class GameRoom {
       case "START_MATCH":
         if (player.isHost && this.state === "LOBBY") {
           this.botFill = msg.botFill ?? this.botFill;
-          this.targetPlayers = msg.targetPlayers ?? this.targetPlayers;
+          this.targetPlayers = Math.max(this.players.size, 4, Math.min(8, Math.round(msg.targetPlayers ?? this.targetPlayers)));
           this.startMatch(this.botFill, this.targetPlayers);
         }
         break;
 
       case "PLAYER_INPUT":
         if (this.state === "PLAYING" && player.alive && this.phase !== "DISCUSSION") {
+          if (![msg.x, msg.y, msg.vx, msg.vy, msg.angle].every(Number.isFinite)) break;
+          if (msg.seq !== undefined && (!Number.isSafeInteger(msg.seq) || msg.seq <= (player.inputSeq ?? -1))) break;
           const nextX = Math.max(ROOM.left + 36, Math.min(ROOM.right - 36, msg.x));
           const nextY = Math.max(ROOM.top + 48, Math.min(ROOM.bottom - 32, msg.y));
           const next = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72
-            ? resolveRootPosition(nextX, nextY)
+            ? keepInRootCell(player, { x: nextX, y: nextY })
             : { x: nextX, y: nextY };
           player.x = next.x;
           player.y = next.y;
-          player.vx = msg.vx;
-          player.vy = msg.vy;
+          player.vx = next.x !== nextX ? 0 : Math.max(-184, Math.min(184, msg.vx));
+          player.vy = next.y !== nextY ? 0 : Math.max(-184, Math.min(184, msg.vy));
+          player.inputSeq = msg.seq;
           player.angle = msg.angle;
           player.flashlight = msg.flashlight;
         }
         break;
 
-      case "USE_ITEM":
+      case "USE_ITEM": {
+        let accepted = false;
         if (this.state === "PLAYING" && player.alive && this.phase === "ORDEAL") {
           const charges = this.itemCharges.get(player.id);
-          if (!charges || charges[msg.item] <= 0) break;
-          charges[msg.item] -= 1;
-          if (msg.item === "FLARE") {
-            const flare: NetFlare = { x: player.x, y: player.y, life: 5, owner: player.id };
-            this.flares.push(flare);
-            this.broadcast({ type: "FLARE_SPAWNED", flare });
+          if (charges && charges[msg.item] > 0) {
+            accepted = true;
+            charges[msg.item] -= 1;
+            if (msg.item === "FLARE") {
+              const flare: NetFlare = { x: player.x, y: player.y, life: 5, owner: player.id };
+              this.flares.push(flare);
+              this.broadcast({ type: "FLARE_SPAWNED", flare });
+            }
           }
         }
+        this.syncGear(player.id, accepted, { item: msg.item });
         break;
+      }
 
-      case "TRIGGER_KILL":
+      case "TRIGGER_KILL": {
+        let accepted = false;
         if (this.state === "PLAYING" && player.role === "IMPOSTOR" && player.alive && this.phase === "ORDEAL" && !this.killUsedThisOrdeal && Date.now() >= this.killCooldownUntil) {
           const victim = this.players.get(msg.victimId);
           if (
@@ -284,10 +320,13 @@ export class GameRoom {
             && dist(player, victim) < 84
             && (this.hazard !== "ROOTWAKE" || sharesRootCell(player, victim))
           ) {
+            accepted = true;
             this.executeKill(victim, player);
           }
         }
+        this.sendTo(this.clients.get(playerId)!, { type: "KILL_RESULT", accepted, spent: this.killUsedThisOrdeal });
         break;
+      }
 
       case "TRIGGER_REPORT":
         if (this.state === "PLAYING" && player.alive && this.phase !== "DISCUSSION") {
@@ -313,29 +352,25 @@ export class GameRoom {
             || !charges
             || completed.has(msg.stationId)
             || this.sealedStations.has(msg.stationId)
+            || (msg.roundId !== undefined && msg.roundId !== this.roundId)
           ) {
+            this.syncGear(playerId, false, { stationId: msg.stationId });
             break;
           }
           completed.add(msg.stationId);
           charges[msg.reward] = Math.min(3, charges[msg.reward] + 1);
+          this.syncGear(playerId, true, { stationId: msg.stationId });
+          // No role, reward, or fake-task flag: a completion cue must not expose the Impostor.
+          this.broadcast({ type: "STATION_COMPLETED", stationId: msg.stationId, roundId: this.roundId, sequence: ++this.stationCompletionSequence });
           if (player.role === "CREWMATE") {
             this.sealedStations.add(msg.stationId);
             this.taskProgress = Math.min(100, this.taskProgress + TASK_PROGRESS_REWARD);
-            this.broadcast({
-              type: "SYNC_WORLD",
-              phase: this.phase,
-              time: Math.max(0, this.phaseTime),
-              hazard: this.hazard,
-              taskProgress: this.taskProgress,
-              bodies: this.bodies,
-              flares: this.flares,
-              completedStations: Array.from(this.sealedStations),
-            });
+            this.broadcastWorld();
             if (this.taskProgress >= 100) {
               this.endMatch("CREW VICTORY — ALL MOON WARDS RESTORED");
             }
           }
-        }
+        } else this.syncGear(playerId, false, { stationId: msg.stationId });
         break;
 
       case "SEND_CHAT":
@@ -355,6 +390,7 @@ export class GameRoom {
 
       case "CAST_VOTE":
         if (this.phase === "DISCUSSION" && player.alive && !this.meetingTally) {
+          if (this.votes.has(player.id) || (msg.targetId !== null && !this.players.get(msg.targetId)?.alive)) break;
           this.votes.set(player.id, msg.targetId);
           this.broadcast({ type: "VOTE_CAST_ACK", voterId: player.id });
           this.checkVotesComplete();
@@ -373,6 +409,16 @@ export class GameRoom {
     }
   }
 
+  private syncGear(playerId: string, accepted: boolean, detail: { item?: ItemKind; stationId?: string }) {
+    const charges = this.itemCharges.get(playerId);
+    const client = this.clients.get(playerId);
+    if (!charges || !client) return;
+    this.sendTo(client, {
+      type: "GEAR_SYNC", charges: { ...charges }, accepted, roundId: this.roundId, ...detail,
+      stationCompleted: detail.stationId ? this.sealedStations.has(detail.stationId) || this.completedStations.get(playerId)?.has(detail.stationId) : undefined,
+    });
+  }
+
   private startMatch(botFill: boolean, targetCount: number) {
     this.state = "PLAYING";
     this.phase = "CALM";
@@ -382,9 +428,13 @@ export class GameRoom {
     this.flares = [];
     this.killCooldownUntil = 0;
     this.killUsedThisOrdeal = false;
+    this.roundId = 1;
+    this.stationCompletionSequence = 0;
     this.sealedStations.clear();
     this.completedStations.clear();
     this.itemCharges.clear();
+    this.syncTimer = 0;
+    this.worldSyncTimer = 0;
     for (const player of this.players.values()) {
       this.completedStations.set(player.id, new Set());
       this.itemCharges.set(player.id, { FLASHLIGHT: 0, FLARE: 0, SONAR: 0 });
@@ -399,7 +449,7 @@ export class GameRoom {
         this.players.set(botId, {
           id: botId,
           name: BOT_NAMES[botIndex % BOT_NAMES.length],
-          color: COLORS[(this.players.size) % COLORS.length],
+          color: availablePlayerColor("", Array.from(this.players.values(), (p) => p.color))!,
           hat: HATS[botIndex % HATS.length],
           alive: true,
           x: 640 + Math.cos(angle) * 160,
@@ -440,6 +490,14 @@ export class GameRoom {
 
     this.lastTick = Date.now();
     this.loopTimer = setInterval(() => this.tick(), 50); // 20Hz server tick
+    this.loopTimer.unref?.();
+  }
+
+  private resetStationsForRound() {
+    this.roundId += 1;
+    this.sealedStations.clear();
+    for (const completed of this.completedStations.values()) completed.clear();
+    // Earned gear and team progress carry forward; only the shrine locks reset.
   }
 
   private executeKill(victim: NetPlayer, killer: NetPlayer) {
@@ -475,11 +533,17 @@ export class GameRoom {
   }
 
   private startMeeting(reason: string, reporter: string) {
+    this.clearMeetingTimers();
     this.phase = "DISCUSSION";
     this.meetingReason = reason;
     this.meetingReporter = reporter;
     this.meetingTally = null;
     this.votes.clear();
+    for (const player of this.players.values()) {
+      player.vx = 0;
+      player.vy = 0;
+      player.flashlight = false;
+    }
 
     const candidates = Array.from(this.players.values()).map((p) => ({
       ...p,
@@ -496,7 +560,7 @@ export class GameRoom {
     // Simulate AI bot votes after 3–6 seconds
     const livingBots = Array.from(this.players.values()).filter((p) => p.alive && p.isAi);
     for (const bot of livingBots) {
-      setTimeout(() => {
+      this.scheduleMeeting(() => {
         if (this.phase === "DISCUSSION" && !this.meetingTally) {
           const candidatesToVote = Array.from(this.players.values()).filter((p) => p.alive && p.id !== bot.id);
           const votePick = Math.random() < 0.25 ? null : choose(candidatesToVote)?.id || null;
@@ -506,6 +570,27 @@ export class GameRoom {
         }
       }, 2500 + Math.random() * 3000);
     }
+    this.scheduleMeeting(() => {
+      if (this.phase !== "DISCUSSION" || this.meetingTally) return;
+      for (const player of this.players.values()) {
+        if (player.alive && !this.votes.has(player.id)) this.votes.set(player.id, null);
+      }
+      this.concludeMeeting();
+    }, 45_000);
+  }
+
+  private scheduleMeeting(callback: () => void, delay: number) {
+    const timer = setTimeout(() => {
+      this.meetingTimers.delete(timer);
+      if (this.state === "PLAYING") callback();
+    }, delay);
+    timer.unref?.();
+    this.meetingTimers.add(timer);
+  }
+
+  private clearMeetingTimers() {
+    for (const timer of this.meetingTimers) clearTimeout(timer);
+    this.meetingTimers.clear();
   }
 
   private checkVotesComplete() {
@@ -516,6 +601,7 @@ export class GameRoom {
   }
 
   private concludeMeeting() {
+    this.clearMeetingTimers();
     const tallyMap = new Map<string, number>();
     for (const targetId of this.votes.values()) {
       const id = targetId || "SKIP";
@@ -563,9 +649,11 @@ export class GameRoom {
       verdict,
       tied,
     });
+    this.scheduleMeeting(() => this.resolveMeeting(), 7_000);
   }
 
   private resolveMeeting() {
+    this.clearMeetingTimers();
     this.bodies = [];
     this.flares = [];
     this.meetingTally = null;
@@ -574,16 +662,8 @@ export class GameRoom {
       this.phase = "CALM";
       this.phaseTime = 15;
       this.killCooldownUntil = 0;
-      this.broadcast({
-        type: "SYNC_WORLD",
-        phase: this.phase,
-        time: this.phaseTime,
-        hazard: this.hazard,
-        taskProgress: this.taskProgress,
-        bodies: this.bodies,
-        flares: this.flares,
-        completedStations: Array.from(this.sealedStations),
-      });
+      this.resetStationsForRound();
+      this.broadcastWorld();
     }
   }
 
@@ -608,6 +688,7 @@ export class GameRoom {
   }
 
   private endMatch(result: string) {
+    this.clearMeetingTimers();
     this.state = "ENDED";
     if (this.loopTimer) {
       clearInterval(this.loopTimer);
@@ -628,49 +709,53 @@ export class GameRoom {
   }
 
   private tick() {
+    if (this.state !== "PLAYING") return;
     const now = Date.now();
-    const dt = Math.min((now - this.lastTick) / 1000, 0.25);
+    const elapsed = Math.max(0, Math.min((now - this.lastTick) / 1000, 60));
+    const dt = Math.min(elapsed, 0.1);
     this.lastTick = now;
 
     // AI Bots movement
     if (this.phase !== "DISCUSSION") {
       this.tickBots(dt);
     }
+    if (this.state !== "PLAYING") return;
 
+    const previousPhase = this.phase;
     // World timer
     if (this.phase !== "DISCUSSION") {
-      this.phaseTime -= dt;
-      if (this.phaseTime <= 0) {
+      this.phaseTime -= elapsed;
+      while (this.phaseTime <= 0) {
         if (this.phase === "CALM") {
           this.phase = "COUNTDOWN";
-          this.phaseTime = 3;
+          this.phaseTime += 3;
         } else if (this.phase === "COUNTDOWN") {
           this.phase = "ORDEAL";
-          this.phaseTime = 10;
+          this.phaseTime += 10;
           this.hazard = choose<Hazard>(["BLACKOUT", "FOG", "MOONGLARE", "ROOTWAKE", "PHANTOMS"]);
           this.killCooldownUntil = 0;
           this.killUsedThisOrdeal = false;
         } else if (this.phase === "ORDEAL") {
           this.phase = "CALM";
-          this.phaseTime = 15;
+          this.phaseTime += 15;
+          this.resetStationsForRound();
         }
       }
     }
 
     // Flares
-    this.flares = this.flares.filter((f) => (f.life -= dt) > 0);
+    this.flares = this.flares.filter((f) => (f.life -= elapsed) > 0);
+    for (const body of this.bodies) body.age += elapsed;
 
     // Sync broadcast to clients
-    this.syncTimer += dt;
+    this.syncTimer += elapsed;
     if (this.syncTimer >= 0.05) { // 20Hz player state sync
       this.syncTimer = 0;
       this.broadcast({
-        type: "SYNC_PLAYERS",
+        type: "SYNC_MOVEMENT",
+        serverTime: now,
         players: Array.from(this.players.values()).map((p) => ({
           id: p.id,
-          name: p.name,
-          color: p.color,
-          hat: p.hat,
           alive: p.alive,
           x: p.x,
           y: p.y,
@@ -678,23 +763,17 @@ export class GameRoom {
           vy: p.vy,
           angle: p.angle,
           flashlight: p.flashlight,
-          isHost: p.isHost,
-          ready: p.ready,
-          isAi: p.isAi,
+          inputSeq: p.inputSeq,
         })),
       });
-
-      this.broadcast({
-        type: "SYNC_WORLD",
-        phase: this.phase,
-        time: Math.max(0, this.phaseTime),
-        hazard: this.hazard,
-        taskProgress: this.taskProgress,
-        bodies: this.bodies,
-        flares: this.flares,
-        completedStations: Array.from(this.sealedStations),
-      });
     }
+    this.worldSyncTimer += elapsed;
+    if (previousPhase !== this.phase || this.worldSyncTimer >= 0.2) this.broadcastWorld();
+  }
+
+  private broadcastWorld() {
+    this.worldSyncTimer = 0;
+    this.broadcast({ type: "SYNC_WORLD", serverTime: Date.now(), roundId: this.roundId, phase: this.phase, time: Math.max(0, this.phaseTime), hazard: this.hazard, taskProgress: this.taskProgress, bodies: this.bodies, flares: this.flares, completedStations: Array.from(this.sealedStations) });
   }
 
   private tickBots(dt: number) {
@@ -710,7 +789,7 @@ export class GameRoom {
       const nextX = Math.max(ROOM.left + 36, Math.min(ROOM.right - 36, bot.x + bot.vx * dt));
       const nextY = Math.max(ROOM.top + 48, Math.min(ROOM.bottom - 32, bot.y + bot.vy * dt));
       const next = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72
-        ? resolveRootPosition(nextX, nextY)
+        ? keepInRootCell(bot, { x: nextX, y: nextY })
         : { x: nextX, y: nextY };
       if (next.x !== nextX) bot.vx *= -0.2;
       if (next.y !== nextY) bot.vy *= -0.2;
@@ -741,22 +820,33 @@ export class GameRoom {
   broadcast(msg: S2CMessage) {
     const payload = JSON.stringify(msg);
     for (const client of this.clients.values()) {
-      if (client.readyState === 1) client.send(payload);
+      if (msg.type === "SYNC_MOVEMENT" && (client.bufferedAmount ?? 0) > 32_768) continue;
+      this.sendPayload(client, payload);
     }
   }
 
   broadcastExcept(exceptId: string, msg: S2CMessage) {
     const payload = JSON.stringify(msg);
     for (const [id, client] of this.clients.entries()) {
-      if (id !== exceptId && client.readyState === 1) client.send(payload);
+      if (id !== exceptId) this.sendPayload(client, payload);
     }
   }
 
   sendTo(client: IWebSocketClient, msg: S2CMessage) {
-    if (client.readyState === 1) client.send(JSON.stringify(msg));
+    this.sendPayload(client, JSON.stringify(msg));
+  }
+
+  private sendPayload(client: IWebSocketClient, payload: string) {
+    try {
+      if (client?.readyState === 1) client.send(payload);
+    } catch {
+      // One disconnected peer must not interrupt the room's entire broadcast.
+    }
   }
 
   destroy() {
+    this.clearMeetingTimers();
+    this.state = "ENDED";
     if (this.loopTimer) {
       clearInterval(this.loopTimer);
       this.loopTimer = null;

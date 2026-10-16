@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { POST } from "../app/api/mp/route.ts";
 import { GameServerRegistry } from "../server/game-room.ts";
+import { gameRegistry } from "../server/game-room.ts";
+import { handleSocketConnection } from "../server/ws-handler.ts";
+import { PLAYER_COLORS } from "../server/palette.ts";
 
 // Mock WebSocket client for testing protocol
 function createMockClient() {
@@ -309,4 +312,143 @@ test("Vercel HTTP Realtime Relay (/api/mp): Room Creation, Joining, and Match Sy
   // 4. Clean up both HTTP sessions
   await callApi({ sessionId: hostInit.sessionId, disconnect: true });
   await callApi({ sessionId: guestInit.sessionId, disconnect: true });
+});
+
+test("room colors stay unique on join, profile races, bot fill, and slot reuse", (t) => {
+  const room = new GameServerRegistry().createRoom();
+  t.after(() => room.destroy());
+  const host = room.addClient("host", createMockClient(), "Host", PLAYER_COLORS[5], "hood");
+  const guestClient = createMockClient();
+  const guest = room.addClient("guest", guestClient, "Guest", PLAYER_COLORS[5].toUpperCase(), "moth");
+  assert.notEqual(host.color, guest.color);
+  room.handleMessage("guest", { type: "UPDATE_PROFILE", playerName: "Guest", color: host.color, hat: "moth" });
+  assert.notEqual(host.color, guest.color);
+  assert.match(guestClient.popMessage("ERROR_ALERT").message, /already taken/);
+  const releasedColor = guest.color;
+  room.removeClient("guest");
+  assert.equal(room.addClient("new", createMockClient(), "New", releasedColor, "hood").color, releasedColor);
+  room.handleMessage("host", { type: "START_MATCH", botFill: true, targetPlayers: 8 });
+  assert.equal(new Set(Array.from(room.players.values(), (p) => p.color)).size, 8);
+  assert.equal(Array.from(room.players.values()).filter((p) => p.role === "IMPOSTOR").length, 1);
+});
+
+test("compact movement keeps roles private, reduces bytes, and skips congested peers", (t) => {
+  const room = new GameServerRegistry().createRoom();
+  t.after(() => room.destroy());
+  const host = createMockClient();
+  room.addClient("host", host, "Host", PLAYER_COLORS[0], "hood");
+  const slow = createMockClient();
+  slow.bufferedAmount = 65_536;
+  room.addClient("slow", slow, "Slow", PLAYER_COLORS[1], "hood");
+  room.handleMessage("host", { type: "START_MATCH", botFill: true, targetPlayers: 8 });
+  host.sent.length = slow.sent.length = 0;
+  for (let i = 0; i < 5; i++) {
+    room.lastTick = Date.now() - 55;
+    room.tick();
+  }
+  const packets = host.sent.filter((msg) => msg.type === "SYNC_MOVEMENT");
+  assert.equal(packets.length, 5);
+  assert.equal(host.sent.filter((msg) => msg.type === "SYNC_WORLD").length, 1);
+  assert.equal(slow.sent.filter((msg) => msg.type === "SYNC_MOVEMENT").length, 0);
+  assert.ok(packets[0].players.every((p) => !("role" in p) && !("color" in p) && !("name" in p)));
+  const oldSize = JSON.stringify({ type: "SYNC_PLAYERS", players: Array.from(room.players.values()) }).length;
+  assert.ok(JSON.stringify(packets[0]).length < oldSize * 0.7);
+});
+
+test("invalid and reordered movement cannot corrupt a room or tunnel through Rootwake", (t) => {
+  const room = new GameServerRegistry().createRoom();
+  t.after(() => room.destroy());
+  const player = room.addClient("host", createMockClient(), "Host", PLAYER_COLORS[0], "hood");
+  room.handleMessage("host", { type: "START_MATCH", botFill: false, targetPlayers: 4 });
+  const input = { type: "PLAYER_INPUT", x: 300, y: 180, vx: 100, vy: 0, angle: 0, flashlight: false, seq: 2 };
+  room.handleMessage("host", input);
+  room.handleMessage("host", { ...input, x: 250, seq: 1 });
+  room.handleMessage("host", { ...input, x: NaN, seq: 3 });
+  assert.equal(player.x, 300);
+  assert.equal(player.inputSeq, 2);
+  room.phase = "ORDEAL";
+  room.hazard = "ROOTWAKE";
+  room.phaseTime = 5;
+  room.handleMessage("host", { ...input, x: 900, y: 600, seq: 4 });
+  assert.equal(player.x, 402);
+  assert.equal(player.y, 332);
+});
+
+test("slow HTTP ticks advance phase clocks by wall time without speeding up AI", (t) => {
+  const room = new GameServerRegistry().createRoom();
+  t.after(() => room.destroy());
+  room.addClient("host", createMockClient(), "Host", PLAYER_COLORS[0], "hood");
+  room.handleMessage("host", { type: "START_MATCH", botFill: false, targetPlayers: 4 });
+  room.phaseTime = 1;
+  room.lastTick = Date.now() - 2000;
+  room.tick();
+  assert.equal(room.phase, "COUNTDOWN");
+  assert.ok(room.phaseTime > 1.9 && room.phaseTime <= 2);
+});
+
+test("switching rooms removes ghosts, and malformed packets do not throw", (t) => {
+  const client = createMockClient();
+  const handler = handleSocketConnection(client, "switcher");
+  t.after(() => handler.onClose());
+  for (const value of ["null", "[]", "{}", '{"type":"JOIN_ROOM"}', '{"type":"UPDATE_PROFILE"}']) {
+    assert.doesNotThrow(() => handler.onMessage(value));
+  }
+  handler.onMessage(JSON.stringify({ type: "CREATE_ROOM", playerName: "Host", color: PLAYER_COLORS[0], hat: "hood" }));
+  const oldCode = client.popMessage("ROOM_STATE").roomCode;
+  handler.onMessage(JSON.stringify({ type: "CREATE_ROOM", playerName: "Host", color: PLAYER_COLORS[0], hat: "hood" }));
+  assert.equal(gameRegistry.getRoom(oldCode), undefined);
+  handler.onMessage(JSON.stringify({ type: "PING", sentAt: 123 }));
+  assert.equal(client.popMessage("PONG").sentAt, 123);
+});
+
+test("disconnect during voting no longer stalls the meeting", (t) => {
+  const room = new GameServerRegistry().createRoom();
+  t.after(() => room.destroy());
+  for (let i = 0; i < 4; i++) room.addClient(`p${i}`, createMockClient(), `P${i}`, PLAYER_COLORS[i], "hood");
+  room.handleMessage("p0", { type: "START_MATCH", botFill: false, targetPlayers: 4 });
+  for (const p of room.players.values()) p.role = p.id === "p0" ? "IMPOSTOR" : "CREWMATE";
+  room.startMeeting("TEST", "P0");
+  for (const id of ["p0", "p1", "p2"]) room.handleMessage(id, { type: "CAST_VOTE", targetId: null });
+  room.handleMessage("p0", { type: "CAST_VOTE", targetId: "missing" });
+  assert.equal(room.votes.get("p0"), null);
+  room.removeClient("p3");
+  assert.ok(room.meetingTally);
+});
+
+test("rejected kill and gear actions return authoritative state to the requesting player", (t) => {
+  const room = new GameServerRegistry().createRoom();
+  t.after(() => room.destroy());
+  const client = createMockClient();
+  const host = room.addClient("host", client, "Host", PLAYER_COLORS[0], "hood");
+  room.handleMessage("host", { type: "START_MATCH", botFill: true, targetPlayers: 4 });
+  host.role = "IMPOSTOR";
+  room.phase = "ORDEAL";
+  room.handleMessage("host", { type: "TRIGGER_KILL", victimId: "missing" });
+  assert.deepEqual(client.popMessage("KILL_RESULT"), { type: "KILL_RESULT", accepted: false, spent: false });
+  room.itemCharges.get("host").SONAR = 1;
+  room.handleMessage("host", { type: "USE_ITEM", item: "SONAR", x: 0, y: 0 });
+  assert.equal(client.popMessage("GEAR_SYNC").charges.SONAR, 0);
+  room.handleMessage("host", { type: "USE_ITEM", item: "SONAR", x: 0, y: 0 });
+  assert.equal(client.popMessage("GEAR_SYNC").accepted, false);
+});
+
+test("HTTP relay retries are idempotent and missing sessions fail explicitly", async (t) => {
+  const call = async (payload) => POST(new Request("http://localhost/api/mp", { method: "POST", body: JSON.stringify(payload) }));
+  const initial = await (await call({ messages: [{ type: "CREATE_ROOM", playerName: "Retry", color: PLAYER_COLORS[0], hat: "hood" }] })).json();
+  t.after(() => call({ sessionId: initial.sessionId, disconnect: true }));
+  const payload = { sessionId: initial.sessionId, requestId: 1, messages: [{ type: "SEND_CHAT", text: "Only once" }] };
+  const first = await (await call(payload)).json();
+  const replay = await (await call(payload)).json();
+  assert.deepEqual(first, replay);
+  const roomCode = initial.messages.find((m) => m.type === "ROOM_STATE").roomCode;
+  assert.equal(gameRegistry.getRoom(roomCode).chatHistory.filter((msg) => msg.text === "Only once").length, 1);
+  const room = gameRegistry.getRoom(roomCode);
+  const body = { id: "test-body", x: 640, y: 380, color: PLAYER_COLORS[1], name: "Test", age: 0 };
+  const world = { type: "SYNC_WORLD", phase: "ORDEAL", time: 5, hazard: "FOG", taskProgress: 0, bodies: [], flares: [] };
+  room.broadcast(world);
+  room.broadcast({ type: "BODY_SPAWNED", body });
+  room.broadcast({ ...world, bodies: [body] });
+  const ordered = await (await call({ sessionId: initial.sessionId, requestId: 2, messages: [] })).json();
+  assert.deepEqual(ordered.messages.map((msg) => msg.type), ["BODY_SPAWNED", "SYNC_WORLD"]);
+  assert.equal((await call({ sessionId: "a-session-from-another-instance", messages: [] })).status, 409);
 });
