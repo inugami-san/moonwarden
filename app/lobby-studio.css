@@ -1,0 +1,259 @@
+/* The welcome studio is deliberately scoped away from the gameplay canvas/HUD. */
+.moon-studio {
+  --studio-ink: #2c4038;
+  --studio-muted: #6d8076;
+  --studio-line: #dce4da;
+  --studio-green: #365e4d;
+  padding: 18px;
+  background: radial-gradient(ellipse at 50% 0, #f5f6ee, transparent 70%), #e5ebe5;
+  color: var(--studio-ink);
+}
+.moon-studio::before, .moon-studio::after { display: none; }
+.studio-frame { max-width: 1680px; height: calc(100svh - 36px); min-height: 660px; margin: auto; display: grid; grid-template-rows: 58px minmax(0, 1fr) 36px; border: 1px solid #fff; border-radius: 26px; background: #f4f6f1; box-shadow: 0 24px 65px #50634c1c, inset 0 1px #fff; overflow: hidden; }
+.moon-studio .lobby-nav { height: auto; min-width: 0; padding: 0 24px; border: 0; background: transparent; backdrop-filter: none; }
+.moon-studio .brand { font-size: 17px; letter-spacing: -.05em; }
+.moon-studio .brand b { color: #53806a; }
+.moon-studio .brand-mark { width: 29px; height: 29px; border-color: #aec9bb; background: linear-gradient(145deg, #e0f1d1, #8fbfa8); box-shadow: inset 4px 5px 8px #fff8, 0 3px 8px #55715a12; }
+.moon-studio .brand-mark::after { top: 12px; left: 7px; box-shadow: 8px 0 #334b40; background: #334b40; }
+.moon-studio .nav-status { color: #687e70; font-size: 8px; letter-spacing: .07em; }
+.moon-studio .nav-status > span, .moon-studio .status-dot { background: #72a17c; box-shadow: 0 0 0 3px #72a17c14; }
+.moon-studio .lobby-grid { width: 100%; min-height: 0; min-width: 0; margin: 0; padding: 0 16px 12px; display: grid; grid-template-columns: 210px minmax(0, 1fr) 326px; gap: 16px; align-items: stretch; }
+.studio-guide { display: flex; flex-direction: column; min-height: 0; overflow: auto; padding: 23px 18px 18px; background: #fdfefbcc; border: 1px solid var(--studio-line); border-radius: 18px; }
+.studio-guide .eyebrow { margin: 0 0 17px; font-size: 7px; letter-spacing: .1em; }
+.studio-guide .eyebrow span { background: #edf3e7; border: 1px solid #e0e9d8; color: #74856c; border-radius: 5px; padding: 6px 8px; }
+.studio-guide h1 { margin: 0; font: 750 29px/1.07 var(--font-geist-sans), sans-serif; letter-spacing: -.055em; color: #2d4135; }
+.studio-guide h1 em { font-style: normal; color: #779575; }
+.studio-guide .lede { margin: 14px 0 22px; font-size: 11px; line-height: 1.75; color: #718171; }
+.moon-studio .lobby-mode-switch { flex-direction: column; background: #eff2ec; border-color: #e1e7dc; border-radius: 11px; padding: 4px; margin: 0 0 25px; gap: 3px; box-shadow: none; }
+.moon-studio .lobby-mode-switch button { justify-content: space-between; padding: 12px 9px; border-radius: 8px; color: #7a887c; font-size: 8px; letter-spacing: .025em; box-shadow: none; min-height: 38px; }
+.moon-studio .lobby-mode-switch button.active { background: #fff; border-color: #e0e7dc; color: #345e48; box-shadow: 0 2px 5px #344a3610; }
+.moon-studio .lobby-mode-switch button:hover:not(:disabled) { color: #345e48; background: #fafcf7; }
+.moon-studio .live-pill { padding: 3px 4px; font-size: 6px; background: #e7efdf; color: #64805a; }
+.studio-guide-steps { margin-bottom: 15px; }
+.studio-guide-steps summary { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; font-size: 11px; font-weight: 650; color: #4d6350; cursor: pointer; list-style: none; }
+.studio-guide-steps summary::-webkit-details-marker { display: none; }
+.studio-guide-steps summary::after { content: "+"; font-size: 16px; color: #8a9d7a; }
+.studio-guide-steps[open] summary { margin-bottom: 10px; }
+.studio-guide-steps[open] summary::after { content: "−"; }
+.studio-guide-steps > div { display: flex; align-items: start; gap: 9px; margin: 0 0 15px; }
+.studio-guide-steps > div > span { display: grid; place-items: center; flex: 0 0 25px; height: 25px; border-radius: 8px; border: 1px solid #e1e7dc; background: #f2f5ee; font: 600 8px var(--font-geist-mono), monospace; color: #80917b; }
+.studio-guide-steps p { margin: 0; }
+.studio-guide-steps b { display: block; margin: 1px 0 5px; font-size: 10px; font-weight: 650; color: #50644f; }
+.studio-guide-steps small { display: block; font-size: 10px; line-height: 1.6; color: #81907c; }
+.studio-guide .home-game-tags { margin-top: 8px; gap: 5px; }
+.studio-guide .home-game-tags span { background: #f4f6f0; border-color: #e2e8dc; color: #7b8b72; font-size: 8px; padding: 5px 7px; }
+.studio-guide-note { display: flex; align-items: center; gap: 10px; margin-top: auto; padding-top: 24px; color: #7c8a70; }
+.studio-guide-note > span { font-size: 30px; color: #a9b58c; }
+.studio-guide-note p { margin: 0; font-size: 10px; line-height: 1.8; }
+.studio-guide-note b { color: #506a50; font-weight: 500; }
+.moon-studio .lobby-copy.studio-stage { min-width: 0; height: 100%; display: flex; flex-direction: column; align-items: stretch; }
+.studio-view-switch { position: relative; z-index: 3; display: flex; align-self: center; padding: 4px; border: 1px solid #dee5d9; background: #fbfcf8; border-radius: 12px; box-shadow: 0 3px 10px #51674908; }
+.studio-view-switch button { min-width: 108px; padding: 10px 13px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #819079; cursor: pointer; font-size: 11px; transition: background .2s; }
+.studio-view-switch button[aria-pressed="true"] { background: #edf2e6; border-color: #e1e8d7; color: #415e3f; }
+.moon-studio .sanctuary-preview { flex: 1; min-height: 0; margin: 12px 0 0; border: 0; border-radius: 18px; padding: 0; background: radial-gradient(ellipse at 50% 64%, #e5edda55, transparent 60%); box-shadow: none; overflow: hidden; }
+.moon-studio .sanctuary-preview::before { content: ""; position: absolute; left: 5%; right: 5%; bottom: 115px; height: 80px; background: radial-gradient(ellipse, #8493752e, transparent 65%); filter: blur(10px); z-index: -1; }
+.studio-stage-title { position: absolute; top: 33px; width: 100%; text-align: center; }
+.studio-stage-title small { color: #95a18b; font: 600 7px var(--font-geist-mono), monospace; letter-spacing: .18em; }
+.studio-stage-title h2 { margin: 7px 0 6px; color: #3c5140; font-size: 29px; line-height: 1.1; letter-spacing: -.05em; font-weight: 650; overflow-wrap: anywhere; }
+.studio-stage-title p { margin: 0; color: #87947d; font-size: 10px; }
+.moon-studio .preview-heading { position: absolute; top: 6px; left: 0; right: 0; justify-content: center; color: #98a28e; }
+.moon-studio .preview-heading > span { display: none; }
+.moon-studio .preview-heading small { color: #98a28e; font-size: 6px; letter-spacing: .08em; }
+.moon-studio .preview-moon { top: 55px; right: 7%; width: 36px; height: 36px; background: #e4e8c8; box-shadow: 0 0 45px #d5dbb64d; opacity: .65; }
+.moon-studio .preview-fireflies { inset: 115px 0 125px; opacity: .65; }
+.moon-studio .preview-fireflies i { background: #9aac7a; box-shadow: 0 0 9px 2px #99b77626; width: 2px; height: 2px; }
+.moon-studio .preview-orbit { top: auto; bottom: 125px; height: 44px; left: 8%; right: 8%; border-color: #c9d4bc88; background: radial-gradient(ellipse, #c0cbb036, transparent 70%); box-shadow: 0 0 0 13px #c8d5b510, 0 0 0 26px #c8d5b508; }
+.moon-studio .preview-circle { position: absolute; top: 105px; bottom: 132px; left: 0; right: 0; height: auto; align-items: center; }
+.moon-studio .preview-warden { flex: 0 1 20%; padding: 0 2px; gap: 0; }
+.moon-studio .preview-warden:nth-child(even) { padding-bottom: 15px; }
+.moon-studio .preview-warden .slime-avatar { max-width: 100%; }
+.moon-studio .preview-warden .slime-avatar-body {
+  border-color: color-mix(in srgb, var(--slime) 35%, #a7bbad);
+  background: radial-gradient(ellipse at 29% 18%, #f4fff6aa, transparent 39%), radial-gradient(ellipse at 62% 85%, color-mix(in srgb, var(--slime) 55%, #b8cead), transparent 58%), linear-gradient(145deg, color-mix(in srgb, var(--slime) 54%, #e4edd4), color-mix(in srgb, var(--slime) 67%, #739892) 64%, color-mix(in srgb, var(--slime) 50%, #597a73));
+  box-shadow: inset 2px 3px 7px #f8fff1aa, inset -13px -18px 29px #274d491f, 0 15px 15px -10px #4b655b30;
+}
+.moon-studio .preview-warden .slime-hat-svg { filter: saturate(.65) brightness(1.18) drop-shadow(0 5px 3px #3654431a); }
+.moon-studio .preview-warden .eye { background: #284c49cc; }
+.moon-studio .preview-name { color: #7c8e75; font-size: 7px; }
+.moon-studio .preview-warden.is-you .preview-name { color: #54704d; background: #e5eddd; }
+.moon-studio .preview-warden[aria-pressed="true"] .preview-name { color: #365b3d; }
+.moon-studio .studio-view-warden .preview-warden:not(.is-you) { display: none; }
+.moon-studio .studio-view-warden .preview-warden.is-you { flex: none; width: 100%; height: 100%; justify-content: center; }
+.moon-studio .studio-view-warden .is-you .slime-avatar { width: clamp(225px, 32vh, 306px); height: clamp(250px, 36vh, 340px); }
+.moon-studio .studio-view-warden .is-you .preview-name { display: none; }
+.moon-studio .preview-dialogue { position: absolute; top: auto; bottom: 98px; left: 50%; translate: -50% 0; margin: 0; max-width: 96%; min-height: 0; padding: 9px 13px; border: 1px solid #e0e7d9; border-radius: 11px 11px 11px 3px; color: #6c7f65; background: #fbfdf8ed; font-size: 10px; box-shadow: 0 5px 15px #49644306; }
+.moon-studio .preview-dialogue b { color: #52704c; }
+.moon-studio .preview-weather { position: absolute; left: 0; right: 0; bottom: 47px; gap: 5px; margin: 0; }
+.moon-studio .preview-weather button { padding: 9px 11px; border-color: #dce4d4; background: #fbfcf8; color: #839176; font-size: 9px; box-shadow: 0 3px 8px #3f5c3f04; }
+.moon-studio .preview-weather button[aria-pressed="true"] { border-color: #bdcdae; background: #e7efdb; color: #506b42; }
+.moon-studio .preview-weather button:hover { border-color: #a4ba92; }
+.moon-studio .preview-caption { position: absolute; bottom: 3px; left: 50%; translate: -50% 0; margin: 0; width: calc(100% - 20px); max-width: 350px; min-height: 29px; font-size: 9px; color: #8b987f; }
+.moon-studio .preview-fog { background: radial-gradient(ellipse at 50% 60%, #b7cbc577, transparent 70%); }
+.moon-studio .preview-blackout { background: radial-gradient(ellipse at 50% 60%, #273e49, #19303f 85%); }
+.moon-studio .preview-blackout .studio-stage-title h2, .moon-studio .preview-blackout .preview-caption { color: #b6c8ba; }
+.moon-studio .preview-blackout .studio-stage-title small, .moon-studio .preview-blackout .studio-stage-title p { color: #90aa98; }
+.moon-studio .lobby-console { min-width: 0; height: 100%; width: 100%; border: 1px solid var(--studio-line); border-radius: 18px; background: #fdfefb; box-shadow: 0 3px 10px #5a705206; overflow: auto; scrollbar-width: thin; scrollbar-color: #cbd6c3 transparent; }
+.moon-studio .lobby-console::after { display: none; }
+.moon-studio .console-head { position: sticky; top: 0; z-index: 5; height: 46px; padding: 0 17px; border-color: #e4e9dd; background: #fdfefbf2; color: #59724e; font-size: 8px; letter-spacing: .04em; }
+.moon-studio .console-head > span { color: #9da991; font-size: 6px; }
+.moon-studio .console-body { padding: 16px; }
+.moon-studio .mp-config { gap: 12px; }
+.moon-studio .home-gateway-intro h2 { color: #3d553e; font-size: 21px; font-weight: 650; }
+.moon-studio .home-gateway-intro p { color: #8a987f; font-size: 10px; }
+.moon-studio .mp-actions-grid { grid-template-columns: minmax(0, 1fr); gap: 9px; }
+.moon-studio .mp-actions-grid .mp-action-card { padding: 12px; gap: 8px; border-color: #e0e7d8; border-radius: 11px; background: #f4f7ef; }
+.moon-studio .mp-actions-grid .join-card { background: #f9faf6; }
+.moon-studio .mp-card-header b { color: #4a6245; font-size: 15px; font-weight: 600; }
+.moon-studio .mp-card-header small { color: #8e9d80; font-size: 6px; letter-spacing: .06em; }
+.moon-studio .mp-actions-grid .mp-card-desc { color: #8b9980; font-size: 10px; line-height: 1.5; }
+.moon-studio .mp-btn-primary, .moon-studio .launch-button { min-height: 38px; border: 1px solid #365e4d; border-radius: 7px; background: #3c6552; color: #f4f9ed; box-shadow: 0 4px 8px #375c4212; font-size: 9px; }
+.moon-studio .mp-btn-secondary { color: #617454; background: #edf2e5; border-color: #d5dfc9; box-shadow: none; font-size: 8px; }
+.moon-studio .mp-btn-secondary:hover:not(:disabled) { color: #344f36; background: #e1eacb; border-color: #b3c59a; }
+.moon-studio .mp-code-entry-form { display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: 7px; }
+.moon-studio .mp-actions-grid .mp-btn-secondary { min-height: 36px; }
+.moon-studio .mp-field { background: #f2f5ed; border-color: #dce4d2; color: #4b6149; font-size: 11px; margin-top: 6px; padding: 8px 10px; }
+.moon-studio .mp-field::placeholder { color: #a3b095; }
+.moon-studio .mp-field:focus { border-color: #93b18b; box-shadow: 0 0 0 3px #93b18b15; }
+.moon-studio .mp-code-entry-form .mp-code-input { min-height: 36px; margin: 0; border-color: #dae2cf; background: #fff; color: #48674d; font-size: 11px; }
+.moon-studio .home-wardrobe { border-color: #e0e7d8; border-radius: 11px; background: #fdfefb; }
+.moon-studio .home-wardrobe summary { gap: 8px; padding: 11px 10px; }
+.moon-studio .home-wardrobe summary small { color: #95a189; font-size: 6px; }
+.moon-studio .home-wardrobe summary strong { color: #4d6348; font-size: 12px; }
+.moon-studio .home-wardrobe summary em { color: #91a086; font-size: 8px; }
+.moon-studio .home-wardrobe summary > b { color: #819373; font-size: 7px; white-space: nowrap; }
+.moon-studio .home-wardrobe .mp-customizer-card { display: block; margin: 0; padding: 0 11px 12px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.moon-studio .field-label { color: #6c805d; font-size: 8px; letter-spacing: .04em; }
+.moon-studio .field-label span { color: #91a183; font-size: 8px; }
+.moon-studio .mp-palette { gap: 6px; margin: 9px 0 15px; }
+.moon-studio .mp-color-btn { width: 25px; height: 25px; border: 3px solid #fdfefb; box-shadow: 0 0 0 1px #dce5d5; }
+.moon-studio .mp-color-btn.active { box-shadow: 0 0 0 2px #83a272; }
+.moon-studio .mp-hat-btn { background: #f4f6ef; border-color: #e4e9dc; color: #93a085; font-size: 6px; padding: 8px 3px 6px; gap: 6px; }
+.moon-studio .mp-hat-btn.active { background: #edf3e1; border-color: #acbf92; color: #64834b; box-shadow: none; }
+.moon-studio .mp-hat-btn .hat-btn-preview { width: 31px; height: 19px; }
+.moon-studio .mp-random-btn { margin-top: 11px; background: #f6f8f0; border-color: #dbe5ce; color: #789063; font-size: 8px; padding: 8px; }
+.moon-studio .mp-random-btn:hover { background: #e6efdb; border-color: #b7cba1; color: #526a44; }
+.moon-studio .mp-open-rooms { padding: 11px; background: #f5f7ef; border-color: #e1e7d8; }
+.moon-studio .mp-open-rooms .field-label { font-size: 7px; }
+.moon-studio .mp-open-rooms .field-label span { font-size: 6px; color: #8b9c7c; margin-left: 6px; }
+.moon-studio .mp-refresh-btn { background: #fafcf6; border-color: #dce6d1; color: #7c9168; font-size: 6px; }
+.moon-studio .mp-open-rooms-empty { border-color: #dfe7d3; color: #91a181; font-size: 9px; line-height: 1.6; }
+.moon-studio .open-room-item { background: #fff; border-color: #e0e8d7; padding: 7px; }
+.moon-studio .open-room-host strong { color: #57714c; font-size: 9px; flex-wrap: wrap; }
+.moon-studio .open-room-host small { color: #94a287; font-size: 8px; }
+.moon-studio .open-room-code { background: #edf3e2; color: #7f9567; }
+.moon-studio .open-room-join-btn { border-color: #c5d7b0; background: #eaf2dd; color: #63814b; font-size: 8px; }
+.moon-studio .lobby-footer { justify-content: center; flex-wrap: wrap; min-height: 0; gap: 16px; padding: 0 10px; border: 0; background: transparent; color: #99a58d; font-size: 6px; letter-spacing: .04em; }
+.moon-studio button:focus-visible, .moon-studio summary:focus-visible, .moon-studio input:focus-visible { outline: 2px solid #7b9d65; outline-offset: 3px; }
+.moon-studio .solo-practice-note, .moon-studio .role-note { color: #829476; font-size: 11px; }
+.moon-studio .role-switch { background: #f1f5e9; border-color: #dce7cf; }
+.moon-studio .role-switch button { color: #7e916e; font-size: 8px; }
+.moon-studio .role-switch button.active { color: #fff; background: #5e8052; box-shadow: none; }
+.moon-studio .role-switch button:last-child.active { background: #b57b75; }
+.moon-studio .console-log, .moon-studio .range-labels { color: #92a37f; }
+.moon-studio .player-range { accent-color: #7c9d64; }
+.moon-studio .puzzle-feedback.error { color: #a45249; background: #fff1e9; border-color: #ebd0c1; }
+.moon-studio .lobby-reconnect { background: #fff6e8; color: #9b6d44; border-color: #e4cfaa; }
+.studio-in-room .studio-stage { display: none !important; }
+.moon-studio.studio-in-room .lobby-console { grid-column: 2 / 4; }
+.moon-studio .room-code-banner { background: #eff5e6; border-color: #d9e5cb; }
+.moon-studio .room-code-display small { color: #7a9464; }
+.moon-studio .room-code-row strong { color: #466837; text-shadow: none; }
+.moon-studio .inroom-profile-bar, .moon-studio .inroom-editor { background: #f5f8f0; border-color: #dce8ce; }
+.moon-studio .inroom-profile-summary strong { color: #4c6742; }
+.moon-studio .inroom-profile-summary small, .moon-studio .inroom-profile-summary span { color: #889d76; }
+.moon-studio .warden-slot-card { background: #f3f7ec; border-color: #dae5ce; }
+.moon-studio .warden-slot-card.is-you { background: #eaf2de; border-color: #a9c28d; }
+.moon-studio .slot-card-meta .roster-name { color: #536e46; }
+.moon-studio .slot-card-meta small { color: #8fa17d; }
+.moon-studio .lobby-comms-box { background: #f6f8f1; border-color: #dce7ce; }
+.moon-studio .lobby-comms-head { background: #edf3e4; color: #789262; border-color: #dce7ce; }
+.moon-studio .lobby-comms-line, .moon-studio .lobby-comms-empty { color: #7e936b; }
+.moon-studio .host-panel { background: #f1f6e8; border-color: #dce7ce; }
+.moon-studio .waiting-status, .moon-studio .bot-checkbox-row { color: #81966c; }
+
+/* Keep the airy palette readable, including the compact inspector labels. */
+.moon-studio .nav-status { font-size: 9px; color: #63765e; }
+.studio-guide .lede, .studio-guide-steps small { color: #66775e; }
+.studio-guide .eyebrow, .studio-guide .home-game-tags span { font-size: 8px; }
+.studio-guide .home-game-tags span, .studio-guide .eyebrow span { color: #627356; }
+.moon-studio .lobby-mode-switch button { font-size: 9px; }
+.moon-studio .live-pill { font-size: 7px; }
+.studio-stage-title small { font-size: 8px; color: #758369; }
+.studio-stage-title p { font-size: 11px; color: #718268; }
+.moon-studio .preview-heading small { font-size: 7px; color: #78876d; }
+.moon-studio .preview-caption { font-size: 10px; color: #66795c; }
+.moon-studio .preview-dialogue { font-size: 11px; }
+.moon-studio .preview-weather button { font-size: 10px; color: #6b7e5d; }
+.moon-studio .console-head { font-size: 9px; }
+.moon-studio .console-head > span { font-size: 7px; color: #7e8e72; }
+.moon-studio .home-gateway-intro p, .moon-studio .mp-actions-grid .mp-card-desc { font-size: 11px; color: #6f8061; }
+.moon-studio .mp-card-header small { font-size: 7px; color: #728363; }
+.moon-studio .mp-btn-primary, .moon-studio .mp-btn-secondary { font-size: 10px; }
+.moon-studio .field-label, .moon-studio .field-label span { font-size: 9px; color: #6b8057; }
+.moon-studio .home-wardrobe summary small { font-size: 7px; color: #7b8d69; }
+.moon-studio .home-wardrobe summary em { font-size: 9px; color: #7a8b68; }
+.moon-studio .home-wardrobe summary > b { font-size: 8px; color: #6b8057; }
+.moon-studio .mp-hat-btn { font-size: 7px; color: #738462; }
+.moon-studio .mp-random-btn { font-size: 9px; color: #647d4e; }
+.moon-studio .mp-open-rooms .field-label { font-size: 8px; }
+.moon-studio .mp-open-rooms .field-label span, .moon-studio .mp-refresh-btn { font-size: 7px; color: #6d8157; }
+.moon-studio .mp-open-rooms-empty { font-size: 10px; color: #71835e; }
+.moon-studio .preview-warden .slime-hat-svg { filter: saturate(.75) brightness(1.04) drop-shadow(0 5px 3px #3654431a); }
+.moon-studio .preview-warden .hat-antlers path:first-child { stroke: #71816a; stroke-width: 5; }
+.moon-studio .preview-warden .hat-antlers path:nth-child(2) { stroke: #c7c3a5; stroke-width: 3; }
+.moon-studio .roster-badge.host { color: #8b6e2c; background: #f3ecd3; border-color: #e4d8af; }
+.moon-studio .roster-badge.you, .moon-studio .slot-ready-pill.ready { color: #5a7b45; background: #e4efd8; border-color: #c8d9b6; }
+.moon-studio .roster-badge.bot, .moon-studio .roster-badge.empty { color: #7b8e70; background: #eef3e7; border-color: #d9e4ce; }
+.moon-studio .room-ping-pill { color: #658854; background: #e4efd9; border-color: #c6dcb6; }
+.moon-studio .copy-code-btn, .moon-studio .wardrobe-toggle-btn, .moon-studio .ghost-code-btn { color: #617c4f; background: #eaf1df; border-color: #cbdcba; box-shadow: none; }
+.moon-studio .lobby-comms-line.system { color: #73866a; }
+.moon-studio .lobby-comms-form button { color: #fff; background: #527347; border-color: #527347; }
+.moon-studio .slot-Count-pills button { color: #7a8f66; background: #f7faf2; border-color: #d3e0c3; }
+.moon-studio .slot-Count-pills button.active { color: #fff; background: #73965b; border-color: #73965b; }
+
+@media (max-width: 1120px) {
+  .moon-studio .lobby-grid { grid-template-columns: 182px minmax(0, 1fr) 296px; gap: 12px; padding-inline: 12px; }
+  .studio-guide { padding: 20px 14px 14px; }
+  .studio-guide h1 { font-size: 26px; }
+  .moon-studio .studio-view-warden .is-you .slime-avatar { width: 205px; height: 228px; }
+  .moon-studio .preview-dialogue { font-size: 9px; padding: 8px; }
+  .studio-view-switch button { min-width: 90px; font-size: 10px; }
+}
+@media (max-width: 1000px) {
+  .studio-frame { height: auto; min-height: calc(100svh - 24px); grid-template-rows: 56px auto 36px; }
+  .moon-studio { padding: 12px; }
+  .moon-studio .lobby-grid { grid-template-columns: minmax(0, 1fr) 310px; align-items: start; justify-items: stretch; }
+  .studio-guide { grid-column: 1 / 3; display: grid; grid-template-columns: 1fr 230px; column-gap: 24px; overflow: visible; padding: 18px; }
+  .studio-guide .eyebrow, .studio-guide .lede, .studio-guide h1 { grid-column: 1; }
+  .studio-guide .eyebrow { margin-bottom: 10px; }
+  .studio-guide h1 { font-size: 29px; }
+  .studio-guide h1 br { display: none; }
+  .studio-guide .lede { margin: 10px 0 0; max-width: 420px; }
+  .studio-guide .lobby-mode-switch { grid-column: 2; grid-row: 1 / 4; align-self: center; margin: 0; }
+  .studio-guide-steps, .studio-guide .home-game-tags, .studio-guide-note { display: none; }
+  .moon-studio .lobby-copy.studio-stage { grid-row: 2; grid-column: 1; height: 600px; }
+  .moon-studio .lobby-copy > .sanctuary-preview { width: 100%; margin-top: 12px; }
+  .moon-studio .lobby-console { grid-column: 2; grid-row: 2; height: auto; overflow: visible; }
+  .moon-studio .studio-view-warden .is-you .slime-avatar { width: 235px; height: 262px; }
+  .moon-studio .preview-warden .slime-avatar-lg { width: 70px; height: 80px; }
+  .moon-studio.studio-in-room .lobby-console { grid-column: 1 / 3; }
+}
+@media (max-width: 700px) {
+  .moon-studio { padding: 7px; }
+  .studio-frame { border-radius: 19px; }
+  .moon-studio .lobby-nav { padding: 0 17px; }
+  .moon-studio .nav-status { display: none; }
+  .moon-studio .lobby-grid { grid-template-columns: minmax(0, 1fr); padding: 0 10px 10px; gap: 13px; }
+  .studio-guide { grid-column: 1; grid-template-columns: 1fr; padding: 18px; gap: 0; }
+  .studio-guide .eyebrow, .studio-guide h1, .studio-guide .lede, .studio-guide .lobby-mode-switch { grid-column: 1; grid-row: auto; }
+  .studio-guide h1 { font-size: 28px; }
+  .studio-guide .lede { font-size: 11px; margin-bottom: 16px; }
+  .studio-guide .lobby-mode-switch { flex-direction: row; }
+  .moon-studio .lobby-mode-switch button { font-size: 7px; padding: 9px 7px; }
+  .moon-studio .lobby-copy.studio-stage { grid-column: 1; grid-row: 3; height: 530px; }
+  .moon-studio .lobby-console, .moon-studio.studio-in-room .lobby-console { grid-column: 1; grid-row: 2; }
+  .moon-studio .console-body { padding: 16px; }
+  .moon-studio .preview-moon { right: 5%; }
+  .moon-studio .preview-weather button { font-size: 9px; padding: 9px; }
+  .moon-studio .lobby-footer { display: flex; gap: 9px; padding: 8px; }
+}

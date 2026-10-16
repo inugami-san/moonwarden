@@ -27,7 +27,10 @@ const sessions =
   globalForSessions.__moonwardenHttpSessions ||
   (globalForSessions.__moonwardenHttpSessions = new Map<string, HttpPlayerSession>());
 
-const SESSION_TIMEOUT_MS = 18_000;
+// Background tabs can throttle polling to once a minute. Give them time to
+// return without deleting the host and its room during a multi-tab playtest.
+// This grace period does not make process memory shared across Vercel instances.
+const SESSION_TIMEOUT_MS = 120_000;
 
 function cleanupStaleSessions(now: number) {
   for (const [id, session] of sessions.entries()) {

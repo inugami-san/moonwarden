@@ -45,8 +45,8 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
     const x = Math.cos(angle) * (28 + (i % 3) * 5);
     const y = 14 + Math.sin(angle) * 15;
     const stone = ctx.createLinearGradient(x, y - 6, x + 6, y + 7);
-    stone.addColorStop(0, i % 2 ? "#536457" : "#65716a");
-    stone.addColorStop(1, "#26372e");
+    stone.addColorStop(0, locked ? (i % 2 ? "#536457" : "#65716a") : (i % 2 ? "#84977a" : "#9eafa0"));
+    stone.addColorStop(1, locked ? "#26372e" : "#4c6950");
     ctx.fillStyle = stone;
     ctx.beginPath();
     ctx.ellipse(x, y, 8 + i % 3, 5, angle, 0, Math.PI * 2);
@@ -81,7 +81,7 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
     for (let i = 0; i < 3; i++) {
       const x = side * (28 + i * 7);
       const y = 10 + i * 4;
-      ctx.fillStyle = locked ? "#293c2d" : completed ? "#5c7951" : "#3d5c3d";
+      ctx.fillStyle = locked ? "#293c2d" : completed ? "#8caa70" : "#6d945d";
       ctx.beginPath();
       ctx.ellipse(x, y - 3, 7, 2.6, side * -0.7, 0, Math.PI * 2);
       ctx.fill();
@@ -89,9 +89,9 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
   }
 
   const rock = ctx.createLinearGradient(-16, -26, 21, 24);
-  rock.addColorStop(0, "#82918a");
-  rock.addColorStop(0.4, "#485e55");
-  rock.addColorStop(1, "#24392f");
+  rock.addColorStop(0, locked ? "#82918a" : "#b8cbbb");
+  rock.addColorStop(0.4, locked ? "#485e55" : "#7e9c85");
+  rock.addColorStop(1, locked ? "#24392f" : "#4b7057");
   ctx.fillStyle = rock;
   ctx.strokeStyle = "rgba(13,26,20,.8)";
   ctx.lineWidth = 1.5;

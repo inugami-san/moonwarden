@@ -150,6 +150,7 @@ const PHANTOM_SEEDS = [
   { x: 1040, y: 220, rx: 92, ry: 105, speed: 0.9, phase: 5.6 },
 ];
 const NAMES = ["Bubbles", "Mochi", "Gloop", "Pebble", "Nori", "Fizz", "Wobble", "Pip"];
+const WARDEN_ALIBIS = ["Cute hat. Very convincing alibi.", "My alibi? Excellent moon-gazing.", "I swear the fog followed me here."];
 const HATS: Hat[] = ["antlers", "hood", "moth", "mooncap"];
 const ITEM_LABELS: Record<ItemKind, string> = { FLASHLIGHT: "Flashlight", FLARE: "Signal Flare", SONAR: "Sonar" };
 const HAZARD_LABELS: Record<Hazard, string> = {
@@ -1822,9 +1823,9 @@ class OrdealEngine {
     ctx.clearRect(0, 0, W, H);
 
     const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, "#11132f");
-    bg.addColorStop(0.52, "#091421");
-    bg.addColorStop(1, "#020609");
+    bg.addColorStop(0, "#29365b");
+    bg.addColorStop(0.52, "#223b4c");
+    bg.addColorStop(1, "#132c32");
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
@@ -1847,7 +1848,7 @@ class OrdealEngine {
     ctx.fill();
 
     // Layered peaks make the sanctuary feel suspended over a mountain range.
-    ctx.fillStyle = "#10172a";
+    ctx.fillStyle = "#354760";
     ctx.beginPath();
     ctx.moveTo(0, 244);
     ctx.lineTo(160, 82);
@@ -1862,7 +1863,7 @@ class OrdealEngine {
     ctx.lineTo(0, 310);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = "rgba(173,190,217,.2)";
+    ctx.fillStyle = "rgba(202,218,239,.36)";
     ctx.beginPath();
     ctx.moveTo(128, 116);
     ctx.lineTo(160, 82);
@@ -1881,14 +1882,14 @@ class OrdealEngine {
     ctx.fill();
 
     ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,.8)";
+    ctx.shadowColor = "rgba(5,16,27,.55)";
     ctx.shadowBlur = 38;
     const outerStone = ctx.createLinearGradient(0, ROOM.top, 0, ROOM.bottom);
-    outerStone.addColorStop(0, "#65727e");
-    outerStone.addColorStop(0.4, "#36434a");
-    outerStone.addColorStop(1, "#202b2c");
+    outerStone.addColorStop(0, "#93a9b1");
+    outerStone.addColorStop(0.4, "#607d83");
+    outerStone.addColorStop(1, "#3e5a5b");
     ctx.fillStyle = outerStone;
-    ctx.strokeStyle = "#0b1014";
+    ctx.strokeStyle = "#233a43";
     ctx.lineWidth = 18;
     ctx.beginPath();
     ctx.roundRect(ROOM.left, ROOM.top, ROOM.right - ROOM.left, ROOM.bottom - ROOM.top, 64);
@@ -1900,9 +1901,10 @@ class OrdealEngine {
     ctx.restore();
 
     const sanctuaryFloor = ctx.createRadialGradient(640, 360, 50, 640, 380, 680);
-    sanctuaryFloor.addColorStop(0, "#263e3b");
-    sanctuaryFloor.addColorStop(0.46, "#172e2d");
-    sanctuaryFloor.addColorStop(1, "#0b1b1d");
+    // Lift the moonlit stone itself, not the final frame: Ordeal masks stay intact.
+    sanctuaryFloor.addColorStop(0, "#476960");
+    sanctuaryFloor.addColorStop(0.46, "#35584f");
+    sanctuaryFloor.addColorStop(1, "#203e3c");
     ctx.fillStyle = sanctuaryFloor;
     ctx.beginPath();
     ctx.roundRect(ROOM.left + 22, ROOM.top + 22, ROOM.right - ROOM.left - 44, ROOM.bottom - ROOM.top - 44, 46);
@@ -1937,8 +1939,8 @@ class OrdealEngine {
     ctx.save();
     ctx.translate(640, 382);
     const medallion = ctx.createRadialGradient(0, 0, 18, 0, 0, 105);
-    medallion.addColorStop(0, "rgba(123,157,185,.34)");
-    medallion.addColorStop(1, "rgba(9,29,34,.18)");
+    medallion.addColorStop(0, "rgba(177,206,220,.4)");
+    medallion.addColorStop(1, "rgba(44,79,76,.18)");
     ctx.fillStyle = medallion;
     ctx.strokeStyle = "rgba(200,216,236,.42)";
     ctx.lineWidth = 3;
@@ -1950,7 +1952,7 @@ class OrdealEngine {
     ctx.beginPath();
     ctx.arc(-9, -4, 50, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = "#193331";
+    ctx.fillStyle = "#42675c";
     ctx.beginPath();
     ctx.arc(12, -15, 48, 0, Math.PI * 2);
     ctx.fill();
@@ -1974,15 +1976,15 @@ class OrdealEngine {
     // Moonstone pillars and climbing roots frame the glade.
     for (const side of [-1, 1]) {
       const x = side < 0 ? 116 : 1164;
-      ctx.strokeStyle = "rgba(82,109,91,.72)";
+      ctx.strokeStyle = "rgba(130,166,126,.78)";
       ctx.lineWidth = 8;
       ctx.beginPath();
       ctx.moveTo(x, 188);
       ctx.bezierCurveTo(x + side * 28, 270, x - side * 24, 492, x + side * 18, 580);
       ctx.stroke();
       for (let y = 205; y < 590; y += 58) {
-        ctx.fillStyle = y % 116 ? "#455258" : "#59666c";
-        ctx.strokeStyle = "#182126";
+        ctx.fillStyle = y % 116 ? "#718b8d" : "#8aa0a1";
+        ctx.strokeStyle = "#30494e";
         ctx.lineWidth = 3;
         ctx.beginPath();
         ctx.roundRect(x - 15, y, 30, 43, 9);
@@ -2052,8 +2054,8 @@ class OrdealEngine {
     ctx.roundRect(x, y, width, height, 28);
     ctx.clip();
     const sky = ctx.createLinearGradient(0, y, 0, y + height);
-    sky.addColorStop(0, "#202c55");
-    sky.addColorStop(1, "#71809a");
+    sky.addColorStop(0, "#485d88");
+    sky.addColorStop(1, "#a3b8c9");
     ctx.fillStyle = sky;
     ctx.fillRect(x, y, width, height);
     for (let i = 0; i < 12; i += 1) {
@@ -2068,7 +2070,7 @@ class OrdealEngine {
       ctx.arc(x + width - 48, y + 25, 17, 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.fillStyle = "#344354";
+    ctx.fillStyle = "#5f7c91";
     ctx.beginPath();
     ctx.moveTo(x - 8, y + height);
     ctx.lineTo(x + 65, y + 22 + seed * 7);
@@ -2077,7 +2079,7 @@ class OrdealEngine {
     ctx.lineTo(x + width + 8, y + height);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = "#152824";
+    ctx.fillStyle = "#355c50";
     for (let i = 0; i < 11; i += 1) {
       const pineX = x + 7 + i * (width / 10);
       const pineHeight = 17 + ((i * 7 + seed * 9) % 24);
@@ -2090,7 +2092,7 @@ class OrdealEngine {
     }
     ctx.restore();
     ctx.save();
-    ctx.strokeStyle = "#7d898e";
+    ctx.strokeStyle = "#a1b6bb";
     ctx.lineWidth = 9;
     ctx.beginPath();
     ctx.roundRect(x, y, width, height, 28);
@@ -2123,8 +2125,8 @@ class OrdealEngine {
     for (let i = 0; i < 5; i += 1) {
       const treeX = direction * (-34 + i * 18);
       const treeHeight = 42 + ((i * 13) % 39);
-      ctx.fillStyle = "#172823";
-      ctx.strokeStyle = "#08120f";
+      ctx.fillStyle = "#315c47";
+      ctx.strokeStyle = "#203c33";
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.moveTo(treeX, -treeHeight);
@@ -2133,7 +2135,7 @@ class OrdealEngine {
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = "rgba(142,183,170,.22)";
+      ctx.fillStyle = "rgba(178,217,176,.4)";
       ctx.beginPath();
       ctx.moveTo(treeX, -treeHeight + 7);
       ctx.lineTo(treeX - 7, -treeHeight + 28);
@@ -2141,7 +2143,7 @@ class OrdealEngine {
       ctx.closePath();
       ctx.fill();
     }
-    ctx.fillStyle = "#273732";
+    ctx.fillStyle = "#49694e";
     ctx.beginPath();
     ctx.ellipse(0, 9, 61, 18, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -2160,9 +2162,9 @@ class OrdealEngine {
     ctx.ellipse(0, 39, 91, 42, 0, 0, Math.PI * 2);
     ctx.fill();
     const base = ctx.createRadialGradient(-18, -18, 5, 0, 0, 70);
-    base.addColorStop(0, "#9ca8aa");
-    base.addColorStop(0.5, "#596769");
-    base.addColorStop(1, "#283437");
+    base.addColorStop(0, "#bccfca");
+    base.addColorStop(0.5, "#7f9a94");
+    base.addColorStop(1, "#47635e");
     ctx.fillStyle = base;
     ctx.strokeStyle = "#11191c";
     ctx.lineWidth = 7;
@@ -2338,7 +2340,7 @@ class OrdealEngine {
     ctx.save();
     ctx.translate(x, y);
     ctx.transform(squash, 0, -lean / 70, 1 / squash, 0, 0);
-    ctx.drawImage(slimeSkin(baseColor), -48, -54, 96, 112);
+    ctx.drawImage(slimeSkin(baseColor, !colorMuted), -48, -54, 96, 112);
     ctx.restore();
 
     const blink = (this.elapsed + seed * 0.037) % 6.3 < 0.16;
@@ -2830,7 +2832,11 @@ function Lobby({
   multiplayerClient?: MultiplayerClient | null;
   mpState?: MultiplayerState | null;
 }) {
-  const [tab, setTab] = useState<"SOLO" | "MULTI">("SOLO");
+  const [tab, setTab] = useState<"SOLO" | "MULTI">("MULTI");
+  const [previewMood, setPreviewMood] = useState<"CALM" | "FOG" | "BLACKOUT">("CALM");
+  const [previewSpeaker, setPreviewSpeaker] = useState(2);
+  const [previewQuip, setPreviewQuip] = useState(0);
+  const [studioView, setStudioView] = useState<"WARDEN" | "CIRCLE">("WARDEN");
   const [players, setPlayers] = useState(6);
   const [role, setRole] = useState<RoleChoice>("RANDOM");
 
@@ -2847,7 +2853,9 @@ function Lobby({
   const [lobbyChatDraft, setLobbyChatDraft] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
   const [isRefreshingRooms, setIsRefreshingRooms] = useState(false);
+  const [roomsChecked, setRoomsChecked] = useState(false);
   const [mpError, setMpError] = useState("");
+  const lobbyConsoleRef = useRef<HTMLDivElement>(null);
 
   const inRoom = Boolean(mpState?.roomCode);
   const activeTargetPlayers = inRoom && mpState ? mpState.targetPlayers : targetPlayers;
@@ -2856,27 +2864,40 @@ function Lobby({
   const readyCount = inRoom && mpState ? mpState.players.filter((p) => p.ready || p.isHost).length : 0;
   const displayError = mpError || mpState?.lastError || "";
   const occupiedColors = new Set(mpState?.players.filter((p) => p.id !== mpState.playerId).map((p) => p.color) ?? []);
+  const showRoomResults = Boolean(mpState?.connected && roomsChecked);
+
+  useEffect(() => {
+    lobbyConsoleRef.current?.scrollTo(0, 0);
+  }, [inRoom, tab]);
 
   useEffect(() => {
     if (!multiplayerClient) return;
     const unsubscribe = multiplayerClient.onStateChange((state) => {
+      if (!state.connected) setRoomsChecked(false);
       const own = state.players.find((p) => p.id === state.playerId);
       if (own) {
         setSelectedColor(own.color);
         setSelectedHat(own.hat);
       }
     });
-    return () => { unsubscribe(); };
+    const unsubscribeRooms = multiplayerClient.onMessage((message) => {
+      if (message.type === "ROOMS_LIST") setRoomsChecked(true);
+      if (message.type === "ROOM_STATE") setRoomsChecked(false);
+    });
+    return () => { unsubscribe(); unsubscribeRooms(); };
   }, [multiplayerClient]);
 
   const handleRefreshRooms = async () => {
     if (!multiplayerClient) return;
+    setMpError("");
+    multiplayerClient.clearError();
+    setRoomsChecked(false);
     setIsRefreshingRooms(true);
     try {
       await multiplayerClient.connect();
       multiplayerClient.requestRoomsList();
-    } catch {
-      // Quietly ignore background room list errors until explicit action
+    } catch (error) {
+      setMpError(error instanceof Error ? error.message : "Could not find rooms. Please try again.");
     } finally {
       window.setTimeout(() => setIsRefreshingRooms(false), 260);
     }
@@ -2921,8 +2942,8 @@ function Lobby({
     try {
       await multiplayerClient.connect();
       multiplayerClient.createRoom(nickname.trim() || "Warden", selectedColor, selectedHat);
-    } catch {
-      setMpError("Failed to connect to game server. Verify server is running.");
+    } catch (error) {
+      setMpError(error instanceof Error ? error.message : "Failed to connect to game server. Please retry.");
     } finally {
       setIsConnecting(false);
     }
@@ -2937,8 +2958,8 @@ function Lobby({
     try {
       await multiplayerClient.connect();
       multiplayerClient.joinRoom(codeToJoin, nickname.trim() || "Warden", selectedColor, selectedHat);
-    } catch {
-      setMpError("Failed to connect to room. Verify code and server connection.");
+    } catch (error) {
+      setMpError(error instanceof Error ? error.message : "Failed to connect to room. Verify code and server connection.");
     } finally {
       setIsConnecting(false);
     }
@@ -2967,7 +2988,8 @@ function Lobby({
   };
 
   return (
-    <main className="lobby-shell">
+    <main className={`lobby-shell moon-studio ${inRoom ? "studio-in-room" : ""}`}>
+      <div className="studio-frame">
       <header className="lobby-nav">
         <Logo />
         <div className="nav-status">
@@ -2975,80 +2997,123 @@ function Lobby({
           {inRoom
             ? `${mpState?.connected ? mpState.transport === "HTTP" ? "HTTP RELAY" : "REALTIME" : "DISCONNECTED"} • ROOM ${hideRoomCode ? "••••" : mpState?.roomCode} • ${mpState?.ping || "—"}MS`
             : tab === "MULTI"
-              ? "SANCTUARY RELAY • WEBSOCKET READY"
+              ? mpState?.connected
+                ? mpState.transport === "HTTP" ? "SANCTUARY • HTTP RELAY" : "SANCTUARY • REALTIME CONNECTED"
+                : "SANCTUARY • CONNECT TO PLAY"
               : "LOCAL NIGHT TRIAL"}
         </div>
       </header>
 
       <section className={`lobby-grid ${tab === "MULTI" ? "lobby-grid-multi" : ""} ${inRoom ? "lobby-grid-room" : ""}`}>
-        <div className="lobby-copy">
-          <div className="eyebrow"><span>SILVERPINE SUMMIT</span><span>MOONRISE 07</span></div>
-          <h1>Guard the moon.<br /><em>Question every shadow.</em></h1>
-          <p className="lede">An ancient sanctuary above the clouds. One hidden saboteur. Restore the moon wards before your circle becomes a collection of suspicious puddles.</p>
-          <div className="phase-ribbon" aria-label="Match phases">
-            <div><small>01</small><b>CALM</b><span>15 SEC</span></div>
-            <i>→</i>
-            <div className="warning-phase"><small>02</small><b>WARNING</b><span>3 SEC</span></div>
-            <i>→</i>
-            <div className="ordeal-phase"><small>03</small><b>ORDEAL</b><span>10 SEC</span></div>
+        <aside className="studio-guide" aria-label="Moonwarden game guide">
+          <div className="eyebrow"><span>SILVERPINE SUMMIT</span></div>
+          <h1>Good friends.<br /><em>Suspicious slimes.</em></h1>
+          <p className="lede">A little magic. A lot of mistrust. Gather your friends, restore the forest shrines, and uncover the impostor.</p>
+          <div className="lobby-mode-switch" role="tablist" aria-label="Game Mode">
+            <button role="tab" aria-selected={tab === "MULTI"} className={tab === "MULTI" ? "active" : ""} onClick={() => handleSwitchTab("MULTI")}>
+              <span>✦ MULTIPLAYER</span><span className="live-pill">{inRoom ? "IN ROOM" : "WITH FRIENDS"}</span>
+            </button>
+            <button role="tab" aria-selected={tab === "SOLO"} className={tab === "SOLO" ? "active" : ""} disabled={inRoom} title={inRoom ? "Leave your room before starting solo practice" : "Practice with AI wardens"} onClick={() => handleSwitchTab("SOLO")}>
+              <span>SOLO PRACTICE</span>
+            </button>
           </div>
+          <details className="studio-guide-steps">
+            <summary>A night in the sanctuary</summary>
+            <div><span>01</span><p><b>Gather your circle</b><small>Create a room. Share your ward code.</small></p></div>
+            <div><span>02</span><p><b>Brave the Ordeals</b><small>Restore shrines. Earn gear. Stay close.</small></p></div>
+            <div><span>03</span><p><b>Discuss. Vote. Repeat.</b><small>One of you has a very bad alibi.</small></p></div>
+          </details>
+          <div className="home-game-tags" aria-label="About the game">
+            <span>4–8 wardens</span><span>One hidden impostor</span><span>Play in your browser</span>
+          </div>
+          <div className="studio-guide-note"><span aria-hidden="true">☽</span><p>Trust the light.<br /><b>Question everyone else.</b></p></div>
+        </aside>
 
-          <div className="crew-showcase" aria-hidden="true">
+        <div className="lobby-copy studio-stage">
+          <div className="studio-view-switch" role="group" aria-label="Character preview view">
+            <button type="button" aria-pressed={studioView === "WARDEN"} onClick={() => { setStudioView("WARDEN"); setPreviewSpeaker(2); }}>Your warden</button>
+            <button type="button" aria-pressed={studioView === "CIRCLE"} onClick={() => setStudioView("CIRCLE")}>The circle</button>
+          </div>
+          <div className={`sanctuary-preview preview-${previewMood.toLowerCase()} studio-view-${studioView.toLowerCase()}`}>
+            <div className="studio-stage-title"><small>{studioView === "WARDEN" ? "YOUR MOONLIT ALTER EGO" : "FRIENDLY FACES. QUESTIONABLE ALIBIS."}</small><h2>{studioView === "WARDEN" ? nickname.trim() || "Warden" : "The usual suspects."}</h2><p>{studioView === "WARDEN" ? `${COLOR_NAMES[selectedColor]} · ${HAT_META[selectedHat].title}` : "Preview circle · not a live room"}</p></div>
+            <div className="preview-heading"><span>✦ A PEEK INTO THE SANCTUARY</span><small>INTERACTIVE PREVIEW</small></div>
+            <div className="preview-moon" aria-hidden="true" />
+            <div className="preview-orbit" aria-hidden="true" />
+            <div className="preview-fireflies" aria-hidden="true">{Array.from({ length: 8 }, (_, i) => <i key={i} style={{ "--i": i, "--top": `${16 + (i * 23) % 70}%` } as React.CSSProperties} />)}</div>
+            <div className="preview-dialogue" role="status" aria-live="polite">
+              <b>{previewSpeaker === 2 ? nickname.trim() || "Warden" : ["Pebble", "Nori", "", "Mochi", "Bubbles"][previewSpeaker]}:</b>{" "}
+              {previewSpeaker === 2 ? WARDEN_ALIBIS[previewQuip] : ["I was at the shrine. Probably.", "That shadow looked familiar…", "", "Who turned off the moon?!", "We can trust each other… right?"][previewSpeaker]}
+            </div>
+            <div className="preview-circle" role="group" aria-label="Meet the preview wardens">
             {COLORS.slice(0, 5).map((color, index) => {
-              const showcaseColor = index === 2 && tab === "MULTI" ? selectedColor : color;
-              const showcaseHat = index === 2 && tab === "MULTI" ? selectedHat : HATS[index % HATS.length];
+              const showcaseColor = index === 2 ? selectedColor : COLORS.filter((hue) => hue !== selectedColor)[index < 2 ? index : index - 1];
+              const showcaseHat = index === 2 ? selectedHat : HATS[index % HATS.length];
               return (
-                <div
-                  className={`mini-slime mini-${index} hat-style-${showcaseHat}`}
-                  style={{ "--slime": showcaseColor } as React.CSSProperties}
+                <button
+                  type="button"
+                  className={`preview-warden ${index === 2 ? "is-you" : ""}`}
+                  aria-label={index === 2 ? "Hear your warden’s alibi" : `Hear ${["Pebble", "Nori", "", "Mochi", "Bubbles"][index]}’s alibi`}
+                  aria-pressed={previewSpeaker === index}
+                  onClick={() => { setPreviewSpeaker(index); if (index === 2) setPreviewQuip((quip) => (quip + 1) % WARDEN_ALIBIS.length); }}
                   key={color}
                 >
-                  <span className="mini-hat"><HatGraphic hat={showcaseHat} /></span>
-                  <span className="eye e1" />
-                  <span className="eye e2" />
-                  <span className="shine" />
-                </div>
+                  <SlimeAvatar color={showcaseColor} hat={showcaseHat} size="lg" />
+                  <span className="preview-name">{index === 2 ? "YOU" : ["Pebble", "Nori", "", "Mochi", "Bubbles"][index]}</span>
+                </button>
               );
             })}
+            </div>
+            <div className="preview-weather" role="group" aria-label="Preview an Ordeal">
+              {(["CALM", "FOG", "BLACKOUT"] as const).map((mood) => (
+                <button type="button" key={mood} aria-pressed={previewMood === mood} onClick={() => setPreviewMood(mood)}>
+                  {mood === "CALM" ? "☽ Moonlit calm" : mood === "FOG" ? "≋ Sea fog" : "✧ Blackout"}
+                </button>
+              ))}
+            </div>
+            <p className="preview-caption" aria-live="polite">{previewMood === "CALM" ? "Tap a slime for an alibi. Then try changing the weather." : previewMood === "FOG" ? "In the fog, colors and accessories give way to anonymous shapes." : "When the light goes out, stay close. Unlit strangers disappear."}</p>
           </div>
         </div>
 
-        <div className={`lobby-console ${tab === "MULTI" ? "lobby-console-multi" : ""} ${inRoom ? "lobby-console-room" : ""}`}>
+        <div ref={lobbyConsoleRef} className={`lobby-console ${tab === "MULTI" ? "lobby-console-multi" : ""} ${inRoom ? "lobby-console-room" : ""}`}>
           <div className="console-head">
             <div>
               <span className="status-dot" />
               {tab === "SOLO"
-                ? "PRIVATE PLAYTEST"
+                ? "SOLO PRACTICE"
                 : inRoom
                   ? `SANCTUARY CIRCLE • ROOM ${hideRoomCode ? "••••" : mpState?.roomCode}`
-                  : "MULTIPLAYER SANCTUARY GATEWAY"}
+                  : "GATHER YOUR CIRCLE"}
             </div>
-            <span>{inRoom ? `${mpState?.players.length ?? 1}/${activeTargetPlayers} WARDENS` : "BUILD 0.9.5"}</span>
+            <span>{inRoom ? `${mpState?.players.length ?? 1}/${activeTargetPlayers} WARDENS` : "MOONWARDEN"}</span>
           </div>
 
           <div className="console-body">
-            <div className="lobby-mode-switch" role="tablist" aria-label="Game Mode">
-              <button
-                role="tab"
-                aria-selected={tab === "SOLO"}
-                className={tab === "SOLO" ? "active" : ""}
-                onClick={() => handleSwitchTab("SOLO")}
-              >
-                <span>✦ SOLO TRIAL (BOTS)</span>
-              </button>
-              <button
-                role="tab"
-                aria-selected={tab === "MULTI"}
-                className={tab === "MULTI" ? "active" : ""}
-                onClick={() => handleSwitchTab("MULTI")}
-              >
-                <span>⚡ MULTIPLAYER</span>
-                <span className="live-pill">{inRoom ? "IN ROOM" : "WS"}</span>
-              </button>
-            </div>
+            {tab === "MULTI" && displayError && (
+              <div className="puzzle-feedback error" role="alert" style={{ marginBottom: 12 }}>
+                {displayError}
+              </div>
+            )}
+
+            {tab === "MULTI" && !mpState?.connected && (isConnecting || isRefreshingRooms) && (
+              <p className="role-note" role="status">Connecting to the sanctuary. A sleeping playtest server can take about a minute to wake up.</p>
+            )}
+
+            {tab === "MULTI" && inRoom && mpState && !mpState.connected && (
+              <div className="lobby-reconnect" role="alert">
+                <strong>CONNECTION LOST</strong>
+                <p>This roster is no longer live. Reconnect before creating or joining a room; the old room may no longer exist.</p>
+                <button type="button" className="mp-btn-secondary" onClick={() => {
+                  multiplayerClient?.disconnect();
+                  multiplayerClient?.clearError();
+                  setMpError("");
+                  setEditingInRoom(false);
+                }}>RETURN TO LOBBY</button>
+              </div>
+            )}
 
             {tab === "SOLO" ? (
               <>
+                <p className="solo-practice-note">A quiet rehearsal with AI wardens. Learn the shrines and Ordeals before inviting your friends.</p>
                 <label className="field-label" htmlFor="player-count">WARDEN CIRCLE <span>{players} SLOTS</span></label>
                 <input id="player-count" className="player-range" type="range" min="4" max="8" value={players} onChange={(event) => setPlayers(Number(event.target.value))} />
                 <div className="range-labels"><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
@@ -3072,6 +3137,7 @@ function Lobby({
               </>
             ) : inRoom && mpState ? (
               <div className="waiting-room">
+                <fieldset className="waiting-room-controls" disabled={!mpState.connected}>
                 {/* Room Code & Controls Banner */}
                 <div className="room-code-banner">
                   <div className="room-code-display">
@@ -3156,15 +3222,14 @@ function Lobby({
                       </div>
                     </div>
 
-                    <div className="mp-palette" role="radiogroup" aria-label="Slime Color">
+                    <div className="mp-palette" role="group" aria-label="Slime Color">
                       {COLORS.map((c) => (
                         <button
                           key={c}
                           type="button"
                           className={`mp-color-btn ${selectedColor === c ? "active" : ""}`}
                           style={{ backgroundColor: c, color: c }}
-                          role="radio"
-                          aria-checked={selectedColor === c}
+                          aria-pressed={selectedColor === c}
                           disabled={occupiedColors.has(c)}
                           onClick={() => handleProfileChange(nickname, c, selectedHat)}
                           title={`${COLOR_NAMES[c]}${occupiedColors.has(c) ? " — taken" : ""}`}
@@ -3173,12 +3238,13 @@ function Lobby({
                       ))}
                     </div>
 
-                    <div className="mp-hat-row" role="radiogroup" aria-label="Hat selection">
+                    <div className="mp-hat-row" role="group" aria-label="Hat selection">
                       {HATS.map((h) => (
                         <button
                           key={h}
                           type="button"
                           className={`mp-hat-btn ${selectedHat === h ? "active" : ""}`}
+                          aria-pressed={selectedHat === h}
                           onClick={() => handleProfileChange(nickname, selectedColor, h)}
                         >
                           <span className="hat-btn-preview">
@@ -3369,6 +3435,7 @@ function Lobby({
 
                     <button
                       className="launch-button"
+                      disabled={!mpState.connected}
                       onClick={() => multiplayerClient?.startMatch(activeBotFill, activeTargetPlayers)}
                     >
                       <span>
@@ -3390,33 +3457,56 @@ function Lobby({
                   </div>
                 )}
 
+                </fieldset>
                 <button className="mp-btn-secondary" onClick={() => multiplayerClient?.leaveRoom()}>
                   LEAVE ROOM
                 </button>
               </div>
             ) : (
               <div className="mp-config">
-                {/* Live Character Customizer Card */}
-                <div className="mp-customizer-card">
-                  <div className="mp-avatar-pedestal">
-                    <div className="pedestal-glow" style={{ "--slime": selectedColor } as React.CSSProperties} />
-                    <SlimeAvatar color={selectedColor} hat={selectedHat} size="lg" />
-                    <div className="pedestal-caption">
-                      <strong>{nickname.trim() || "Warden"}</strong>
-                      <small>
-                        {COLOR_NAMES[selectedColor] || "Slime"} • {HAT_META[selectedHat].title}
-                      </small>
+                <div className="home-gateway-intro">
+                  <h2>Make it a moonlit night.</h2>
+                  <p>Your circle is one invite away.</p>
+                </div>
+                <div className="mp-actions-grid">
+                  <div className="mp-action-card host-card">
+                    <div className="mp-card-header">
+                      <small>MAKE ROOM FOR YOUR FRIENDS</small>
+                      <b>Create a circle</b>
                     </div>
-                    <button
-                      type="button"
-                      className="mp-random-btn"
-                      onClick={handleRandomizeProfile}
-                      title="Randomize Warden Identity"
-                    >
-                      🎲 RANDOMIZE
+                    <p className="mp-card-desc">Your sanctuary. Your invite code. Up to 8 wonderfully suspicious wardens.</p>
+                    <button className="mp-btn-primary" onClick={handleCreateRoom} disabled={isConnecting || !multiplayerClient}>
+                      {isConnecting ? "CONNECTING..." : "✦ CREATE ROOM"}
                     </button>
                   </div>
+                  <div className="mp-action-card join-card">
+                    <div className="mp-card-header">
+                      <small>ALREADY HAVE A WARD CODE?</small>
+                      <b>Join your friends</b>
+                    </div>
+                    <form className="mp-code-entry-form" onSubmit={(e) => { e.preventDefault(); void handleJoinRoom(); }}>
+                      <input
+                        className="mp-field mp-code-input"
+                        maxLength={4}
+                        value={joinCode}
+                        onChange={(e) => setJoinCode(e.target.value.replace(/[^a-zA-Z]/g, "").toUpperCase())}
+                        placeholder="LUNA"
+                        aria-label="4-letter room code"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <button type="submit" className="mp-btn-secondary" disabled={isConnecting || joinCode.length !== 4 || !multiplayerClient}>JOIN ROOM →</button>
+                    </form>
+                  </div>
+                </div>
 
+                <details className="home-wardrobe" open>
+                  <summary>
+                    <SlimeAvatar color={selectedColor} hat={selectedHat} size="sm" />
+                    <span><small>YOU’RE ENTERING AS</small><strong>{nickname.trim() || "Warden"}</strong><em>{COLOR_NAMES[selectedColor]} · {HAT_META[selectedHat].label}</em></span>
+                    <b>WARDROBE <i aria-hidden="true">⌄</i></b>
+                  </summary>
+                <div className="mp-customizer-card">
                   <div className="mp-customizer-controls">
                     <label className="field-label" htmlFor="mp-nickname">
                       WARDEN IDENTITY <span>{nickname.length}/16</span>
@@ -3433,13 +3523,14 @@ function Lobby({
                     <div className="field-label" style={{ marginTop: 12 }}>
                       SLIME HUE <span>{COLOR_NAMES[selectedColor]}</span>
                     </div>
-                    <div className="mp-palette" role="radiogroup" aria-label="Slime Color">
+                    <div className="mp-palette" role="group" aria-label="Slime Color">
                       {COLORS.map((c) => (
                         <button
                           key={c}
                           type="button"
                           className={`mp-color-btn ${selectedColor === c ? "active" : ""}`}
                           style={{ backgroundColor: c, color: c }}
+                          aria-pressed={selectedColor === c}
                           onClick={() => setSelectedColor(c)}
                           title={COLOR_NAMES[c]}
                           aria-label={`Select slime color ${COLOR_NAMES[c] || c}`}
@@ -3450,12 +3541,13 @@ function Lobby({
                     <div className="field-label">
                       HEADDRESS <span>{HAT_META[selectedHat].title.toUpperCase()}</span>
                     </div>
-                    <div className="mp-hat-row" role="radiogroup" aria-label="Hat selection">
+                    <div className="mp-hat-row" role="group" aria-label="Hat selection">
                       {HATS.map((h) => (
                         <button
                           key={h}
                           type="button"
                           className={`mp-hat-btn ${selectedHat === h ? "active" : ""}`}
+                          aria-pressed={selectedHat === h}
                           onClick={() => setSelectedHat(h)}
                         >
                           <span className="hat-btn-preview">
@@ -3465,78 +3557,17 @@ function Lobby({
                         </button>
                       ))}
                     </div>
+                    <button type="button" className="mp-random-btn" onClick={handleRandomizeProfile} title="Randomize Warden Identity">↻ SURPRISE ME</button>
                   </div>
                 </div>
-
-                {displayError && (
-                  <div className="puzzle-feedback error" style={{ marginBottom: 10 }}>
-                    {displayError}
-                  </div>
-                )}
-
-                {/* Host or Join Gateway */}
-                <div className="mp-actions-grid">
-                  <div className="mp-action-card host-card">
-                    <div className="mp-card-header">
-                      <small>HOST PRIVATE OR PUBLIC CIRCLE</small>
-                      <b>NEW SANCTUARY</b>
-                    </div>
-                    <p className="mp-card-desc">
-                      Generate a 4-letter ward code and invite up to 8 players (with optional AI bots).
-                    </p>
-                    <button className="mp-btn-primary" onClick={handleCreateRoom} disabled={isConnecting}>
-                      {isConnecting ? "CONNECTING..." : "✦ CREATE ROOM"}
-                    </button>
-                  </div>
-
-                  <div className="mp-action-card join-card">
-                    <div className="mp-card-header">
-                      <small>HAVE AN INVITE CODE?</small>
-                      <b>JOIN BY WARD CODE</b>
-                    </div>
-                    <form
-                      className="mp-code-entry-form"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        void handleJoinRoom();
-                      }}
-                    >
-                      <div className="mp-code-input-wrap">
-                        <input
-                          className="mp-field mp-code-input"
-                          maxLength={6}
-                          value={joinCode}
-                          onChange={(e) =>
-                            setJoinCode(e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase())
-                          }
-                          placeholder="LUNA"
-                          aria-label="4-letter room code"
-                        />
-                        <div className="mp-code-slots" aria-hidden="true">
-                          {[0, 1, 2, 3].map((idx) => (
-                            <span key={idx} className={joinCode[idx] ? "filled" : ""}>
-                              {joinCode[idx] || "•"}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                      <button
-                        type="submit"
-                        className="mp-btn-secondary"
-                        disabled={isConnecting || !joinCode.trim()}
-                      >
-                        JOIN ROOM →
-                      </button>
-                    </form>
-                  </div>
-                </div>
+                </details>
 
                 {/* Live Open Rooms Browser */}
                 <div className="mp-open-rooms">
                   <div className="mp-open-rooms-head">
                     <div className="field-label">
                       ACTIVE SANCTUARIES{" "}
-                      <span>{mpState?.openRooms.length ?? 0} OPEN</span>
+                      <span>{showRoomResults ? `${mpState?.openRooms.length ?? 0} OPEN` : "NOT CHECKED"}</span>
                     </div>
                     <button
                       type="button"
@@ -3544,11 +3575,11 @@ function Lobby({
                       onClick={handleRefreshRooms}
                       disabled={isRefreshingRooms}
                     >
-                      {isRefreshingRooms ? "SCANNING…" : "↻ REFRESH"}
+                      {isRefreshingRooms ? "SCANNING…" : showRoomResults ? "↻ REFRESH" : "↻ FIND ROOMS"}
                     </button>
                   </div>
 
-                  {mpState?.openRooms && mpState.openRooms.length > 0 ? (
+                  {showRoomResults && mpState?.openRooms && mpState.openRooms.length > 0 ? (
                     <div className="mp-open-rooms-list" role="list">
                       {mpState.openRooms.map((room) => (
                         <div className="open-room-item" key={room.code} role="listitem">
@@ -3577,7 +3608,7 @@ function Lobby({
                     </div>
                   ) : (
                     <div className="mp-open-rooms-empty">
-                      <span>No open circles broadcasting right now. Create a room above to host the first trial!</span>
+                      <span>{isRefreshingRooms ? "Listening for circles in the forest…" : showRoomResults ? "No open circles yet. Create one and bring your friends!" : "Looking for company? Find an open circle, or create your own above."}</span>
                     </div>
                   )}
                 </div>
@@ -3588,6 +3619,7 @@ function Lobby({
       </section>
 
       <footer className="lobby-footer"><span>WASD / ARROWS TO MOVE</span><span>E TASK</span><span>F ITEM</span><span>R REPORT</span><span>Q / SPACE KILL</span></footer>
+      </div>
     </main>
   );
 }

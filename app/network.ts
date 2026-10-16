@@ -44,6 +44,7 @@ export class MultiplayerClient {
   private httpRetry: { messages: C2SMessage[]; requestId: number } | null = null;
   private lastLatencyNotification = 0;
   private lastReceivedAt = 0;
+  private warmupAbort: AbortController | null = null;
 
   private messageHandlers = new Set<(msg: S2CMessage) => void>();
   private stateHandlers = new Set<(state: MultiplayerState) => void>();
@@ -109,6 +110,43 @@ export class MultiplayerClient {
     }
   }
 
+  private markDisconnected(message: string) {
+    this.connected = false;
+    this.lastError = message;
+    this.openRooms = [];
+    if (this.httpPollTimer !== null) window.clearInterval(this.httpPollTimer);
+    if (this.pingInterval !== null) window.clearInterval(this.pingInterval);
+    this.httpPollTimer = null;
+    this.pingInterval = null;
+    this.notifyState();
+  }
+
+  private async warmRealtimeServer(wsUrl: string, generation: number) {
+    const url = new URL(wsUrl);
+    if (!["ws:", "wss:"].includes(url.protocol) || (window.location.protocol === "https:" && url.protocol !== "wss:")) {
+      throw new Error("The realtime server must use a valid secure WebSocket address.");
+    }
+    url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+    url.pathname = "/health";
+    url.search = "";
+    url.hash = "";
+    const abort = new AbortController();
+    this.warmupAbort = abort;
+    // Free playtest servers can need about a minute to wake after inactivity.
+    const timeout = window.setTimeout(() => abort.abort(), 80_000);
+    try {
+      const response = await fetch(url.href, { signal: abort.signal, cache: "no-store", credentials: "omit" });
+      if (!response.ok) throw new Error("Realtime server not ready");
+      if (generation !== this.generation) throw new Error("Connection cancelled");
+    } catch {
+      if (generation !== this.generation) throw new Error("Connection cancelled");
+      throw new Error("The realtime server is waking up or unavailable. Please retry in a moment.");
+    } finally {
+      window.clearTimeout(timeout);
+      if (this.warmupAbort === abort) this.warmupAbort = null;
+    }
+  }
+
   private async startHttpTransport(): Promise<void> {
     if (this.transport === "HTTP" && this.connected) return;
     const generation = this.generation;
@@ -132,6 +170,9 @@ export class MultiplayerClient {
       messages?: S2CMessage[];
     };
     if (generation !== this.generation) throw new Error("Connection cancelled");
+    if (data.ok !== true || typeof data.sessionId !== "string" || !data.sessionId || !Array.isArray(data.messages)) {
+      throw new Error("The game server returned an invalid session. Please reconnect.");
+    }
     this.ping = Math.max(1, Math.round(performance.now() - t0));
     if (data.sessionId) {
       this.httpSessionId = data.sessionId;
@@ -187,23 +228,23 @@ export class MultiplayerClient {
       });
       if (generation !== this.generation) return;
       if (res.status === 409) {
-        this.connected = false;
-        this.lastError = "The room session expired or moved to another server. Return to the lobby to reconnect.";
-        this.notifyState();
+        this.markDisconnected("The room session expired or moved to another server. Return to the lobby to reconnect.");
         return;
       }
       if (!res.ok) throw new Error(`Relay returned ${res.status}`);
       {
-        this.ping = Math.max(1, Math.round(performance.now() - t0));
-        this.httpFailures = 0;
-        this.httpRetry = null;
         const data = (await res.json()) as {
+          ok?: boolean;
           sessionId?: string;
           messages?: S2CMessage[];
         };
-        if (data.sessionId) {
-          this.httpSessionId = data.sessionId;
+        if (generation !== this.generation) return;
+        if (data.ok !== true || data.sessionId !== this.httpSessionId || !Array.isArray(data.messages)) {
+          throw new Error("The game server returned an invalid session response");
         }
+        this.ping = Math.max(1, Math.round(performance.now() - t0));
+        this.httpFailures = 0;
+        this.httpRetry = null;
         if (Array.isArray(data.messages)) {
           for (const msg of data.messages) {
             this.handleIncoming(msg);
@@ -221,9 +262,7 @@ export class MultiplayerClient {
       this.httpRetry = request;
       this.httpFailures += 1;
       if (this.httpFailures >= 3) {
-        this.connected = false;
-        this.lastError = "Connection to the game room was lost. Return to the lobby to reconnect.";
-        this.notifyState();
+        this.markDisconnected("Connection to the game room was lost. Return to the lobby to reconnect.");
       }
     } finally {
       if (generation === this.generation) {
@@ -349,11 +388,7 @@ export class MultiplayerClient {
             window.clearTimeout(connectTimeout);
             if (generation !== this.generation || this.ws !== socket) return;
             if (this.transport === "WS") {
-              this.connected = false;
-              this.lastError = "Connection to the game room was lost. Return to the lobby to reconnect.";
-              if (this.pingInterval) window.clearInterval(this.pingInterval);
-              this.pingInterval = null;
-              this.notifyState();
+              this.markDisconnected("Connection to the game room was lost. Return to the lobby to reconnect.");
             }
             fail();
           };
@@ -365,7 +400,18 @@ export class MultiplayerClient {
         }
       };
 
-      tryConnect(primaryUrl);
+      if (customWsUrl) {
+        void this.warmRealtimeServer(customWsUrl, generation).then(() => {
+          if (generation !== this.generation) { reject(new Error("Connection cancelled")); return; }
+          tryConnect(primaryUrl);
+        }).catch(error => {
+          if (generation === this.generation) {
+            this.lastError = error instanceof Error ? error.message : "Realtime server unavailable";
+            this.notifyState();
+          }
+          reject(error);
+        });
+      } else tryConnect(primaryUrl);
     }).finally(() => {
       if (generation === this.generation) { this.connectPromise = null; this.cancelConnect = null; }
     });
@@ -478,6 +524,13 @@ export class MultiplayerClient {
   }
 
   public send(msg: C2SMessage) {
+    if (!this.connected) {
+      if (msg.type !== "PLAYER_INPUT") {
+        this.lastError ||= "You are disconnected. Return to the lobby and reconnect before using room controls.";
+        this.notifyState();
+      }
+      return;
+    }
     if (this.transport === "WS" && this.ws && this.ws.readyState === WebSocket.OPEN) {
       // Drop disposable movement packets instead of building seconds of lag.
       if (msg.type === "PLAYER_INPUT" && this.ws.bufferedAmount > 16_384) return;
@@ -565,6 +618,10 @@ export class MultiplayerClient {
   }
 
   public leaveRoom() {
+    if (!this.connected) {
+      this.disconnect();
+      return;
+    }
     this.httpOutbox = this.httpOutbox.filter((msg) => msg.type !== "PLAYER_INPUT");
     this.send({ type: "LEAVE_ROOM" });
     this.roomCode = "";
@@ -572,6 +629,7 @@ export class MultiplayerClient {
     this.isHost = false;
     this.players = [];
     this.lobbyChat = [];
+    this.openRooms = [];
     this.state = "LOBBY";
     this.notifyState();
   }
@@ -580,6 +638,8 @@ export class MultiplayerClient {
     this.cancelConnect?.();
     this.cancelConnect = null;
     this.generation += 1;
+    this.warmupAbort?.abort();
+    this.warmupAbort = null;
     this.connectPromise = null;
     this.httpOutbox = [];
     this.httpInFlight = false;
@@ -601,7 +661,7 @@ export class MultiplayerClient {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionId: this.httpSessionId, disconnect: true }),
           keepalive: true,
-        });
+        }).catch(() => undefined);
       } catch {}
     }
     if (this.ws) {
@@ -616,6 +676,7 @@ export class MultiplayerClient {
     this.isHost = false;
     this.players = [];
     this.lobbyChat = [];
+    this.openRooms = [];
     this.state = "LOBBY";
     this.notifyState();
   }

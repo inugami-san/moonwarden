@@ -13,8 +13,10 @@ export function slimeOutline(ctx: CanvasRenderingContext2D) {
 }
 
 /** Bake translucent material, surface grain, and reflected light once per color. */
-export function slimeSkin(color: string): HTMLCanvasElement {
-  const cached = skins.get(color);
+export function slimeSkin(color: string, moonlit = true): HTMLCanvasElement {
+  // Fog/Blackout keep their subdued material, separate from the brighter normal skin.
+  const cacheKey = `${color}:${moonlit}`;
+  const cached = skins.get(cacheKey);
   if (cached) return cached;
   const rgb = [1, 3, 5].map((start) => parseInt(color.slice(start, start + 2), 16));
   const pigment = rgb.map((channel, index) => Math.round(channel * 0.74 + [91, 116, 125][index] * 0.26));
@@ -27,11 +29,11 @@ export function slimeSkin(color: string): HTMLCanvasElement {
   ctx.translate(48, 54);
   slimeOutline(ctx);
   const body = ctx.createLinearGradient(-24, -37, 22, 37);
-  body.addColorStop(0, "rgba(164,186,195,.76)");
-  body.addColorStop(0.17, tone(0.95, 0.88));
-  body.addColorStop(0.46, tone(0.75, 0.64));
-  body.addColorStop(0.8, tone(0.51, 0.89));
-  body.addColorStop(1, "rgba(12,29,39,.96)");
+  body.addColorStop(0, moonlit ? "rgba(202,223,229,.84)" : "rgba(164,186,195,.76)");
+  body.addColorStop(0.17, tone(moonlit ? 1.06 : 0.95, 0.88));
+  body.addColorStop(0.46, tone(moonlit ? 0.97 : 0.75, moonlit ? 0.82 : 0.64));
+  body.addColorStop(0.8, tone(moonlit ? 0.73 : 0.51, 0.89));
+  body.addColorStop(1, moonlit ? "rgba(39,70,79,.94)" : "rgba(12,29,39,.96)");
   ctx.fillStyle = body;
   ctx.fill();
   ctx.save();
@@ -39,7 +41,7 @@ export function slimeSkin(color: string): HTMLCanvasElement {
   const depth = ctx.createRadialGradient(-10, -18, 3, 5, 4, 47);
   depth.addColorStop(0, "rgba(207,229,231,.13)");
   depth.addColorStop(0.48, "rgba(13,38,49,0)");
-  depth.addColorStop(1, "rgba(3,17,28,.57)");
+  depth.addColorStop(1, moonlit ? "rgba(15,41,53,.32)" : "rgba(3,17,28,.57)");
   ctx.fillStyle = depth;
   ctx.fillRect(-42, -46, 84, 94);
   const core = ctx.createRadialGradient(4, 16, 1, 4, 16, 27);
@@ -54,7 +56,7 @@ export function slimeSkin(color: string): HTMLCanvasElement {
   ctx.rotate(-0.32);
   ctx.scale(1, 0.23);
   const reflection = ctx.createRadialGradient(0, 0, 0, 0, 0, 21);
-  reflection.addColorStop(0, "rgba(218,234,237,.4)");
+  reflection.addColorStop(0, moonlit ? "rgba(229,244,242,.52)" : "rgba(218,234,237,.4)");
   reflection.addColorStop(0.5, "rgba(184,207,217,.18)");
   reflection.addColorStop(1, "rgba(184,207,217,0)");
   ctx.fillStyle = reflection;
@@ -97,6 +99,6 @@ export function slimeSkin(color: string): HTMLCanvasElement {
   ctx.strokeStyle = rim;
   ctx.lineWidth = 1;
   ctx.stroke();
-  skins.set(color, canvas);
+  skins.set(cacheKey, canvas);
   return canvas;
 }

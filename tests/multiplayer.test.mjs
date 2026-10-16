@@ -314,6 +314,36 @@ test("Vercel HTTP Realtime Relay (/api/mp): Room Creation, Joining, and Match Sy
   await callApi({ sessionId: guestInit.sessionId, disconnect: true });
 });
 
+test("three relay players can discover, join, and start after a background-tab pause", async (t) => {
+  let now = Date.now();
+  t.mock.method(Date, "now", () => now);
+  const ids = [];
+  const api = async payload => {
+    const response = await POST(new Request("http://localhost/api/mp", { method: "POST", body: JSON.stringify(payload) }));
+    return { status: response.status, ...await response.json() };
+  };
+  t.after(async () => { for (const sessionId of ids) await api({ sessionId, disconnect: true }); });
+  const host = await api({ messages: [{ type: "CREATE_ROOM", playerName: "Host", color: PLAYER_COLORS[0], hat: "hood" }] });
+  ids.push(host.sessionId);
+  const room = host.messages.find(msg => msg.type === "ROOM_STATE");
+  const guest = await api({ messages: [{ type: "JOIN_ROOM", roomCode: room.roomCode, playerName: "Guest", color: PLAYER_COLORS[0], hat: "hood" }] });
+  ids.push(guest.sessionId);
+  // Browsers may only run a background polling timer once per minute.
+  now += 45_000;
+  const third = await api({ messages: [{ type: "LIST_ROOMS" }, { type: "JOIN_ROOM", roomCode: room.roomCode, playerName: "Third", color: PLAYER_COLORS[0], hat: "hood" }] });
+  ids.push(third.sessionId);
+  assert.ok(third.messages.find(msg => msg.type === "ROOMS_LIST").rooms.some(entry => entry.code === room.roomCode));
+  assert.equal(third.messages.find(msg => msg.type === "ROOM_STATE").players.length, 3);
+  const started = await api({ sessionId: host.sessionId, messages: [{ type: "START_MATCH", botFill: true, targetPlayers: 6 }] });
+  assert.equal(started.status, 200);
+  const match = started.messages.find(msg => msg.type === "MATCH_STARTED");
+  assert.ok(match);
+  assert.equal(new Set(match.players.map(player => player.color)).size, 6);
+  for (const sessionId of [guest.sessionId, third.sessionId]) {
+    assert.ok((await api({ sessionId })).messages.some(msg => msg.type === "MATCH_STARTED"));
+  }
+});
+
 test("room colors stay unique on join, profile races, bot fill, and slot reuse", (t) => {
   const room = new GameServerRegistry().createRoom();
   t.after(() => room.destroy());

@@ -40,7 +40,7 @@ Then open `http://localhost:3000` in your browser.
 
 ### Multiplayer
 To play multiplayer with friends or across multiple browser tabs:
-1. Select the **⚡ MULTIPLAYER** tab in the lobby.
+1. Open the lobby's **✦ MULTIPLAYER** mode (selected by default).
 2. Customize your warden nickname, slime color, and hat.
 3. Click **CREATE ROOM** to generate a 4-letter room code (or enter a friend's code and click **JOIN**).
 4. As the host, choose your target party size (4–8 slots) and whether to fill empty slots with AI bots, then click **START MATCH**.
@@ -50,6 +50,36 @@ A standalone WebSocket server is also available via:
 npm run ws # runs WebSocket server on port 3001
 ```
 
+### Persistent room server (Vercel frontend + Render playtest backend)
+
+`render.yaml` describes a **free, single-instance** Node room service in Singapore.
+It uses `npm ci --omit=dev`, `npm run ws`, and `/health`. The server respects the
+host's `PORT`, has protocol-level heartbeats for background tabs, limits packet
+size, and closes connections clearly on restart. `WS_ALLOWED_ORIGINS` controls
+the allowed frontend origins, including CORS for the wake-up health check.
+
+The deployed room server is `wss://moonwarden-rooms.onrender.com/ws`, built from
+`codex/persistent-room-server` in GitHub. Production `NEXT_PUBLIC_WS_URL` on the
+Vercel project serving **moonwarden-two.vercel.app** points to this address.
+Rebuild and deploy the frontend whenever this public URL changes. The site is currently released directly
+through the Vercel CLI; pushing GitHub alone does not update this site's deployment.
+The Render room service still needs its source code published to its configured Git
+branch. Keep backend auto-deployment off to avoid interrupting active matches.
+The allowed frontend origins include `moonwarden-two.vercel.app`, its
+`moonwarden-christainj.vercel.app` alias, and the previous `moonwarden-pi.vercel.app`
+site. The client waits up to 80 seconds for `/health` before
+opening the socket; failures never fall back to unrelated HTTP rooms.
+
+Free Render services sleep after inactivity and can take about a minute to wake.
+Rooms are live only while that single process is running: restarting, redeploying,
+or sleeping clears them. Do not scale beyond one instance without shared room
+storage/coordination. Do not promise an always-on or restart-resilient service on
+the free plan. Backend auto-deployment is off so releases can be coordinated
+outside active matches. See [Render's free-service limits](https://render.com/docs/free).
+
+Run `npm run test:ws` to exercise health, origin checks, and three actual WebSocket
+clients discovering a room, joining, starting a match, and receiving movement.
+
 ### Current Vercel setup and latency
 
 Without `NEXT_PUBLIC_WS_URL`, a `*.vercel.app` frontend uses `/api/mp` HTTP polling.
@@ -58,6 +88,9 @@ time. The client keeps local movement responsive, buffers remote snapshots, caps
 prediction after missing updates, and coalesces queued positions. Movement packets
 omit profiles; world snapshots run at 5Hz, with immediate gameplay events. Failed
 HTTP requests retry by request ID to avoid duplicate actions.
+Inactive relay sessions have a two-minute grace period for background-tab
+throttling. Lost connections now stop polling, disable stale waiting-room controls,
+show errors inside the room, and offer a return-to-lobby recovery action.
 
 The relay and room registry currently live in process memory. They are suitable
 for local testing on one process, but do not provide shared or durable rooms across

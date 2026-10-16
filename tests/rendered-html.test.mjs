@@ -21,10 +21,45 @@ test("server-renders the Moonwarden lobby", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>Moonwarden — Trust the Light<\/title>/i);
-  assert.match(html, /ORDEAL/);
+  assert.match(html, /Ordeal/i);
   assert.match(html, /SILVERPINE SUMMIT/);
-  assert.match(html, /ENTER THE MOONWARD/);
+  assert.match(html, /CREATE ROOM/);
+  assert.match(html, /JOIN ROOM/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
+});
+
+test("homepage prioritizes multiplayer with an accessible, clearly labeled local preview", async () => {
+  const html = await (await render()).text();
+  const modes = html.match(/<div class="lobby-mode-switch"[\s\S]*?<\/div>/)?.[0];
+  assert.match(modes ?? "", /aria-selected="true"[^>]*><span>✦ MULTIPLAYER/);
+  assert.match(modes ?? "", /aria-selected="false"[\s\S]*?SOLO PRACTICE/);
+  assert.ok(html.indexOf("CREATE ROOM") < html.indexOf('class="home-wardrobe"'), "room actions come before the optional wardrobe");
+  assert.match(html, /INTERACTIVE PREVIEW/);
+  assert.match(html, /aria-label="Meet the preview wardens"/);
+  assert.match(html, /aria-label="Preview an Ordeal"/);
+  assert.match(html, /Moonlit calm/);
+  assert.match(html, /Sea fog/);
+  assert.match(html, /Blackout/);
+  assert.match(html, /NOT CHECKED/);
+  const preview = html.match(/class="preview-circle"[\s\S]*?class="preview-weather"/)?.[0] ?? "";
+  const colors = Array.from(preview.matchAll(/style="--slime:([^"]+)"/g), (match) => match[1]);
+  assert.equal(colors.length, 5);
+  assert.equal(new Set(colors).size, 5, "demo wardens have distinct colors too");
+  assert.doesNotMatch(html, /Choose test role|PRIVATE PLAYTEST|SOLO TRIAL \(BOTS\)/);
+});
+
+test("welcome studio adapts the three-panel reference without copying editor controls", async () => {
+  const html = await (await render()).text();
+  assert.match(html, /class="lobby-shell moon-studio /);
+  assert.match(html, /<aside class="studio-guide" aria-label="Moonwarden game guide"/);
+  assert.match(html, /class="lobby-copy studio-stage"/);
+  assert.match(html, /class="lobby-console lobby-console-multi/);
+  assert.match(html, /aria-label="Character preview view"/);
+  assert.match(html, /aria-pressed="true">Your warden/);
+  assert.match(html, /aria-pressed="false">The circle/);
+  assert.match(html, /class="home-wardrobe" open=""/);
+  assert.match(html, /SURPRISE ME/);
+  assert.doesNotMatch(html, /Brainwave|3D Boy Character|Dome Light|Add 3D objects|Export/);
 });
 
 test("includes the complete social-deduction simulation", async () => {
@@ -95,4 +130,13 @@ test("shared kill notice is compact, non-blocking, and preserves private killer 
   assert.doesNotMatch(css, /kill-cinematic|kill-whiteout|kill-camera-shock/);
   assert.match(source, /setTimeout\(\(\) => setKillNotice\(null\), 2400\)/);
   assert.match(source, /className="death-reveal" role="dialog"/);
+});
+
+test("lobby exposes errors inside rooms and disables stale room controls", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /tab === "MULTI" && displayError/);
+  assert.match(source, /className="waiting-room-controls" disabled=\{!mpState.connected\}/);
+  assert.match(source, /This roster is no longer live/);
+  assert.match(source, /RETURN TO LOBBY/);
+  assert.doesNotMatch(source, /WEBSOCKET READY/);
 });
