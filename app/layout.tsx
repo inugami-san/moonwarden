@@ -1,21 +1,22 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "Ordeal Deck — Trust the Light",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
+  title: "Moonwarden — Trust the Light",
   description:
-    "A single-room social deduction game aboard the SS Acheron. Complete tasks, survive the Ordeal, and find the hidden Impostor.",
+    "A moonlit mountain social-deduction game. Restore ancient wards, survive the Ordeal, and expose the hidden Impostor.",
+  openGraph: {
+    title: "Moonwarden — Trust the Light",
+    description: "Restore the moon wards, survive the Ordeal, and expose the shadow in your circle.",
+    images: [{ url: "/og.png", width: 1672, height: 941, alt: "Moonwarden circle beneath the moon at Silverpine Summit" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Moonwarden — Trust the Light",
+    description: "Restore the moon wards, survive the Ordeal, and expose the shadow in your circle.",
+    images: ["/og.png"],
+  },
 };
 
 export default function RootLayout({
@@ -25,11 +26,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

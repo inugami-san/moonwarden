@@ -1,0 +1,8 @@
+.env*
+.git
+.openai
+.wrangler
+.vinext
+dist
+node_modules
+work

@@ -14,30 +14,68 @@ async function render() {
   );
 }
 
-test("server-renders the Ordeal Deck lobby", async () => {
+test("server-renders the Moonwarden lobby", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Ordeal Deck — Trust the Light<\/title>/i);
+  assert.match(html, /<title>Moonwarden — Trust the Light<\/title>/i);
   assert.match(html, /ORDEAL/);
-  assert.match(html, /SS ACHERON/);
-  assert.match(html, /BOARD THE ACHERON/);
+  assert.match(html, /SILVERPINE SUMMIT/);
+  assert.match(html, /ENTER THE MOONWARD/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
-test("ships the complete social-deduction simulation", async () => {
+test("includes the complete social-deduction simulation", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(source, /destination-out/);
   assert.match(source, /TOTAL BLACKOUT/);
   assert.match(source, /THICK SEA FOG/);
+  assert.match(source, /MOON GLARE/);
+  assert.match(source, /MOONGLARE/);
+  assert.match(source, /ROOTWAKE/);
+  assert.match(source, /PHANTOM PROCESSION/);
+  assert.match(source, /FALSE ECHO/);
+  assert.match(source, /resolveRootPosition/);
+  assert.match(source, /drawRootwakeOcclusion/);
+  assert.match(source, /LOCAL WARD/);
+  assert.match(source, /sharesRootCell/);
+  assert.match(source, /visibilityAlpha/);
+  assert.match(source, /saturate\(\.34\) brightness\(\.72\)/);
   assert.match(source, /startMeeting/);
-  assert.match(source, /VOTES TRANSMITTED/);
-  assert.match(source, /SUSPECTED IMPOSTOR/);
+  assert.match(source, /VOTES COUNTED/);
+  assert.match(source, /WARDEN CHANNEL/);
+  assert.match(source, /sendChatMessage/);
+  assert.match(source, /Ghosts cannot speak to the living/);
+  assert.match(source, /Vote totals by player/);
   assert.match(source, /resolveMeeting/);
+  assert.match(source, /createMathPuzzle/);
+  assert.match(source, /createLinkPuzzle/);
+  assert.match(source, /MOON SHRINE/);
+  assert.match(source, /MOONWARDEN SANCTUARY/);
   assert.match(source, /checkWin/);
   assert.match(source, /roleChoice === "IMPOSTOR"/);
   assert.match(source, /roleChoice === "CREWMATE"/);
-  assert.match(source, /AI CREW LINKED/);
+  assert.match(source, /roleReveal/);
+  assert.match(source, /WARDEN/);
+  assert.match(source, /IMPOSTOR/);
+  assert.match(source, /ITEM ACQUIRED/);
+  assert.match(source, /WARD SEALED/);
+  assert.match(source, /MOON SIGHT AWAKENED/);
+  assert.match(source, /KILL_COOLDOWN_SECONDS/);
+  assert.match(source, /killUsedThisOrdeal/);
+  assert.match(source, /one strike per Ordeal/);
+  assert.match(source, /completeStation/);
+  assert.match(source, /resumeAfterDeathReveal/);
+  assert.match(source, /KILLED BY/);
+  assert.match(source, /CONTINUE AS SPECTATOR/);
+  assert.match(source, /kill-cinematic/);
+  assert.match(source, /A WARDEN/);
+  assert.match(source, /WAS DISSOLVED/);
+  assert.match(source, /hostile-moon\.mp3/);
+  assert.match(source, /moonlit-deduction\.mp3/);
+  assert.match(source, /crossfadeTo/);
+  assert.match(source, /BGM ON/);
+  assert.match(source, /WARDENS GATHERED/);
 });

@@ -33,6 +33,33 @@ const localBindingConfig = {
     : [],
 };
 
+import type http from "node:http";
+import type stream from "node:stream";
+import type { ViteDevServer } from "vite";
+
+function gameWebSocketPlugin() {
+  return {
+    name: "moonwarden-ws",
+    async configureServer(server: ViteDevServer) {
+      if (!server.httpServer) return;
+      const { WebSocketServer } = await import("ws");
+      const { handleSocketConnection } = await import("./server/ws-handler");
+      const wss = new WebSocketServer({ noServer: true });
+      server.httpServer.on("upgrade", (req: http.IncomingMessage, socket: stream.Duplex, head: Buffer) => {
+        const url = req.url || "";
+        if (url.startsWith("/api/ws") || url.startsWith("/ws")) {
+          wss.handleUpgrade(req, socket, head, (ws) => {
+            const { onMessage, onClose } = handleSocketConnection(ws);
+            ws.on("message", (data: Buffer | string) => onMessage(data.toString()));
+            ws.on("close", () => onClose());
+            ws.on("error", () => onClose());
+          });
+        }
+      });
+    },
+  };
+}
+
 export default defineConfig(async () => {
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
@@ -50,6 +77,7 @@ export default defineConfig(async () => {
     plugins: [
       vinext(),
       sites(),
+      gameWebSocketPlugin(),
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         config: localBindingConfig,
