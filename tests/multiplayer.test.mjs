@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { POST } from "../app/api/mp/route.ts";
 import { GameServerRegistry } from "../server/game-room.ts";
 
 // Mock WebSocket client for testing protocol
@@ -254,4 +255,51 @@ test("Multiplayer Lobby System: Profile Updates, Ready Toggle, Config Sync, Lobb
 
   room.destroy();
   registry.removeRoom(room.code);
+});
+
+test("Vercel HTTP Realtime Relay (/api/mp): Room Creation, Joining, and Match Sync", async () => {
+  const callApi = async (payload) => {
+    const req = new Request("http://localhost:3000/api/mp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const res = await POST(req);
+    return await res.json();
+  };
+
+  // 1. Host creates room via HTTP relay
+  const hostInit = await callApi({
+    messages: [{ type: "CREATE_ROOM", playerName: "VercelHost", color: "#20d8ed", hat: "antlers" }],
+  });
+  assert.equal(hostInit.ok, true);
+  assert.ok(hostInit.sessionId);
+  const roomState = hostInit.messages.find((m) => m.type === "ROOM_STATE");
+  assert.ok(roomState);
+  assert.equal(roomState.isHost, true);
+
+  // 2. Guest joins room via HTTP relay
+  const guestInit = await callApi({
+    messages: [
+      {
+        type: "JOIN_ROOM",
+        roomCode: roomState.roomCode,
+        playerName: "VercelGuest",
+        color: "#ff5d9e",
+        hat: "mooncap",
+      },
+    ],
+  });
+  assert.equal(guestInit.ok, true);
+  const guestRoomState = guestInit.messages.find((m) => m.type === "ROOM_STATE");
+  assert.ok(guestRoomState);
+  assert.equal(guestRoomState.players.length, 2);
+
+  // 3. Host polls and receives PLAYER_JOINED
+  const hostPoll = await callApi({ sessionId: hostInit.sessionId, messages: [] });
+  assert.ok(hostPoll.messages.some((m) => m.type === "PLAYER_JOINED"));
+
+  // 4. Clean up both HTTP sessions
+  await callApi({ sessionId: hostInit.sessionId, disconnect: true });
+  await callApi({ sessionId: guestInit.sessionId, disconnect: true });
 });

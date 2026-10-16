@@ -27,6 +27,13 @@ export interface MultiplayerState {
 
 export class MultiplayerClient {
   private ws: WebSocket | null = null;
+  private transport: "NONE" | "WS" | "HTTP" = "NONE";
+  private httpSessionId: string = "";
+  private httpOutbox: C2SMessage[] = [];
+  private httpPollTimer: number | null = null;
+  private httpInFlight: boolean = false;
+  private httpFlushRequested: boolean = false;
+
   private messageHandlers = new Set<(msg: S2CMessage) => void>();
   private stateHandlers = new Set<(state: MultiplayerState) => void>();
 
@@ -90,8 +97,96 @@ export class MultiplayerClient {
     }
   }
 
+  private async startHttpTransport(): Promise<void> {
+    if (this.transport === "HTTP" && this.connected) return;
+    const t0 = performance.now();
+    const res = await fetch("/api/mp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: this.httpSessionId || undefined,
+        messages: [],
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP relay failed with status ${res.status}`);
+    }
+    const data = (await res.json()) as {
+      ok?: boolean;
+      sessionId?: string;
+      messages?: S2CMessage[];
+    };
+    this.ping = Math.max(8, Math.round(performance.now() - t0));
+    if (data.sessionId) {
+      this.httpSessionId = data.sessionId;
+    }
+    this.transport = "HTTP";
+    this.connected = true;
+    this.lastError = "";
+    this.notifyState();
+
+    if (Array.isArray(data.messages)) {
+      for (const msg of data.messages) {
+        this.handleIncoming(msg);
+      }
+    }
+
+    if (this.httpPollTimer) {
+      window.clearInterval(this.httpPollTimer);
+    }
+    this.httpPollTimer = window.setInterval(() => {
+      void this.flushHttp();
+    }, 105);
+  }
+
+  private async flushHttp(): Promise<void> {
+    if (this.transport !== "HTTP" || !this.connected) return;
+    if (this.httpInFlight) {
+      this.httpFlushRequested = true;
+      return;
+    }
+    this.httpInFlight = true;
+    this.httpFlushRequested = false;
+
+    const batch = this.httpOutbox.splice(0, this.httpOutbox.length);
+    const t0 = performance.now();
+
+    try {
+      const res = await fetch("/api/mp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: this.httpSessionId || undefined,
+          messages: batch,
+        }),
+      });
+      if (res.ok) {
+        this.ping = Math.max(8, Math.round(performance.now() - t0));
+        const data = (await res.json()) as {
+          sessionId?: string;
+          messages?: S2CMessage[];
+        };
+        if (data.sessionId) {
+          this.httpSessionId = data.sessionId;
+        }
+        if (Array.isArray(data.messages)) {
+          for (const msg of data.messages) {
+            this.handleIncoming(msg);
+          }
+        }
+      }
+    } catch {
+      // Ignore transient network hiccup during poll
+    } finally {
+      this.httpInFlight = false;
+      if (this.httpFlushRequested && this.httpOutbox.length > 0) {
+        void this.flushHttp();
+      }
+    }
+  }
+
   public connect(): Promise<void> {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.connected && (this.transport === "HTTP" || (this.ws && this.ws.readyState === WebSocket.OPEN))) {
       return Promise.resolve();
     }
 
@@ -101,18 +196,54 @@ export class MultiplayerClient {
         return;
       }
 
+      const customWsUrl = process.env.NEXT_PUBLIC_WS_URL;
+      const isVercelDomain = window.location.hostname.endsWith(".vercel.app");
+
+      // On *.vercel.app without an external NEXT_PUBLIC_WS_URL, connect directly via the built-in /api/mp route
+      if (isVercelDomain && !customWsUrl) {
+        this.startHttpTransport().then(resolve).catch(reject);
+        return;
+      }
+
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const host = window.location.host;
-      const primaryUrl = `${protocol}//${host}/api/ws`;
+      const primaryUrl = customWsUrl || `${protocol}//${host}/api/ws`;
 
       let hasResolved = false;
+
+      const fallbackToHttp = () => {
+        if (hasResolved) return;
+        this.startHttpTransport()
+          .then(() => {
+            if (!hasResolved) {
+              hasResolved = true;
+              resolve();
+            }
+          })
+          .catch((err) => {
+            if (!hasResolved) {
+              hasResolved = true;
+              reject(err);
+            }
+          });
+      };
 
       const tryConnect = (url: string, isFallback = false) => {
         try {
           const socket = new WebSocket(url);
           this.ws = socket;
 
+          const connectTimeout = window.setTimeout(() => {
+            if (socket.readyState !== WebSocket.OPEN) {
+              try {
+                socket.close();
+              } catch {}
+            }
+          }, 1600);
+
           socket.onopen = () => {
+            window.clearTimeout(connectTimeout);
+            this.transport = "WS";
             this.connected = true;
             this.lastError = "";
             this.notifyState();
@@ -132,32 +263,32 @@ export class MultiplayerClient {
           };
 
           socket.onclose = () => {
-            this.connected = false;
-            this.notifyState();
-            if (!hasResolved && !isFallback) {
+            window.clearTimeout(connectTimeout);
+            if (this.transport === "WS") {
+              this.connected = false;
+              this.notifyState();
+            }
+            if (!hasResolved && !isFallback && window.location.hostname === "localhost") {
               const fallbackUrl = `${protocol}//${window.location.hostname}:3001`;
               tryConnect(fallbackUrl, true);
+            } else if (!hasResolved) {
+              fallbackToHttp();
             }
           };
 
-          socket.onerror = (err) => {
-            if (!hasResolved && !isFallback) {
+          socket.onerror = () => {
+            window.clearTimeout(connectTimeout);
+            if (!hasResolved && !isFallback && window.location.hostname === "localhost") {
               socket.close();
               const fallbackUrl = `${protocol}//${window.location.hostname}:3001`;
               tryConnect(fallbackUrl, true);
             } else if (!hasResolved) {
-              hasResolved = true;
-              reject(err);
+              socket.close();
+              fallbackToHttp();
             }
           };
-        } catch (err) {
-          if (!hasResolved && !isFallback) {
-            const fallbackUrl = `${protocol}//${window.location.hostname}:3001`;
-            tryConnect(fallbackUrl, true);
-          } else if (!hasResolved) {
-            hasResolved = true;
-            reject(err);
-          }
+        } catch {
+          fallbackToHttp();
         }
       };
 
@@ -267,8 +398,22 @@ export class MultiplayerClient {
   }
 
   public send(msg: C2SMessage) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.transport === "WS" && this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
+      return;
+    }
+    if (this.transport === "HTTP" && this.connected) {
+      if (msg.type === "PLAYER_INPUT") {
+        const existingIdx = this.httpOutbox.findIndex((m) => m.type === "PLAYER_INPUT");
+        if (existingIdx >= 0) {
+          this.httpOutbox[existingIdx] = msg;
+        } else {
+          this.httpOutbox.push(msg);
+        }
+      } else {
+        this.httpOutbox.push(msg);
+        void this.flushHttp();
+      }
     }
   }
 
@@ -348,10 +493,25 @@ export class MultiplayerClient {
       window.clearInterval(this.pingInterval);
       this.pingInterval = null;
     }
+    if (this.httpPollTimer) {
+      window.clearInterval(this.httpPollTimer);
+      this.httpPollTimer = null;
+    }
+    if (this.transport === "HTTP" && this.httpSessionId && typeof window !== "undefined") {
+      try {
+        void fetch("/api/mp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId: this.httpSessionId, disconnect: true }),
+          keepalive: true,
+        });
+      } catch {}
+    }
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
+    this.transport = "NONE";
     this.connected = false;
     this.roomCode = "";
     this.playerId = "";

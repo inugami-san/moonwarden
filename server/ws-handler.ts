@@ -1,9 +1,10 @@
 import { gameRegistry, IWebSocketClient } from "./game-room";
 import type { C2SMessage, S2CMessage } from "./game-types";
 
-export function handleSocketConnection(socket: IWebSocketClient) {
+export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?: string) {
   let currentRoomCode: string | null = null;
-  const playerId: string = `player-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const playerId: string =
+    customPlayerId || `player-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
   const send = (msg: S2CMessage) => {
     try {

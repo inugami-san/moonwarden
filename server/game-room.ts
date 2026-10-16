@@ -589,9 +589,15 @@ export class GameRoom {
     });
   }
 
+  public stepIfPlaying() {
+    if (this.state === "PLAYING" && Date.now() - this.lastTick >= 40) {
+      this.tick();
+    }
+  }
+
   private tick() {
     const now = Date.now();
-    const dt = Math.min((now - this.lastTick) / 1000, 0.1);
+    const dt = Math.min((now - this.lastTick) / 1000, 0.25);
     this.lastTick = now;
 
     // AI Bots movement
@@ -641,6 +647,7 @@ export class GameRoom {
           angle: p.angle,
           flashlight: p.flashlight,
           isHost: p.isHost,
+          ready: p.ready,
           isAi: p.isAi,
         })),
       });
@@ -757,6 +764,12 @@ export class GameServerRegistry {
     }
   }
 
+  tickActiveRooms() {
+    for (const room of this.rooms.values()) {
+      room.stepIfPlaying();
+    }
+  }
+
   listOpenRooms(): RoomSummary[] {
     const list: RoomSummary[] = [];
     for (const room of this.rooms.values()) {
@@ -777,4 +790,10 @@ export class GameServerRegistry {
   }
 }
 
-export const gameRegistry = new GameServerRegistry();
+const globalForMoonwarden = globalThis as unknown as {
+  __moonwardenRegistry?: GameServerRegistry;
+};
+
+export const gameRegistry =
+  globalForMoonwarden.__moonwardenRegistry ||
+  (globalForMoonwarden.__moonwardenRegistry = new GameServerRegistry());
