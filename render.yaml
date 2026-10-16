@@ -1,0 +1,19 @@
+# Optional free playtest backend; creating this file does not provision a service.
+services:
+  - type: web
+    name: moonwarden-rooms
+    runtime: node
+    plan: free
+    region: singapore
+    branch: codex/persistent-room-server
+    buildCommand: npm ci --omit=dev
+    startCommand: npm run ws
+    healthCheckPath: /health
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_VERSION
+        value: 24.15.0
+      - key: NODE_ENV
+        value: production
+      - key: WS_ALLOWED_ORIGINS
+        value: https://moonwarden-two.vercel.app,https://moonwarden-christainj.vercel.app,https://moonwarden-pi.vercel.app,http://localhost:3000,http://127.0.0.1:3000

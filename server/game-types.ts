@@ -21,7 +21,10 @@ export type NetPlayer = {
   isHost: boolean;
   ready?: boolean;
   isAi?: boolean;
+  inputSeq?: number;
 };
+
+export type NetMovement = Pick<NetPlayer, "id" | "x" | "y" | "vx" | "vy" | "angle" | "alive" | "flashlight" | "inputSeq">;
 
 export type RoomSummary = {
   code: string;
@@ -67,6 +70,7 @@ export type NetChatMessage = {
 };
 
 export type C2SMessage =
+  | { type: "PING"; sentAt: number }
   | { type: "CREATE_ROOM"; playerName: string; color: string; hat: Hat }
   | { type: "JOIN_ROOM"; roomCode: string; playerName: string; color: string; hat: Hat }
   | { type: "UPDATE_PROFILE"; playerName: string; color: string; hat: Hat }
@@ -74,17 +78,21 @@ export type C2SMessage =
   | { type: "UPDATE_ROOM_CONFIG"; targetPlayers: number; botFill: boolean }
   | { type: "LIST_ROOMS" }
   | { type: "START_MATCH"; botFill?: boolean; targetPlayers?: number }
-  | { type: "PLAYER_INPUT"; x: number; y: number; vx: number; vy: number; angle: number; flashlight: boolean }
+  | { type: "PLAYER_INPUT"; x: number; y: number; vx: number; vy: number; angle: number; flashlight: boolean; seq?: number }
   | { type: "TRIGGER_KILL"; victimId: string }
   | { type: "TRIGGER_REPORT"; bodyId?: string }
   | { type: "USE_ITEM"; item: ItemKind; x: number; y: number }
-  | { type: "TASK_UPDATE"; stationId: string; reward: ItemKind }
+  | { type: "TASK_UPDATE"; stationId: string; reward: ItemKind; roundId?: number }
   | { type: "SEND_CHAT"; text: string }
   | { type: "CAST_VOTE"; targetId: string | null }
   | { type: "RESOLVE_MEETING" }
   | { type: "LEAVE_ROOM" };
 
 export type S2CMessage =
+  | { type: "PONG"; sentAt: number }
+  | { type: "KILL_RESULT"; accepted: boolean; spent: boolean }
+  | { type: "GEAR_SYNC"; charges: Record<ItemKind, number>; accepted: boolean; item?: ItemKind; stationId?: string; stationCompleted?: boolean; roundId?: number }
+  | { type: "STATION_COMPLETED"; stationId: string; roundId: number; sequence: number }
   | {
       type: "ROOM_STATE";
       roomCode: string;
@@ -108,6 +116,7 @@ export type S2CMessage =
   | { type: "PLAYER_LEFT"; playerId: string; newHostId?: string }
   | { type: "MATCH_STARTED"; role: Role; players: NetPlayer[] }
   | { type: "SYNC_PLAYERS"; players: NetPlayer[] }
+  | { type: "SYNC_MOVEMENT"; players: NetMovement[]; serverTime: number }
   | {
       type: "SYNC_WORLD";
       phase: Phase;
@@ -117,6 +126,8 @@ export type S2CMessage =
       bodies: NetBody[];
       flares: NetFlare[];
       completedStations?: string[];
+      serverTime?: number;
+      roundId?: number;
     }
   | { type: "BODY_SPAWNED"; body: NetBody }
   | { type: "FLARE_SPAWNED"; flare: NetFlare }
