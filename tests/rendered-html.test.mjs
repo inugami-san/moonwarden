@@ -24,7 +24,7 @@ test("server-renders the Moonwarden lobby", async () => {
   assert.match(html, /Ordeal/i);
   assert.match(html, /SILVERPINE SUMMIT/);
   assert.match(html, /CREATE ROOM/);
-  assert.match(html, /JOIN ROOM/);
+  assert.match(html, /JOIN WITH CODE/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
@@ -32,7 +32,7 @@ test("homepage prioritizes multiplayer with an accessible, clearly labeled local
   const html = await (await render()).text();
   const modes = html.match(/<div class="lobby-mode-switch"[\s\S]*?<\/div>/)?.[0];
   assert.match(modes ?? "", /aria-selected="true"[^>]*><span>✦ MULTIPLAYER/);
-  assert.match(modes ?? "", /aria-selected="false"[\s\S]*?SOLO PRACTICE/);
+  assert.match(modes ?? "", /aria-selected="false"[\s\S]*?Practice with AI/);
   assert.ok(html.indexOf("CREATE ROOM") < html.indexOf('class="home-wardrobe"'), "room actions come before the optional wardrobe");
   assert.match(html, /INTERACTIVE PREVIEW/);
   assert.match(html, /aria-label="Meet the preview wardens"/);
@@ -48,7 +48,7 @@ test("homepage prioritizes multiplayer with an accessible, clearly labeled local
   assert.doesNotMatch(html, /Choose test role|PRIVATE PLAYTEST|SOLO TRIAL \(BOTS\)/);
 });
 
-test("welcome studio adapts the three-panel reference without copying editor controls", async () => {
+test("play-first menu exposes entry and name before optional customization", async () => {
   const html = await (await render()).text();
   assert.match(html, /class="lobby-shell moon-studio /);
   assert.match(html, /<aside class="studio-guide" aria-label="Moonwarden game guide"/);
@@ -57,9 +57,33 @@ test("welcome studio adapts the three-panel reference without copying editor con
   assert.match(html, /aria-label="Character preview view"/);
   assert.match(html, /aria-pressed="true">Your warden/);
   assert.match(html, /aria-pressed="false">The circle/);
-  assert.match(html, /class="home-wardrobe" open=""/);
+  assert.match(html, /class="home-wardrobe"/);
+  assert.doesNotMatch(html, /class="home-wardrobe" open/);
+  assert.match(html, /PLAY WITH FRIENDS/);
+  assert.match(html, /JOIN WITH CODE/);
+  assert.match(html, /Your name/);
+  assert.match(html, /How to Play/);
+  assert.ok(html.indexOf('id="play-nickname"') < html.indexOf("CREATE ROOM"));
   assert.match(html, /SURPRISE ME/);
   assert.doesNotMatch(html, /Brainwave|3D Boy Character|Dome Light|Add 3D objects|Export/);
+});
+
+test("wardrobe offers five labeled eye styles with exactly one selected", async () => {
+  const html = await (await render()).text();
+  const picker = html.match(/class="eye-style-options"[\s\S]*?<\/div>/)?.[0] ?? "";
+  for (const label of ["Fierce", "Round", "Dreamy", "Joyful", "Starry"]) {
+    assert.ok(picker.includes(`aria-label="${label} eyes"`));
+  }
+  assert.equal((picker.match(/<button/g) ?? []).length, 5);
+  assert.equal((picker.match(/aria-pressed="true"/g) ?? []).length, 1);
+  assert.match(html, /Hidden when an Ordeal conceals your identity/);
+});
+
+test("join field uses a neutral code hint, not a sample room invitation", async () => {
+  const html = await (await render()).text();
+  assert.match(html, /placeholder="CODE"/);
+  assert.doesNotMatch(html, /placeholder="LUNA"/);
+  assert.match(html, /aria-label="4-letter room code"/);
 });
 
 test("includes the complete social-deduction simulation", async () => {
@@ -88,7 +112,7 @@ test("includes the complete social-deduction simulation", async () => {
   assert.match(source, /createMathPuzzle/);
   assert.match(source, /createLinkPuzzle/);
   assert.match(source, /MOON SHRINE/);
-  assert.match(source, /MOONWARDEN SANCTUARY/);
+  assert.match(source, /drawMoonGlade/);
   assert.match(source, /checkWin/);
   assert.match(source, /roleChoice === "IMPOSTOR"/);
   assert.match(source, /roleChoice === "CREWMATE"/);

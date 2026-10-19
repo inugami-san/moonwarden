@@ -1,15 +1,20 @@
+import type { EyeStyle } from "./appearance";
+
 export type Role = "CREWMATE" | "IMPOSTOR";
 export type RoleChoice = Role | "RANDOM";
 export type Phase = "CALM" | "COUNTDOWN" | "ORDEAL" | "DISCUSSION";
 export type Hazard = "BLACKOUT" | "FOG" | "MOONGLARE" | "ROOTWAKE" | "PHANTOMS";
 export type ItemKind = "FLASHLIGHT" | "FLARE" | "SONAR";
 export type Hat = "antlers" | "hood" | "moth" | "mooncap";
+export type OrdealAbility = "MOON_SIGHT" | "ECHO_LURE";
+export type SoundCue = { id: string; x: number; y: number; expiresAt: number };
 
 export type NetPlayer = {
   id: string;
   name: string;
   color: string;
   hat: Hat;
+  eyeStyle?: EyeStyle;
   role?: Role;
   alive: boolean;
   x: number;
@@ -31,6 +36,7 @@ export type RoomSummary = {
   hostName: string;
   hostColor: string;
   hostHat: Hat;
+  hostEyeStyle?: EyeStyle;
   playerCount: number;
   targetPlayers: number;
   botFill: boolean;
@@ -56,6 +62,7 @@ export type NetVoteTally = {
   targetId: string | null;
   targetName: string;
   targetColor: string | null;
+  targetEyeStyle?: EyeStyle;
   votes: number;
   isTop: boolean;
 };
@@ -71,9 +78,9 @@ export type NetChatMessage = {
 
 export type C2SMessage =
   | { type: "PING"; sentAt: number }
-  | { type: "CREATE_ROOM"; playerName: string; color: string; hat: Hat }
-  | { type: "JOIN_ROOM"; roomCode: string; playerName: string; color: string; hat: Hat }
-  | { type: "UPDATE_PROFILE"; playerName: string; color: string; hat: Hat }
+  | { type: "CREATE_ROOM"; playerName: string; color: string; hat: Hat; eyeStyle?: EyeStyle }
+  | { type: "JOIN_ROOM"; roomCode: string; playerName: string; color: string; hat: Hat; eyeStyle?: EyeStyle }
+  | { type: "UPDATE_PROFILE"; playerName: string; color: string; hat: Hat; eyeStyle?: EyeStyle }
   | { type: "TOGGLE_READY"; ready?: boolean }
   | { type: "UPDATE_ROOM_CONFIG"; targetPlayers: number; botFill: boolean }
   | { type: "LIST_ROOMS" }
@@ -82,6 +89,7 @@ export type C2SMessage =
   | { type: "TRIGGER_KILL"; victimId: string }
   | { type: "TRIGGER_REPORT"; bodyId?: string }
   | { type: "USE_ITEM"; item: ItemKind; x: number; y: number }
+  | { type: "USE_ABILITY"; ability: OrdealAbility; x: number; y: number; roundId: number }
   | { type: "TASK_UPDATE"; stationId: string; reward: ItemKind; roundId?: number }
   | { type: "SEND_CHAT"; text: string }
   | { type: "CAST_VOTE"; targetId: string | null }
@@ -90,6 +98,8 @@ export type C2SMessage =
 
 export type S2CMessage =
   | { type: "PONG"; sentAt: number }
+  | { type: "ABILITY_STATE"; accepted: boolean; used: boolean; sightRemainingMs: number; roundId: number }
+  | { type: "SOUND_CUE"; cue: SoundCue }
   | { type: "KILL_RESULT"; accepted: boolean; spent: boolean }
   | { type: "GEAR_SYNC"; charges: Record<ItemKind, number>; accepted: boolean; item?: ItemKind; stationId?: string; stationCompleted?: boolean; roundId?: number }
   | { type: "STATION_COMPLETED"; stationId: string; roundId: number; sequence: number }
@@ -128,6 +138,7 @@ export type S2CMessage =
       completedStations?: string[];
       serverTime?: number;
       roundId?: number;
+      ordealSeed?: number;
     }
   | { type: "BODY_SPAWNED"; body: NetBody }
   | { type: "FLARE_SPAWNED"; flare: NetFlare }

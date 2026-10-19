@@ -37,6 +37,8 @@ export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?
     if (msg.type === "START_MATCH" && msg.targetPlayers !== undefined && !Number.isFinite(msg.targetPlayers)) return;
     if (msg.type === "CAST_VOTE" && msg.targetId !== null && typeof msg.targetId !== "string") return;
     if (msg.type === "USE_ITEM" && !["FLASHLIGHT", "FLARE", "SONAR"].includes(msg.item)) return;
+    if (msg.type === "USE_ABILITY" && (!["MOON_SIGHT", "ECHO_LURE"].includes(msg.ability)
+      || ![msg.x, msg.y].every(Number.isFinite) || !Number.isSafeInteger(msg.roundId))) return;
     if (msg.type === "TASK_UPDATE" && msg.roundId !== undefined && (!Number.isSafeInteger(msg.roundId) || msg.roundId < 1)) return;
 
     if (msg.type === "PING") {
@@ -53,7 +55,7 @@ export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?
       leaveCurrentRoom();
       const room = gameRegistry.createRoom();
       currentRoomCode = room.code;
-      room.addClient(playerId, socket, msg.playerName, msg.color, msg.hat);
+      room.addClient(playerId, socket, msg.playerName, msg.color, msg.hat, msg.eyeStyle);
       return;
     }
 
@@ -74,7 +76,7 @@ export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?
       }
       leaveCurrentRoom();
       currentRoomCode = room.code;
-      room.addClient(playerId, socket, msg.playerName, msg.color, msg.hat);
+      room.addClient(playerId, socket, msg.playerName, msg.color, msg.hat, msg.eyeStyle);
       return;
     }
 

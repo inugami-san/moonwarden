@@ -3,6 +3,7 @@ import { once } from "node:events";
 import test from "node:test";
 import { WebSocket } from "ws";
 import { createRoomServer } from "../server/ws-service.ts";
+import { gameRegistry } from "../server/game-room.ts";
 
 const FRONTEND_ORIGINS = ["https://moonwarden-two.vercel.app", "https://moonwarden-pi.vercel.app", "https://moonwarden-christainj.vercel.app"];
 
@@ -63,15 +64,19 @@ test("room server health supports the configured frontend and rejects unrelated 
 test("three real WebSocket connections share discovery, roster, colors, start, and movement", async t => {
   const { connect } = await fixture(t);
   const [host, guest, third] = await Promise.all([connect(), connect(), connect()]);
-  send(host, { type: "CREATE_ROOM", playerName: "Host", color: "#20d8ed", hat: "hood" });
+  send(host, { type: "CREATE_ROOM", playerName: "Host", color: "#20d8ed", hat: "hood", eyeStyle: "STARRY" });
   const created = await waitFor(host, "ROOM_STATE");
   for (const [socket, playerName] of [[guest, "Guest"], [third, "Third"]]) {
     send(socket, { type: "LIST_ROOMS" });
     const list = await waitFor(socket, "ROOMS_LIST");
     assert.ok(list.rooms.some(room => room.code === created.roomCode));
-    send(socket, { type: "JOIN_ROOM", roomCode: created.roomCode, playerName, color: "#20d8ed", hat: "hood" });
-    await waitFor(socket, "ROOM_STATE");
+    send(socket, { type: "JOIN_ROOM", roomCode: created.roomCode, playerName, color: "#20d8ed", hat: "hood", eyeStyle: "ROUND" });
+    const joined = await waitFor(socket, "ROOM_STATE");
+    assert.equal(joined.players.find(p => p.id === joined.playerId).eyeStyle, "ROUND");
   }
+  send(host, { type: "UPDATE_PROFILE", playerName: "Host", color: "#20d8ed", hat: "hood", eyeStyle: "JOYFUL" });
+  const roster = await waitFor(third, "LOBBY_UPDATED");
+  assert.equal(roster.players.find(p => p.id === created.playerId).eyeStyle, "JOYFUL");
   const waiting = [host, guest, third].map(socket => waitFor(socket, "MATCH_STARTED"));
   send(host, { type: "START_MATCH", botFill: true, targetPlayers: 6 });
   const matches = await Promise.all(waiting);
@@ -79,10 +84,45 @@ test("three real WebSocket connections share discovery, roster, colors, start, a
     assert.equal(match.players.length, 6);
     assert.equal(new Set(match.players.map(player => player.color)).size, 6);
     assert.equal(match.players.filter(player => !player.isAi).length, 3);
+    assert.equal(match.players.find(p => p.id === created.playerId).eyeStyle, "JOYFUL");
   }
   const player = matches[0].players.find(player => player.id === created.playerId);
   send(host, { type: "PLAYER_INPUT", x: player.x + 4, y: player.y, vx: 0, vy: 0, angle: 0, flashlight: false, seq: 1 });
   const movement = await waitFor(third, "SYNC_MOVEMENT");
   assert.ok(movement.players.some(entry => entry.id === created.playerId));
   assert.ok(movement.players.every(entry => !("role" in entry)), "movement must not expose private roles");
+});
+
+test("real sockets relay anonymous lures and enforce the shared special-action charge", async t => {
+  const { connect } = await fixture(t);
+  const sockets = await Promise.all([connect(), connect(), connect(), connect()]);
+  send(sockets[0], { type: "CREATE_ROOM", playerName: "Host", color: "#20d8ed", hat: "hood" });
+  const created = await waitFor(sockets[0], "ROOM_STATE");
+  for (let i = 1; i < 4; i++) {
+    send(sockets[i], { type: "JOIN_ROOM", roomCode: created.roomCode, playerName: `P${i}`, color: "#20d8ed", hat: "hood" });
+    await waitFor(sockets[i], "ROOM_STATE");
+  }
+  const pending = sockets.map(socket => waitFor(socket, "MATCH_STARTED"));
+  send(sockets[0], { type: "START_MATCH", botFill: false, targetPlayers: 4 });
+  const matches = await Promise.all(pending);
+  const impostor = sockets[matches.findIndex(match => match.role === "IMPOSTOR")];
+  const crew = sockets[matches.findIndex(match => match.role === "CREWMATE")];
+  const room = gameRegistry.getRoom(created.roomCode);
+  room.phase = "ORDEAL"; room.phaseTime = 10; room.hazard = "FOG";
+  for (const player of room.players.values()) { player.x = 640; player.y = 450; }
+  for (const socket of sockets) socket.messages.length = 0;
+  const request = { type: "USE_ABILITY", ability: "ECHO_LURE", x: 700, y: 450, roundId: 1 };
+  send(crew, request);
+  assert.equal((await waitFor(crew, "ABILITY_STATE")).accepted, false);
+  send(impostor, request);
+  const accepted = await waitFor(impostor, "ABILITY_STATE");
+  assert.equal(accepted.accepted, true); assert.equal(accepted.used, true);
+  const sound = await waitFor(crew, "SOUND_CUE");
+  assert.deepEqual(Object.keys(sound.cue).sort(), ["expiresAt", "id", "x", "y"]);
+  impostor.messages = impostor.messages.filter(msg => msg.type !== "ABILITY_STATE");
+  send(impostor, { ...request, ability: "MOON_SIGHT" });
+  // Periodic private syncs can precede this request's explicit rejection.
+  let reply;
+  do { reply = await waitFor(impostor, "ABILITY_STATE"); } while (reply.accepted);
+  assert.equal(reply.used, true);
 });

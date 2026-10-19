@@ -13,6 +13,8 @@ import type {
   S2CMessage,
 } from "./game-types";
 import { availablePlayerColor, PLAYER_COLORS as COLORS } from "./palette";
+import { EYE_STYLES, isEyeStyle, normalizeEyeStyle, type EyeStyle } from "./appearance";
+import { ECHO_RANGE, ECHO_SECONDS, HEARING_RANGE, MOON_SIGHT_SECONDS, TASK_PROGRESS_REWARD, nextHazard } from "./ordeal-rules";
 
 export interface IWebSocketClient {
   send(data: string): void;
@@ -37,7 +39,6 @@ const STATION_REWARDS = new Map<string, ItemKind>([
   ["MOONWELL", "FLARE"],
   ["ROOT SEAL", "SONAR"],
 ]);
-const TASK_PROGRESS_REWARD = 17;
 const KILL_COOLDOWN_MS = 1500;
 
 function dist(a: { x: number; y: number }, b: { x: number; y: number }) {
@@ -116,6 +117,12 @@ export class GameRoom {
   flares: NetFlare[] = [];
   killCooldownUntil: number = 0;
   killUsedThisOrdeal: boolean = false;
+  ordealSeed = 1;
+  abilityUsed = new Set<string>();
+  sightUntil = new Map<string, number>();
+  private echoes: { x: number; y: number; until: number; nextAt: number }[] = [];
+  private footsteps = new Map<string, { x: number; y: number; at: number }>();
+  private soundSequence = 0;
   sealedStations = new Set<string>();
   roundId = 1;
   private stationCompletionSequence = 0;
@@ -138,7 +145,7 @@ export class GameRoom {
     this.code = code;
   }
 
-  addClient(playerId: string, client: IWebSocketClient, name: string, color: string, hat: Hat): NetPlayer {
+  addClient(playerId: string, client: IWebSocketClient, name: string, color: string, hat: Hat, eyeStyle?: EyeStyle): NetPlayer {
     const assignedColor = availablePlayerColor(color, Array.from(this.players.values(), (p) => p.color));
     if (!assignedColor || this.players.size >= COLORS.length) throw new Error("The room is full.");
     const isFirst = this.clients.size === 0;
@@ -151,6 +158,7 @@ export class GameRoom {
       name: name.trim().slice(0, 16) || `Warden-${this.clients.size}`,
       color: assignedColor,
       hat: HATS.includes(hat) ? hat : choose(HATS),
+      eyeStyle: normalizeEyeStyle(eyeStyle),
       alive: true,
       x: 640 + (Math.random() - 0.5) * 160,
       y: 380 + (Math.random() - 0.5) * 100,
@@ -193,6 +201,9 @@ export class GameRoom {
     this.players.delete(playerId);
     this.completedStations.delete(playerId);
     this.itemCharges.delete(playerId);
+    this.footsteps.delete(playerId);
+    this.abilityUsed.delete(playerId);
+    this.sightUntil.delete(playerId);
     this.votes.delete(playerId);
     for (const [voter, target] of this.votes) {
       if (target === playerId) this.votes.set(voter, null);
@@ -245,6 +256,7 @@ export class GameRoom {
           if (COLORS.includes(color) && !taken) player.color = color;
           else if (taken && player.color !== color) this.sendTo(this.clients.get(playerId)!, { type: "ERROR_ALERT", message: "That slime color is already taken. Choose an available color." });
           if (HATS.includes(msg.hat)) player.hat = msg.hat;
+          if (isEyeStyle(msg.eyeStyle)) player.eyeStyle = msg.eyeStyle;
           this.broadcastLobbyUpdate();
         }
         break;
@@ -288,6 +300,7 @@ export class GameRoom {
           player.inputSeq = msg.seq;
           player.angle = msg.angle;
           player.flashlight = msg.flashlight;
+          this.maybeFootstep(player);
         }
         break;
 
@@ -306,6 +319,25 @@ export class GameRoom {
           }
         }
         this.syncGear(player.id, accepted, { item: msg.item });
+        break;
+      }
+
+      case "USE_ABILITY": {
+        const valid = this.state === "PLAYING" && player.alive && player.role === "IMPOSTOR"
+          && this.phase === "ORDEAL" && msg.roundId === this.roundId && !this.abilityUsed.has(playerId)
+          && ["MOON_SIGHT", "ECHO_LURE"].includes(msg.ability) && [msg.x, msg.y].every(Number.isFinite);
+        if (valid) {
+          this.abilityUsed.add(playerId);
+          if (msg.ability === "MOON_SIGHT") this.sightUntil.set(playerId, Date.now() + Math.min(MOON_SIGHT_SECONDS, this.phaseTime) * 1000);
+          else {
+            const distance = Math.max(1, dist(player, msg));
+            const scale = Math.min(1, ECHO_RANGE / distance);
+            let point = { x: Math.max(112, Math.min(1168, player.x + (msg.x - player.x) * scale)), y: Math.max(120, Math.min(658, player.y + (msg.y - player.y) * scale)) };
+            if (this.hazard === "ROOTWAKE") point = keepInRootCell(player, point);
+            this.echoes.push({ ...point, until: Date.now() + ECHO_SECONDS * 1000, nextAt: 0 });
+          }
+        }
+        this.syncAbility(playerId, valid);
         break;
       }
 
@@ -419,6 +451,29 @@ export class GameRoom {
     });
   }
 
+  private syncAbility(playerId: string, accepted = true) {
+    const client = this.clients.get(playerId);
+    if (client) this.sendTo(client, { type: "ABILITY_STATE", accepted, used: this.abilityUsed.has(playerId), sightRemainingMs: this.phase === "ORDEAL" ? Math.max(0, (this.sightUntil.get(playerId) ?? 0) - Date.now()) : 0, roundId: this.roundId });
+  }
+
+  private soundAt(x: number, y: number) {
+    // Real footsteps and lures deliberately have the same public payload. No role/source leak.
+    const cue = { id: `${this.roundId}-${++this.soundSequence}`, x, y, expiresAt: Date.now() + 1000 };
+    for (const [id, client] of this.clients) {
+      const listener = this.players.get(id);
+      if (listener?.alive && dist(listener, cue) <= HEARING_RANGE && (this.hazard !== "ROOTWAKE" || sharesRootCell(listener, cue))) this.sendTo(client, { type: "SOUND_CUE", cue });
+    }
+  }
+
+  private maybeFootstep(player: NetPlayer) {
+    if (this.phase !== "ORDEAL" || !player.alive) return;
+    const previous = this.footsteps.get(player.id);
+    if (!previous) { this.footsteps.set(player.id, { x: player.x, y: player.y, at: Date.now() }); return; }
+    if (Date.now() - previous.at < 500 || dist(previous, player) < 34) return;
+    this.footsteps.set(player.id, { x: player.x, y: player.y, at: Date.now() });
+    this.soundAt(player.x, player.y);
+  }
+
   private startMatch(botFill: boolean, targetCount: number) {
     this.state = "PLAYING";
     this.phase = "CALM";
@@ -428,6 +483,10 @@ export class GameRoom {
     this.flares = [];
     this.killCooldownUntil = 0;
     this.killUsedThisOrdeal = false;
+    this.abilityUsed.clear();
+    this.sightUntil.clear();
+    this.echoes = [];
+    this.footsteps.clear();
     this.roundId = 1;
     this.stationCompletionSequence = 0;
     this.sealedStations.clear();
@@ -451,6 +510,7 @@ export class GameRoom {
           name: BOT_NAMES[botIndex % BOT_NAMES.length],
           color: availablePlayerColor("", Array.from(this.players.values(), (p) => p.color))!,
           hat: HATS[botIndex % HATS.length],
+          eyeStyle: EYE_STYLES[botIndex % EYE_STYLES.length],
           alive: true,
           x: 640 + Math.cos(angle) * 160,
           y: 384 + Math.sin(angle) * 100,
@@ -619,6 +679,7 @@ export class GameRoom {
         targetId: p.id,
         targetName: p.name,
         targetColor: p.color,
+        targetEyeStyle: normalizeEyeStyle(p.eyeStyle),
         votes: tallyMap.get(p.id) || 0,
         isTop: (tallyMap.get(p.id) || 0) === maxVotes,
       })),
@@ -729,10 +790,14 @@ export class GameRoom {
         if (this.phase === "CALM") {
           this.phase = "COUNTDOWN";
           this.phaseTime += 3;
+          this.hazard = nextHazard(this.hazard);
+          this.ordealSeed = Math.floor(Math.random() * 4294967296);
         } else if (this.phase === "COUNTDOWN") {
           this.phase = "ORDEAL";
           this.phaseTime += 10;
-          this.hazard = choose<Hazard>(["BLACKOUT", "FOG", "MOONGLARE", "ROOTWAKE", "PHANTOMS"]);
+          this.abilityUsed.clear();
+          this.sightUntil.clear();
+          this.footsteps.clear();
           this.killCooldownUntil = 0;
           this.killUsedThisOrdeal = false;
         } else if (this.phase === "ORDEAL") {
@@ -744,6 +809,11 @@ export class GameRoom {
     }
 
     // Flares
+    if (this.phase !== "ORDEAL") { this.echoes = []; this.sightUntil.clear(); }
+    this.echoes = this.echoes.filter(echo => echo.until > now);
+    for (const echo of this.echoes) {
+      if (now >= echo.nextAt) { this.soundAt(echo.x, echo.y); echo.nextAt = now + 360; }
+    }
     this.flares = this.flares.filter((f) => (f.life -= elapsed) > 0);
     for (const body of this.bodies) body.age += elapsed;
 
@@ -773,7 +843,8 @@ export class GameRoom {
 
   private broadcastWorld() {
     this.worldSyncTimer = 0;
-    this.broadcast({ type: "SYNC_WORLD", serverTime: Date.now(), roundId: this.roundId, phase: this.phase, time: Math.max(0, this.phaseTime), hazard: this.hazard, taskProgress: this.taskProgress, bodies: this.bodies, flares: this.flares, completedStations: Array.from(this.sealedStations) });
+    this.broadcast({ type: "SYNC_WORLD", serverTime: Date.now(), roundId: this.roundId, ordealSeed: this.ordealSeed, phase: this.phase, time: Math.max(0, this.phaseTime), hazard: this.hazard, taskProgress: this.taskProgress, bodies: this.bodies, flares: this.flares, completedStations: Array.from(this.sealedStations) });
+    for (const player of this.players.values()) if (player.role === "IMPOSTOR") this.syncAbility(player.id);
   }
 
   private tickBots(dt: number) {
@@ -795,6 +866,7 @@ export class GameRoom {
       if (next.y !== nextY) bot.vy *= -0.2;
       bot.x = next.x;
       bot.y = next.y;
+      this.maybeFootstep(bot);
 
       // Bot auto-repairs in Calm
       if (this.phase === "CALM" && bot.role === "CREWMATE" && Math.random() < dt * 0.08) {
@@ -903,6 +975,7 @@ export class GameServerRegistry {
           hostName: host?.name || "Warden",
           hostColor: host?.color || COLORS[0],
           hostHat: host?.hat || "antlers",
+          hostEyeStyle: normalizeEyeStyle(host?.eyeStyle),
           playerCount: room.players.size,
           targetPlayers: room.targetPlayers,
           botFill: room.botFill,

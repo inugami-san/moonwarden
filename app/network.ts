@@ -1,3 +1,4 @@
+import type { EyeStyle } from "../server/appearance";
 import type {
   C2SMessage,
   Hat,
@@ -555,16 +556,16 @@ export class MultiplayerClient {
     }
   }
 
-  public createRoom(playerName: string, color: string, hat: Hat) {
-    this.send({ type: "CREATE_ROOM", playerName, color, hat });
+  public createRoom(playerName: string, color: string, hat: Hat, eyeStyle: EyeStyle = "FIERCE") {
+    this.send({ type: "CREATE_ROOM", playerName, color, hat, eyeStyle });
   }
 
-  public joinRoom(roomCode: string, playerName: string, color: string, hat: Hat) {
-    this.send({ type: "JOIN_ROOM", roomCode: roomCode.toUpperCase().trim(), playerName, color, hat });
+  public joinRoom(roomCode: string, playerName: string, color: string, hat: Hat, eyeStyle: EyeStyle = "FIERCE") {
+    this.send({ type: "JOIN_ROOM", roomCode: roomCode.toUpperCase().trim(), playerName, color, hat, eyeStyle });
   }
 
-  public updateProfile(playerName: string, color: string, hat: Hat) {
-    this.send({ type: "UPDATE_PROFILE", playerName, color, hat });
+  public updateProfile(playerName: string, color: string, hat: Hat, eyeStyle?: EyeStyle) {
+    this.send({ type: "UPDATE_PROFILE", playerName, color, hat, ...(eyeStyle ? { eyeStyle } : {}) });
   }
 
   public toggleReady(ready?: boolean) {
@@ -599,6 +600,10 @@ export class MultiplayerClient {
 
   public useItem(item: ItemKind, x: number, y: number) {
     this.send({ type: "USE_ITEM", item, x, y });
+  }
+
+  public useAbility(ability: "MOON_SIGHT" | "ECHO_LURE", x: number, y: number, roundId: number) {
+    this.send({ type: "USE_ABILITY", ability, x, y, roundId });
   }
 
   public sendTask(stationId: string, reward: ItemKind, roundId?: number) {

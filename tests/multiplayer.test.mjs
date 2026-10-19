@@ -27,6 +27,37 @@ function createMockClient() {
   };
 }
 
+test("eye cosmetics survive create, join, profile updates, discovery, matches, and vote tallies", () => {
+  const registry = new GameServerRegistry();
+  const room = registry.createRoom();
+  const host = createMockClient();
+  const guest = createMockClient();
+  room.addClient("eyes-host", host, "Host", PLAYER_COLORS[0], "hood", "STARRY");
+  room.addClient("eyes-guest", guest, "Guest", PLAYER_COLORS[1], "moth");
+  assert.equal(room.players.get("eyes-guest").eyeStyle, "FIERCE", "older clients have a default");
+  assert.equal(registry.listOpenRooms().find(entry => entry.code === room.code).hostEyeStyle, "STARRY");
+  room.handleMessage("eyes-guest", { type: "UPDATE_PROFILE", playerName: "Guest", color: PLAYER_COLORS[1], hat: "hood", eyeStyle: "ROUND" });
+  assert.equal(guest.popMessage("ROOM_STATE").players.find(p => p.id === "eyes-host").eyeStyle, "STARRY");
+  assert.equal(host.sent.filter(msg => msg.type === "LOBBY_UPDATED").at(-1).players.find(p => p.id === "eyes-guest").eyeStyle, "ROUND");
+  for (const invalid of [undefined, "unknown", {}, null]) {
+    room.handleMessage("eyes-guest", { type: "UPDATE_PROFILE", playerName: "Guest", color: PLAYER_COLORS[1], hat: "hood", eyeStyle: invalid });
+    assert.equal(room.players.get("eyes-guest").eyeStyle, "ROUND", "bad/missing cosmetics never overwrite a selection");
+  }
+  room.handleMessage("eyes-host", { type: "START_MATCH", botFill: true, targetPlayers: 6 });
+  const match = host.popMessage("MATCH_STARTED");
+  assert.equal(match.players.find(p => p.id === "eyes-host").eyeStyle, "STARRY");
+  assert.equal(match.players.find(p => p.id === "eyes-guest").eyeStyle, "ROUND");
+  assert.ok(match.players.every(p => ["FIERCE", "ROUND", "DREAMY", "JOYFUL", "STARRY"].includes(p.eyeStyle)));
+  room.handleMessage("eyes-host", { type: "UPDATE_PROFILE", playerName: "Host", color: PLAYER_COLORS[0], hat: "hood", eyeStyle: "DREAMY" });
+  assert.equal(room.players.get("eyes-host").eyeStyle, "STARRY", "cosmetics lock during the match");
+  room.phase = "DISCUSSION";
+  for (const player of room.players.values()) room.votes.set(player.id, "eyes-guest");
+  room.concludeMeeting();
+  const result = host.popMessage("MEETING_CONCLUDED");
+  assert.equal(result.tally.find(entry => entry.targetId === "eyes-guest").targetEyeStyle, "ROUND");
+  registry.removeRoom(room.code);
+});
+
 test("Multiplayer GameRoom: Lifecycle, Input Sync, Tasks, Meetings, and Voting", async () => {
   const registry = new GameServerRegistry();
 
@@ -85,7 +116,7 @@ test("Multiplayer GameRoom: Lifecycle, Input Sync, Tasks, Meetings, and Voting",
   playerA.role = "CREWMATE";
   const initialTask = room.taskProgress;
   room.handleMessage("player-a", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT" });
-  assert.equal(room.taskProgress, initialTask + 17);
+  assert.equal(room.taskProgress, initialTask + 8);
   assert.equal(room.itemCharges.get("player-a").FLASHLIGHT, 1);
   assert.equal(room.sealedStations.has("FROST FONT"), true);
   const worldSyncForB = clientB.popMessage("SYNC_WORLD");

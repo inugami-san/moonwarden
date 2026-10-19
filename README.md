@@ -115,6 +115,33 @@ No deployment is performed by the local checks below.
 
 ## Controls
 
+### Play-first forest update (local; not automatically deployed)
+
+Create Room and Join With Code are the primary entry actions; a name is visible
+up front and wardrobe customization is optional. The arena uses a once-baked
+Silverpine Moon Glade backdrop, preserving existing player/server collision limits.
+
+Each completed shrine adds 8% ward progress (previously 17%). Gear keeps the same
+wire identifiers for compatibility, but is presented as Glowing Mushroom
+(`FLASHLIGHT`), Moonblossom (`FLARE`), and Echo Bell (`SONAR`).
+
+Countdown announces the next hazard, shows Rootwake boundary guides, and does not
+repeat the previous hazard. Phantom paths use a per-Ordeal seed shared by the server.
+Soft Glare reduces brightness without exposing colors/accessories. SFX can be
+enabled independently of music; directional rustle captions work with sound off.
+
+The impostor has one **shared special-action charge** each Ordeal: `V` Moon Sight
+(up to 3.2 seconds) **or** `C` Echo Lure (aim first; 2 seconds; 220-unit range).
+The kill remains a separate one-per-Ordeal action. The room server validates role,
+life, phase, round, range and charge; only the caster receives private ability state.
+Real footsteps and lures share the same anonymous sound-cue format and hearing range.
+Rootwake confines lures/sounds to the caster's chamber; Sight can reveal anonymous
+auras across root walls but never permits crossing them.
+
+This update adds protocol messages: deploy the frontend and room server together
+when explicitly releasing it. The live Render service tracks
+`codex/persistent-room-server`, not `main`; a main-only push will not update it.
+
 | Action | Control |
 | --- | --- |
 | Move | `WASD` or arrow keys |
@@ -125,6 +152,23 @@ No deployment is performed by the local checks below.
 | Report / emergency | `R` |
 | Impostor kill | `Q` or `Space` |
 | Impostor Moon Sight | `V` |
+| Impostor Echo Lure (aim first; shares charge with Sight) | `C` |
+| Environmental sound / reduced glare | `ENABLE SFX` / `SOFT GLARE` |
+
+## Eye customization
+
+The wardrobe offers five cosmetic eye shapes: Fierce, Round, Dreamy, Joyful, and
+Starry. Selections sync through room creation/joining, lobby profile updates,
+gameplay and voting. Eye shapes cannot change during a match and are hidden in
+anonymous Ordeal silhouettes. Older clients default to Fierce; missing profile
+fields preserve existing selections. Practice also uses the selected appearance.
+Release both the frontend and room server for multiplayer eye customization.
+
+Slimes have a soft idle bounce and movement-driven squash/stretch, directional
+lean, eye tracking, attached hats and height-reactive shadows. Animation follows
+actual rendered travel (including AI and remote players), settles when blocked,
+and does not change collision or send extra network traffic. Reduced-motion
+preferences disable the decorative bounce in both the menu and arena.
 
 ## Verify
 

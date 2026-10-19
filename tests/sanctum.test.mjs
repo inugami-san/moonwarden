@@ -34,7 +34,7 @@ test("stations reopen next Calm without losing team progress or earned gear", (t
   const task = { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT", roundId: 1 };
   room.handleMessage("p0", task);
   room.handleMessage("p0", task);
-  assert.equal(room.taskProgress, 17);
+  assert.equal(room.taskProgress, 8);
   assert.equal(room.itemCharges.get("p0").FLASHLIGHT, 1);
   for (const client of clients) {
     assert.equal(client.sent.filter((msg) => msg.type === "STATION_COMPLETED").length, 1);
@@ -47,13 +47,13 @@ test("stations reopen next Calm without losing team progress or earned gear", (t
   assert.equal(room.roundId, 2);
   assert.equal(room.sealedStations.size, 0);
   assert.equal(room.completedStations.get("p0").size, 0);
-  assert.equal(room.taskProgress, 17);
+  assert.equal(room.taskProgress, 8);
   assert.equal(room.itemCharges.get("p0").FLASHLIGHT, 1);
   const world = clients[1].sent.filter((msg) => msg.type === "SYNC_WORLD").at(-1);
   assert.equal(world.roundId, 2);
   assert.deepEqual(world.completedStations, []);
   room.handleMessage("p0", { ...task, roundId: 2 });
-  assert.equal(room.taskProgress, 34);
+  assert.equal(room.taskProgress, 16);
   assert.equal(room.itemCharges.get("p0").FLASHLIGHT, 2);
 });
 
@@ -77,6 +77,6 @@ test("meeting resolution starts a fresh shrine round and clears fake-task locks 
   assert.equal(room.roundId, 2);
   assert.equal(room.sealedStations.size, 0);
   assert.equal(room.completedStations.get("p3").size, 0);
-  assert.equal(room.taskProgress, 17);
+  assert.equal(room.taskProgress, 8);
   assert.equal(room.itemCharges.get("p3").SONAR, 1);
 });
