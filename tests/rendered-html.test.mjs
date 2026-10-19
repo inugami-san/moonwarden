@@ -65,7 +65,22 @@ test("play-first menu exposes entry and name before optional customization", asy
   assert.match(html, /How to Play/);
   assert.ok(html.indexOf('id="play-nickname"') < html.indexOf("CREATE ROOM"));
   assert.match(html, /SURPRISE ME/);
+  assert.match(html, /class="home-play-shortcuts"/);
+  assert.ok(html.indexOf('class="home-play-shortcuts"') < html.indexOf('class="lobby-copy studio-stage"'), "quick play is available before the decorative scene");
+  assert.match(html, /href="#home-room-code"/);
+  assert.match(html, /<details class="home-wardrobe"/);
+  assert.match(html, /Pause animations/);
   assert.doesNotMatch(html, /Brainwave|3D Boy Character|Dome Light|Add 3D objects|Export/);
+});
+
+test("home field guide exposes all six ordeals without changing match rules", async () => {
+  const html = await (await render()).text();
+  assert.match(html, /Explore the six Ordeals/);
+  for (const title of ["Total Blackout", "Thick Sea Fog", "Moon Glare", "Rootwake", "Phantom Procession", "Mirror Pool"]) assert.ok(html.includes(title));
+  const guide = html.match(/class="home-ordeal-menu"[\s\S]*?<article/)?.[0] ?? "";
+  assert.equal((guide.match(/<button/g) ?? []).length, 6);
+  assert.equal((guide.match(/aria-pressed="true"/g) ?? []).length, 1);
+  assert.match(html, /id="home-ordeal-story"[\s\S]*?aria-live="polite"/);
 });
 
 test("wardrobe offers five labeled eye styles with exactly one selected", async () => {

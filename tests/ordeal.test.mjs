@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { GameServerRegistry } from "../server/game-room.ts";
-import { phantomPaths, nextHazard, TASK_PROGRESS_REWARD } from "../server/ordeal-rules.ts";
+import { phantomPaths, nextHazard, ordealDuration, TASK_PROGRESS_REWARD, ORDEAL_TASK_PROGRESS_REWARD } from "../server/ordeal-rules.ts";
 import { soundDirection, ForestAudio } from "../app/forest-audio.ts";
 import { drawMoonGlade } from "../app/moon-glade.ts";
 import { fittedCanvasBounds } from "../app/canvas-bounds.ts";
@@ -94,8 +94,82 @@ test("phantoms vary by seed, stay in the arena, and do not repeat the previous h
     assert.ok(path.x - path.rx > 76 && path.x + path.rx < 1204);
     assert.ok(path.y - path.ry > 72 && path.y + path.ry < 690);
   }
-  for (const hazard of ["BLACKOUT", "FOG", "MOONGLARE", "ROOTWAKE", "PHANTOMS"]) assert.notEqual(nextHazard(hazard), hazard);
+  for (const hazard of ["BLACKOUT", "FOG", "MOONGLARE", "ROOTWAKE", "PHANTOMS", "MIRROR_POOL"]) assert.notEqual(nextHazard(hazard), hazard);
+  assert.equal(ordealDuration("MIRROR_POOL"), 25);
+  assert.equal(ordealDuration("FOG"), 10);
   assert.ok(TASK_PROGRESS_REWARD * 6 < 100);
+});
+
+test("Mirror Pool lasts 25s, swaps colors on bump, persists into Calm, and reverts at Meeting", t => {
+  const { room, clients } = match(t);
+  const p0 = room.players.get("p0");
+  const p1 = room.players.get("p1");
+  const p2 = room.players.get("p2");
+  const p3 = room.players.get("p3");
+  const orig0 = p0.color;
+  const orig1 = p1.color;
+  assert.notEqual(orig0, orig1);
+
+  // Move p2 and p3 far away so only p0 and p1 bump
+  p2.x = 200; p2.y = 200;
+  p3.x = 1000; p3.y = 200;
+
+  // Transition COUNTDOWN -> ORDEAL with MIRROR_POOL
+  room.phase = "COUNTDOWN";
+  room.hazard = "MIRROR_POOL";
+  room.phaseTime = 0.01;
+  room.lastTick = Date.now() - 50;
+  room.tick();
+  assert.equal(room.phase, "ORDEAL");
+  assert.ok(room.phaseTime > 24 && room.phaseTime <= 25);
+
+  // Bump p0 and p1 together
+  room.handleMessage("p0", { type: "PLAYER_INPUT", x: 640, y: 450, vx: 0, vy: 0, angle: 0, flashlight: false, seq: 1 });
+  assert.equal(p0.color, orig1);
+  assert.equal(p1.color, orig0);
+  assert.ok(clients[0].sent.some(msg => msg.type === "SYNC_PLAYERS"));
+
+  // Transition ORDEAL -> CALM: swapped colors persist!
+  room.phaseTime = 0.01;
+  room.lastTick = Date.now() - 50;
+  room.tick();
+  assert.equal(room.phase, "CALM");
+  assert.equal(p0.color, orig1);
+  assert.equal(p1.color, orig0);
+
+  // Calling an emergency meeting restores everyone's true colors
+  p0.x = 640; p0.y = 382;
+  room.handleMessage("p0", { type: "TRIGGER_REPORT" });
+  assert.equal(room.phase, "DISCUSSION");
+  assert.equal(p0.color, orig0);
+  assert.equal(p1.color, orig1);
+});
+
+test("shrines stay open during Ordeals, sync working status, and grant +12% Moon Wards", t => {
+  const { room, clients } = match(t);
+  const p1 = room.players.get("p1");
+  room.handleMessage("p1", {
+    type: "PLAYER_INPUT",
+    x: 246,
+    y: 230,
+    vx: 0,
+    vy: 0,
+    angle: 0,
+    flashlight: false,
+    working: true,
+    seq: 1,
+  });
+  assert.equal(p1.working, true);
+  room.lastTick = Date.now() - 60;
+  room.tick();
+  const moveMsg = clients[0].sent.find(msg => msg.type === "SYNC_MOVEMENT");
+  assert.ok(moveMsg);
+  const netP1 = moveMsg.players.find(entry => entry.id === "p1");
+  assert.equal(netP1.working, true);
+
+  room.handleMessage("p1", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT" });
+  assert.equal(room.taskProgress, ORDEAL_TASK_PROGRESS_REWARD);
+  assert.equal(p1.working, false);
 });
 
 test("sound captions work without audio and do not label a lure as fake", () => {

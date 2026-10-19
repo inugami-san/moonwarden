@@ -51,13 +51,103 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
     ctx.fillStyle = i % 3 ? "#c4c9ad0e" : "#dde2c21b";
     ctx.beginPath(); ctx.moveTo(x - 12, y); ctx.lineTo(x + 7, y - 5); ctx.lineTo(x + 18, y + 2); ctx.lineTo(x - 4, y + 7); ctx.fill();
   }
+
+  // --- DISTINCT SANCTUARY ZONES (6 Scenic Sub-Biomes) ---
+  // 1. FROST HOLLOW (North-West): Glacial-teal terrace, ice-fern rings & frost flagstones
+  const frostGlow = ctx.createRadialGradient(245, 195, 16, 245, 195, 185);
+  frostGlow.addColorStop(0, "rgba(158, 232, 238, 0.20)");
+  frostGlow.addColorStop(0.65, "rgba(104, 182, 196, 0.08)");
+  frostGlow.addColorStop(1, "rgba(104, 182, 196, 0)");
+  ctx.fillStyle = frostGlow;
+  ctx.fillRect(88, 88, 350, 260);
+  for (const [fx, fy, rx, ry] of [[176, 174, 24, 13], [295, 186, 28, 15], [162, 248, 20, 11], [326, 245, 22, 12]]) {
+    ellipse(fx, fy, rx, ry, "rgba(182, 235, 240, 0.14)");
+    ctx.strokeStyle = "rgba(210, 248, 252, 0.22)";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.ellipse(fx, fy, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  // 2. STARLIGHT ARCHIVE (North-Center): Sunken brass-and-slate celestial astrolabe mosaic
+  const archiveGlow = ctx.createRadialGradient(640, 195, 12, 640, 195, 165);
+  archiveGlow.addColorStop(0, "rgba(216, 226, 255, 0.16)");
+  archiveGlow.addColorStop(1, "rgba(216, 226, 255, 0)");
+  ctx.fillStyle = archiveGlow;
+  ctx.fillRect(465, 88, 350, 240);
+  ctx.strokeStyle = "rgba(218, 228, 198, 0.22)";
+  ctx.lineWidth = 1.6;
+  for (const [rx, ry] of [[86, 46], [58, 31], [30, 16]]) {
+    ctx.beginPath(); ctx.ellipse(640, 204, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+  }
+  for (let a = 0; a < 6; a++) {
+    const rad = (a * Math.PI) / 3;
+    const nx = 640 + Math.cos(rad) * 86;
+    const ny = 204 + Math.sin(rad) * 46;
+    ellipse(nx, ny, 4, 2.8, "rgba(238, 245, 210, 0.38)");
+  }
+
+  // 3. OWL WATCH (North-East): Golden-moss watchtower stones & fallen silver-gold leaves
+  const owlGlow = ctx.createRadialGradient(1025, 198, 16, 1025, 198, 180);
+  owlGlow.addColorStop(0, "rgba(232, 218, 158, 0.16)");
+  owlGlow.addColorStop(1, "rgba(232, 218, 158, 0)");
+  ctx.fillStyle = owlGlow;
+  ctx.fillRect(840, 88, 345, 260);
+  for (let i = 0; i < 18; i++) {
+    const lx = 910 + ((i * 53) % 235);
+    const ly = 138 + ((i * 41) % 175);
+    ellipse(lx, ly, 4.5, 2.2, i % 2 === 0 ? "rgba(232, 214, 146, 0.26)" : "rgba(182, 212, 168, 0.24)");
+  }
+
+  // 4. DEEP ROOT GROTTO (South-West): Rich peat hollow, bioluminescent spore fairy-rings
+  const grottoGlow = ctx.createRadialGradient(255, 515, 20, 255, 515, 195);
+  grottoGlow.addColorStop(0, "rgba(72, 214, 168, 0.16)");
+  grottoGlow.addColorStop(1, "rgba(28, 72, 58, 0)");
+  ctx.fillStyle = grottoGlow;
+  ctx.fillRect(88, 370, 355, 295);
+  for (let i = 0; i < 12; i++) {
+    const angle = (i / 12) * Math.PI * 2;
+    const sx = 240 + Math.cos(angle) * 76;
+    const sy = 485 + Math.sin(angle) * 42;
+    ellipse(sx, sy, 4.2, 2.6, "rgba(136, 242, 198, 0.34)");
+  }
+
+  // 5. MOONWELL SPRINGS & SUNKEN CLOISTER (South-East): Shimmering spring basins & lotus pads
+  for (const [px, py, rx, ry] of [[805, 565, 64, 32], [955, 485, 52, 26]]) {
+    ellipse(px, py + 3, rx + 5, ry + 3, "rgba(24, 46, 48, 0.36)");
+    ellipse(px, py, rx, ry, "rgba(74, 138, 146, 0.32)");
+    ellipse(px - rx * 0.22, py - ry * 0.2, rx * 0.55, ry * 0.42, "rgba(190, 238, 232, 0.20)");
+    ctx.strokeStyle = "rgba(186, 224, 212, 0.28)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.ellipse(px, py, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+    // Floating moon-lily pads
+    ellipse(px + rx * 0.32, py + ry * 0.15, 8, 4.5, "rgba(134, 188, 148, 0.55)");
+    ellipse(px - rx * 0.36, py + ry * 0.22, 6.5, 3.8, "rgba(148, 202, 158, 0.52)");
+  }
+
+  // 6. WARDEN COURTYARD (Center): Crescent plaza & 4 corner lantern plinths
   const center = ctx.createRadialGradient(640, 382, 5, 640, 382, 150);
   center.addColorStop(0, "#d9e3bf66"); center.addColorStop(1, "#a6c49d00");
   ctx.fillStyle = center; ctx.fillRect(480, 240, 320, 290);
   ellipse(640, 382, 98, 68, "#ced6b82b");
   ctx.strokeStyle = "#c7d7bb55"; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(640, 382, 98, 68, 0, .1, Math.PI * 1.8); ctx.stroke();
+  for (const [lx, ly] of [[536, 318], [744, 318], [536, 446], [744, 446]]) {
+    ellipse(lx, ly, 12, 7.5, "rgba(32, 52, 46, 0.48)");
+    ellipse(lx, ly - 2, 8, 5, "rgba(186, 202, 174, 0.46)");
+    ellipse(lx, ly - 3, 3.8, 2.5, "rgba(244, 248, 196, 0.78)");
+  }
   // Crescent cut into the meeting stone.
   ellipse(635, 378, 37, 30, "#e1e6c36b"); ellipse(647, 369, 34, 28, "#789982");
+
+  // Subtle carved stone zone titles on the sanctuary ground for player orientation & callouts
+  ctx.font = "700 10px ui-monospace, monospace";
+  ctx.textAlign = "center";
+  ctx.fillStyle = "rgba(222, 236, 210, 0.34)";
+  ctx.fillText("FROST HOLLOW", 252, 224);
+  ctx.fillText("STARLIGHT ARCHIVE", 640, 266);
+  ctx.fillText("OWL WATCH", 1020, 224);
+  ctx.fillText("DEEP ROOT GROTTO", 242, 456);
+  ctx.fillText("MOONWELL SPRINGS", 805, 520);
+  ctx.fillText("SUNKEN CLOISTER", 1075, 468);
+
   ctx.restore();
   const pine = (x: number, y: number, height: number) => {
     ctx.save(); ctx.translate(x, y);

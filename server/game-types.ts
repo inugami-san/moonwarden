@@ -3,7 +3,7 @@ import type { EyeStyle } from "./appearance";
 export type Role = "CREWMATE" | "IMPOSTOR";
 export type RoleChoice = Role | "RANDOM";
 export type Phase = "CALM" | "COUNTDOWN" | "ORDEAL" | "DISCUSSION";
-export type Hazard = "BLACKOUT" | "FOG" | "MOONGLARE" | "ROOTWAKE" | "PHANTOMS";
+export type Hazard = "BLACKOUT" | "FOG" | "MOONGLARE" | "ROOTWAKE" | "PHANTOMS" | "MIRROR_POOL";
 export type ItemKind = "FLASHLIGHT" | "FLARE" | "SONAR";
 export type Hat = "antlers" | "hood" | "moth" | "mooncap";
 export type OrdealAbility = "MOON_SIGHT" | "ECHO_LURE";
@@ -23,13 +23,14 @@ export type NetPlayer = {
   vy: number;
   angle: number;
   flashlight: boolean;
+  working?: boolean;
   isHost: boolean;
   ready?: boolean;
   isAi?: boolean;
   inputSeq?: number;
 };
 
-export type NetMovement = Pick<NetPlayer, "id" | "x" | "y" | "vx" | "vy" | "angle" | "alive" | "flashlight" | "inputSeq">;
+export type NetMovement = Pick<NetPlayer, "id" | "x" | "y" | "vx" | "vy" | "angle" | "alive" | "flashlight" | "working" | "inputSeq">;
 
 export type RoomSummary = {
   code: string;
@@ -85,7 +86,7 @@ export type C2SMessage =
   | { type: "UPDATE_ROOM_CONFIG"; targetPlayers: number; botFill: boolean }
   | { type: "LIST_ROOMS" }
   | { type: "START_MATCH"; botFill?: boolean; targetPlayers?: number }
-  | { type: "PLAYER_INPUT"; x: number; y: number; vx: number; vy: number; angle: number; flashlight: boolean; seq?: number }
+  | { type: "PLAYER_INPUT"; x: number; y: number; vx: number; vy: number; angle: number; flashlight: boolean; working?: boolean; seq?: number }
   | { type: "TRIGGER_KILL"; victimId: string }
   | { type: "TRIGGER_REPORT"; bodyId?: string }
   | { type: "USE_ITEM"; item: ItemKind; x: number; y: number }

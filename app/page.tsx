@@ -11,16 +11,33 @@ import { EYE_LABELS } from "./slime-eyes";
 import { SlimeAnimator } from "./slime-motion";
 import { EYE_STYLES, normalizeEyeStyle, type EyeStyle } from "../server/appearance";
 import { drawForestSanctum } from "./sanctum-art";
-import { PLAYER_COLORS as COLORS } from "../server/palette";
-import { ECHO_RANGE, HEARING_RANGE, MOON_SIGHT_SECONDS, TASK_PROGRESS_REWARD, nextHazard, phantomPaths } from "../server/ordeal-rules";
+import { availablePlayerName, PLAYER_COLORS as COLORS, randomWardenCallsign, WARDEN_CALLSIGNS } from "../server/palette";
+import {
+  ECHO_RANGE,
+  HEARING_RANGE,
+  MIRROR_BUMP_COOLDOWN_MS,
+  MIRROR_BUMP_DISTANCE,
+  MOON_SIGHT_SECONDS,
+  ORDEAL_TASK_PROGRESS_REWARD,
+  SANCTUARY_OBSTACLES,
+  TASK_PROGRESS_REWARD,
+  isOccludedByObstacle,
+  nextHazard,
+  ordealDuration,
+  phantomPaths,
+  resolveObstaclePosition,
+  sanctuaryZoneName,
+  type SanctuaryObstacle,
+} from "../server/ordeal-rules";
 import { ForestAudio, soundDirection } from "./forest-audio";
 import { drawMoonGlade } from "./moon-glade";
 import { fittedCanvasBounds } from "./canvas-bounds";
+import { HomeFieldGuide, HomeGrove } from "./home-field-guide";
 
 type Role = "CREWMATE" | "IMPOSTOR";
 type RoleChoice = Role | "RANDOM";
 type Phase = "CALM" | "COUNTDOWN" | "ORDEAL" | "DISCUSSION";
-type Hazard = "BLACKOUT" | "FOG" | "MOONGLARE" | "ROOTWAKE" | "PHANTOMS";
+type Hazard = "BLACKOUT" | "FOG" | "MOONGLARE" | "ROOTWAKE" | "PHANTOMS" | "MIRROR_POOL";
 type ItemKind = "FLASHLIGHT" | "FLARE" | "SONAR";
 type Hat = "antlers" | "hood" | "moth" | "mooncap";
 type SoloProfile = { name: string; color: string; hat: Hat; eyeStyle: EyeStyle };
@@ -36,6 +53,7 @@ type Player = {
   vy: number;
   angle?: number;
   color: string;
+  trueColor?: string;
   hat: Hat;
   eyeStyle: EyeStyle;
   alive: boolean;
@@ -45,6 +63,7 @@ type Player = {
   thinkAt: number;
   atStation: number;
   flashlight: boolean;
+  working?: boolean;
   flareDropped: boolean;
   gearCharges: Record<ItemKind, number>;
 };
@@ -107,6 +126,19 @@ type TaskPuzzle = {
 type DeathReveal = {
   killerName: string;
   killerColor: string;
+  victimColor?: string;
+};
+
+type DevourEvent = {
+  id: string;
+  x: number;
+  y: number;
+  victimColor: string;
+  killerId?: string;
+  killerColor: string;
+  startedAt: number;
+  duration: number;
+  lastChomp: number;
 };
 
 type KillNotice = {
@@ -165,6 +197,7 @@ const HAZARD_LABELS: Record<Hazard, string> = {
   MOONGLARE: "MOON GLARE",
   ROOTWAKE: "ROOTWAKE",
   PHANTOMS: "PHANTOM PROCESSION",
+  MIRROR_POOL: "MIRROR POOL",
 };
 const ITEM_DESCRIPTIONS: Record<ItemKind, string> = {
   FLASHLIGHT: "Aim its moonlit spores to light the path for seven seconds",
@@ -329,6 +362,9 @@ class OrdealEngine {
   bodies: Body[] = [];
   flares: Flare[] = [];
   particles: Particle[] = [];
+  devourEvents: DevourEvent[] = [];
+  devourShakeUntil = 0;
+  devourShakePower = 0;
   suspicion = new Map<string, Map<string, number>>();
   keys = new Set<string>();
   touchKeys = new Set<string>();
@@ -379,6 +415,42 @@ class OrdealEngine {
       });
     }
   }
+
+  startDevour(bodyId: string, x: number, y: number, victimColor: string, killerId?: string, killerColor = "#ff4265") {
+    if (this.devourEvents.some((e) => e.id === bodyId)) return;
+    const isVictim = bodyId === this.localPlayerId || bodyId === `body-${this.localPlayerId}`;
+    const isKiller = Boolean(killerId && killerId === this.localPlayerId) || (this.human.role === "IMPOSTOR" && dist(this.human, { x, y }) < 105);
+    const isDirect = isVictim || isKiller;
+    const resolvedKillerId = killerId ?? (isKiller ? this.localPlayerId : this.players.find((p) => p.alive && p.id !== bodyId.replace(/^body-/, "") && dist(p, { x, y }) < 92)?.id);
+    const resolvedKiller = resolvedKillerId ? this.players.find((p) => p.id === resolvedKillerId) : undefined;
+    if (resolvedKiller && dist(resolvedKiller, { x, y }) < 110) {
+      resolvedKiller.x += (x - resolvedKiller.x) * 0.72;
+      resolvedKiller.y += (y - resolvedKiller.y) * 0.72;
+    }
+    this.devourEvents.push({
+      id: bodyId,
+      x,
+      y,
+      victimColor,
+      killerId: resolvedKillerId,
+      killerColor: resolvedKiller?.color || killerColor,
+      startedAt: this.elapsed,
+      duration: 1.15,
+      lastChomp: 0,
+    });
+    this.burst(x, y + 12, victimColor, 38);
+    this.burst(x, y + 6, "#ff2a55", 22);
+    this.burst(x, y + 4, "#f4f9e9", 10);
+    if (!this.reducedMotion && (isDirect || dist(this.human, { x, y }) < 280)) {
+      this.devourShakeUntil = this.elapsed + 0.88;
+      this.devourShakePower = isDirect ? 10.5 : 5.5;
+    }
+    this.audio.devour(this.human, { x, y }, isDirect);
+    if (!isDirect && this.human.alive && dist(this.human, { x, y }) <= HEARING_RANGE && (this.hazard !== "ROOTWAKE" || sharesRootCell(this.human, { x, y }))) {
+      this.caption = "Visceral crunching nearby";
+      this.captionUntil = this.elapsed + 1.8;
+    }
+  }
   frame = 0;
   last = 0;
   elapsed = 0;
@@ -406,7 +478,7 @@ class OrdealEngine {
   private lastInputHeartbeat = 0;
   private canvasRect: DOMRect | null = null;
   private lastSnapshot: Snapshot | null = null;
-  private lastSentInput = { x: -1, y: -1, vx: 0, vy: 0, angle: 0, flashlight: false };
+  private lastSentInput = { x: -1, y: -1, vx: 0, vy: 0, angle: 0, flashlight: false, working: false };
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -449,6 +521,7 @@ class OrdealEngine {
     this.onKill = onKill;
     this.onDeath = onDeath;
     this.onEnd = onEnd;
+    this.audio.enabled = true;
     this.makeStations();
     this.multiplayerClient = multiplayerClient || null;
     if (this.multiplayerClient && initialPlayers && initialPlayers.length > 0) {
@@ -474,6 +547,8 @@ class OrdealEngine {
     return this.players.find((p) => p.id === this.localPlayerId) || this.players[0];
   }
 
+  private mirrorBumpCooldowns = new Map<string, number>();
+
   initMultiplayerPlayers(initialPlayers: NetPlayer[], assignedRole?: Role) {
     this.players = initialPlayers.map((p) => {
       const isLocal = p.id === this.localPlayerId;
@@ -487,6 +562,7 @@ class OrdealEngine {
         vy: p.vy,
         angle: p.angle,
         color: p.color,
+        trueColor: p.color,
         hat: p.hat,
         eyeStyle: normalizeEyeStyle(p.eyeStyle),
         alive: p.alive,
@@ -557,6 +633,13 @@ class OrdealEngine {
             if (!p.alive && this.human.alive) {
               this.human.alive = false;
             }
+            if (this.human.color !== p.color) {
+              this.human.color = p.color;
+              this.burst(this.human.x, this.human.y, "#8be9fd", 22);
+              if (this.phase === "ORDEAL" && this.hazard === "MIRROR_POOL") {
+                this.flashMessage("MIRROR RIPPLE — your reflection swapped colors on impact!");
+              }
+            }
             continue;
           }
           let existing = this.players.find((x) => x.id === p.id);
@@ -571,6 +654,7 @@ class OrdealEngine {
               vy: p.vy,
               angle: p.angle,
               color: p.color,
+              trueColor: p.color,
               hat: p.hat,
               eyeStyle: normalizeEyeStyle(p.eyeStyle),
               alive: p.alive,
@@ -585,6 +669,9 @@ class OrdealEngine {
             };
             this.players.push(existing);
           } else {
+            if (existing.color !== p.color) {
+              this.burst(existing.x, existing.y, "#8be9fd", 18);
+            }
             existing.color = p.color;
             existing.hat = p.hat;
             existing.eyeStyle = normalizeEyeStyle(p.eyeStyle);
@@ -599,6 +686,7 @@ class OrdealEngine {
             existing.angle = p.angle;
             existing.alive = p.alive;
             existing.flashlight = p.flashlight;
+            existing.working = Boolean(p.working);
           }
         }
         this.applyMovement(msg.players);
@@ -661,9 +749,6 @@ class OrdealEngine {
           this.heardCueIds.clear();
         }
         if (this.phase !== "ORDEAL") this.moonSightUntil = 0;
-        if (this.phase === "ORDEAL" && this.activePuzzle) {
-          this.cancelPuzzle("An Ordeal began! Shrines are locked.");
-        }
         this.emit(stationSealedNow || stationResetNow);
         break;
       }
@@ -672,7 +757,7 @@ class OrdealEngine {
         const b = msg.body;
         if (!this.bodies.some((x) => x.id === b.id)) {
           this.bodies.push({ id: b.id, x: b.x, y: b.y, color: b.color, name: b.name, age: b.age });
-          this.burst(b.x, b.y + 20, b.color, 34);
+          this.startDevour(b.id, b.x, b.y, b.color);
           this.onKill({ key: `${b.id}-${performance.now()}` });
         }
         break;
@@ -686,7 +771,7 @@ class OrdealEngine {
       case "MEETING_CALLED": {
         this.movementBuffer.clear();
         this.pendingInputs.clear();
-        for (const player of this.players) { player.vx = 0; player.vy = 0; }
+        for (const player of this.players) { player.vx = 0; player.vy = 0; player.working = false; }
         this.cancelPuzzle("");
         this.paused = true;
         this.phase = "DISCUSSION";
@@ -716,6 +801,7 @@ class OrdealEngine {
           })),
           accusations: {},
         };
+        this.audio.meetingAlert(msg.reason.includes("PUDDLE") || msg.reason.includes("BODY"));
         this.onMeeting(this.activeMeeting);
         this.emit(true);
         break;
@@ -740,10 +826,12 @@ class OrdealEngine {
         this.human.alive = false;
         this.human.vx = 0;
         this.human.vy = 0;
+        this.human.working = false;
         this.cancelPuzzle("");
+        this.startDevour(`body-${this.localPlayerId}`, this.human.x, this.human.y, this.human.color, undefined, msg.killerColor);
         this.paused = true;
-        this.onDeath({ killerName: msg.killerName, killerColor: msg.killerColor });
-        this.flashMessage(`You were splattered by ${msg.killerName}. Spectating the remaining crew.`);
+        this.onDeath({ killerName: msg.killerName, killerColor: msg.killerColor, victimColor: this.human.color });
+        this.flashMessage(`You were devoured by ${msg.killerName}. Spectating the remaining crew.`);
         break;
       }
 
@@ -764,9 +852,10 @@ class OrdealEngine {
       player.alive = next.alive;
       if (player.id !== this.localPlayerId) {
         player.flashlight = next.flashlight;
+        player.working = Boolean(next.working);
         continue;
       }
-      if (!next.alive) { player.vx = 0; player.vy = 0; }
+      if (!next.alive) { player.vx = 0; player.vy = 0; player.working = false; }
       if (next.inputSeq === undefined) continue;
       const sent = this.pendingInputs.get(next.inputSeq);
       if (sent) {
@@ -809,20 +898,24 @@ class OrdealEngine {
 
   makePlayers(count: number, roleChoice: RoleChoice, profile?: SoloProfile) {
     const colors = profile ? [profile.color, ...COLORS.filter(color => color !== profile.color)] : COLORS;
+    const occupiedNames: string[] = [];
     let impostorIndex = Math.floor(Math.random() * count);
     if (roleChoice === "IMPOSTOR") impostorIndex = 0;
     if (roleChoice === "CREWMATE") impostorIndex = 1 + Math.floor(Math.random() * (count - 1));
     for (let i = 0; i < count; i += 1) {
       const angle = (i / count) * Math.PI * 2;
+      const callsign = availablePlayerName(i === 0 ? (profile?.name || "") : NAMES[i - 1], occupiedNames);
+      occupiedNames.push(callsign);
       this.players.push({
         id: i === 0 ? "you" : `bot-${i}`,
-        name: i === 0 ? `${profile?.name || "Warden"} (YOU)` : NAMES[i - 1],
+        name: i === 0 ? `${callsign} (YOU)` : callsign,
         role: i === impostorIndex ? "IMPOSTOR" : "CREWMATE",
         x: 640 + Math.cos(angle) * 170,
         y: 384 + Math.sin(angle) * 116,
         vx: 0,
         vy: 0,
         color: colors[i % colors.length],
+        trueColor: colors[i % colors.length],
         hat: i === 0 && profile ? profile.hat : HATS[i % HATS.length],
         eyeStyle: i === 0 && profile ? profile.eyeStyle : EYE_STYLES[i % EYE_STYLES.length],
         alive: true,
@@ -857,6 +950,7 @@ class OrdealEngine {
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return;
     // Let focused buttons keep their native Space/Enter activation.
     if (tag === "BUTTON" && (event.code === "Space" || event.code === "Enter" || event.code === "NumpadEnter")) return;
+    void this.audio.unlock();
     if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyE", "KeyF", "KeyR", "KeyQ", "KeyV", "KeyC", "Space", "Escape"].includes(event.code)) {
       event.preventDefault();
     }
@@ -883,6 +977,7 @@ class OrdealEngine {
   };
 
   pointerMove = (event: PointerEvent) => {
+    if (event.type === "pointerdown") void this.audio.unlock();
     if (!this.canvasRect || this.canvasRect.width <= 0) this.updateRect();
     const rect = this.canvasRect;
     if (!rect) return;
@@ -926,7 +1021,7 @@ class OrdealEngine {
   }
 
   tryOpenPuzzle() {
-    if (this.phase !== "CALM" || !this.human.alive || this.paused || this.activePuzzle) return;
+    if (this.phase === "DISCUSSION" || !this.human.alive || this.paused || this.activePuzzle) return;
     const stationIndex = this.stations.findIndex((station) => dist(station, this.human) < 84 && !station.completed && station.cooldown <= 0 && station.puzzle);
     if (stationIndex < 0) return;
     const station = this.stations[stationIndex];
@@ -937,6 +1032,7 @@ class OrdealEngine {
     this.taskHold = 0;
     this.human.vx = 0;
     this.human.vy = 0;
+    this.human.working = true;
     this.onPuzzle(puzzle);
     this.emit(true);
   }
@@ -996,6 +1092,7 @@ class OrdealEngine {
     const wasFake = this.human.role === "IMPOSTOR";
     this.completeStation(station, wasFake);
     this.activePuzzle = null;
+    this.human.working = false;
     this.onPuzzle(null);
     this.keys.delete("KeyE");
     this.emit(true);
@@ -1005,25 +1102,28 @@ class OrdealEngine {
     if (station.completed) return;
     station.completed = true;
     station.cooldown = 0;
+    this.human.working = false;
     const reward = station.reward;
     this.charges[reward] = Math.min(3, this.charges[reward] + 1);
     this.selectedItem = reward;
     this.rewardNotice = { item: reward, station: station.label };
     this.rewardNoticeUntil = this.elapsed + 5.5;
+    const progressGain = this.phase === "ORDEAL" ? ORDEAL_TASK_PROGRESS_REWARD : TASK_PROGRESS_REWARD;
     if (this.multiplayerClient) {
       this.multiplayerClient.sendTask(station.label, reward, this.stationRound);
     } else if (!wasFake) {
-      this.taskProgress = Math.min(100, this.taskProgress + TASK_PROGRESS_REWARD);
+      this.taskProgress = Math.min(100, this.taskProgress + progressGain);
     }
-    const prefix = wasFake ? "Counterfeit rite accepted" : `${station.label} sealed`;
+    const prefix = wasFake ? "Counterfeit rite accepted" : `${station.label} sealed (+${progressGain}% wards)`;
     this.flashMessage(`${prefix}. ${ITEM_LABELS[reward]} acquired for the next Ordeal.`);
     if (!this.multiplayerClient) station.completedAt = this.elapsed;
     if (!wasFake && !this.multiplayerClient) this.checkWin();
   }
 
-  cancelPuzzle(message = "Shrine trial paused. Return when the sanctuary is calm.") {
+  cancelPuzzle(message = "Shrine trial paused. Return when ready.") {
     if (!this.activePuzzle) return;
     this.activePuzzle = null;
+    this.human.working = false;
     this.onPuzzle(null);
     this.keys.delete("KeyE");
     if (message) this.flashMessage(message);
@@ -1080,12 +1180,12 @@ class OrdealEngine {
         this.echoes.push({ ...point, until: this.elapsed + 2, nextAt: 0 });
       }
     }
-    this.flashMessage(ability === "MOON_SIGHT" ? "MOON SIGHT AWAKENED — living auras exposed, even beyond root walls." : "ECHO LURE — a false rustle follows your aim. Special action spent.");
+    this.flashMessage(ability === "MOON_SIGHT" ? "MOON SIGHT AWAKENED — all crewmate positions and colors revealed!" : "ECHO LURE — a false rustle follows your aim. Special action spent.");
     this.emit(true);
   }
 
   hearRustle(point: { x: number; y: number }) {
-    if (!this.human.alive || dist(this.human, point) > HEARING_RANGE || (this.hazard === "ROOTWAKE" && !sharesRootCell(this.human, point))) return;
+    if (!this.human.alive || dist(this.human, point) > HEARING_RANGE || (this.hazard === "ROOTWAKE" && this.human.role !== "IMPOSTOR" && !sharesRootCell(this.human, point))) return;
     this.audio.rustle(this.human, point);
     if (this.elapsed - this.lastCaptionAt < 0.7) return;
     this.lastCaptionAt = this.elapsed;
@@ -1111,6 +1211,7 @@ class OrdealEngine {
   }
 
   kill() {
+    void this.audio.unlock();
     if (this.human.role !== "IMPOSTOR" || this.phase !== "ORDEAL" || !this.human.alive || this.paused) return;
     if (this.killUsedThisOrdeal) {
       this.flashMessage("Your single strike is already spent for this Ordeal.");
@@ -1122,7 +1223,6 @@ class OrdealEngine {
         player.alive
         && player.id !== this.human.id
         && dist(player, this.human) < 84
-        && (this.hazard !== "ROOTWAKE" || sharesRootCell(player, this.human))
       );
       const victim = victims.sort((a, b) => dist(a, this.human) - dist(b, this.human))[0];
       if (!victim) {
@@ -1132,14 +1232,13 @@ class OrdealEngine {
       this.multiplayerClient.sendKill(victim.id);
       this.killUsedThisOrdeal = true;
       this.killCooldownUntil = this.elapsed + KILL_COOLDOWN_SECONDS;
-      this.flashMessage("Strike sent — awaiting the sanctuary's verdict.");
+      this.flashMessage("Devouring target — awaiting the sanctuary's verdict.");
       return;
     }
     const victims = this.players.filter((player) =>
       player.alive
       && player.role === "CREWMATE"
       && dist(player, this.human) < 84
-      && (this.hazard !== "ROOTWAKE" || sharesRootCell(player, this.human))
     );
     const victim = victims.sort((a, b) => dist(a, this.human) - dist(b, this.human))[0];
     if (!victim) {
@@ -1148,23 +1247,24 @@ class OrdealEngine {
     }
     this.eliminate(victim, this.human);
     this.killCooldownUntil = this.elapsed + KILL_COOLDOWN_SECONDS;
-    this.flashMessage("Strike complete. Your claws are spent until the next Ordeal.");
+    this.flashMessage("Prey devoured. Your jaws are spent until the next Ordeal.");
   }
 
   eliminate(victim: Player, killer: Player) {
     victim.alive = false;
+    victim.working = false;
     victim.vx = 0;
     victim.vy = 0;
     this.killUsedThisOrdeal = true;
     this.bodies.push({ id: victim.id, x: victim.x, y: victim.y, color: victim.color, name: victim.name, age: 0 });
-    this.burst(victim.x, victim.y + 20, victim.color, 34);
+    this.startDevour(victim.id, victim.x, victim.y, victim.color, killer.id, killer.color);
     this.onKill({ key: `${victim.id}-${performance.now()}` });
     this.recordWitnesses(victim, killer);
     if (victim.id === "you") {
       this.cancelPuzzle("");
       this.paused = true;
-      this.onDeath({ killerName: killer.name, killerColor: killer.color });
-      this.flashMessage(`You were splattered by ${killer.name}. Spectating the remaining crew.`);
+      this.onDeath({ killerName: killer.name, killerColor: killer.color, victimColor: victim.color });
+      this.flashMessage(`You were devoured by ${killer.name}. Spectating the remaining crew.`);
     }
     killer.targetX = ROOM.left + 130 + Math.random() * (ROOM.right - ROOM.left - 260);
     killer.targetY = ROOM.top + 120 + Math.random() * (ROOM.bottom - ROOM.top - 240);
@@ -1184,10 +1284,12 @@ class OrdealEngine {
   /** Can `observer` make out `target` right now, given the hazard and light sources? */
   canSee(observer: Player, target: Player) {
     const d = dist(observer, target);
+    const flareLit = this.flares.some((flare) => dist(flare, target) < 146);
+    if (!flareLit && isOccludedByObstacle(observer, target)) return false;
     if (this.phase !== "ORDEAL") return d < 420;
     if (this.hazard === "ROOTWAKE") return sharesRootCell(observer, target) && d < 420;
     if (this.hazard === "PHANTOMS") return d < 58;
-    if (this.flares.some((flare) => dist(flare, target) < 146)) return d < 420;
+    if (flareLit) return d < 420;
     if (observer.flashlight) {
       const aim = Math.atan2(observer.vy, observer.vx);
       const toward = Math.atan2(target.y - observer.y, target.x - observer.x);
@@ -1230,9 +1332,42 @@ class OrdealEngine {
     if (!this.gameOver && !this.activeMeeting) this.paused = false;
   }
 
+  restoreTrueColors() {
+    for (const player of this.players) {
+      if (player.trueColor && player.color !== player.trueColor) {
+        player.color = player.trueColor;
+      }
+    }
+    this.mirrorBumpCooldowns.clear();
+  }
+
+  checkMirrorPoolBumps() {
+    if (this.phase !== "ORDEAL" || this.hazard !== "MIRROR_POOL") return;
+    const living = this.players.filter((p) => p.alive);
+    for (let i = 0; i < living.length; i += 1) {
+      for (let j = i + 1; j < living.length; j += 1) {
+        const a = living[i];
+        const b = living[j];
+        if (dist(a, b) > MIRROR_BUMP_DISTANCE) continue;
+        const pairKey = a.id < b.id ? `${a.id}:${b.id}` : `${b.id}:${a.id}`;
+        if (this.elapsed < (this.mirrorBumpCooldowns.get(pairKey) ?? 0)) continue;
+        this.mirrorBumpCooldowns.set(pairKey, this.elapsed + MIRROR_BUMP_COOLDOWN_MS / 1000);
+        const temp = a.color;
+        a.color = b.color;
+        b.color = temp;
+        this.burst((a.x + b.x) / 2, (a.y + b.y) / 2, "#8be9fd", 22);
+        if (a.id === this.localPlayerId || b.id === this.localPlayerId) {
+          this.flashMessage("MIRROR RIPPLE — your reflection swapped colors on impact!");
+        }
+      }
+    }
+  }
+
   startMeeting(reason: string, reporter: string) {
     if (this.paused) return;
+    this.restoreTrueColors();
     this.cancelPuzzle("");
+    for (const player of this.players) player.working = false;
     this.paused = true;
     this.phase = "DISCUSSION";
     const accusations: Record<string, string | null> = {};
@@ -1240,6 +1375,7 @@ class OrdealEngine {
       if (player.ai && player.alive) accusations[player.id] = this.primeSuspect(player);
     }
     this.activeMeeting = { reason, reporter, candidates: this.players.map((player) => ({ ...player })), accusations };
+    this.audio.meetingAlert(reason.includes("PUDDLE") || reason.includes("BODY"));
     this.onMeeting(this.activeMeeting);
     this.emit(true);
   }
@@ -1405,8 +1541,7 @@ class OrdealEngine {
         player.alive
         && player.id !== this.human.id
         && player.role === "CREWMATE"
-        && dist(player, this.human) < 84
-        && (this.hazard !== "ROOTWAKE" || sharesRootCell(player, this.human)),
+        && dist(player, this.human) < 84,
     );
     const rawKillCooldown = Math.max(0, this.killCooldownUntil - this.elapsed);
     const killCooldown = Math.round(rawKillCooldown * 10) / 10;
@@ -1428,7 +1563,7 @@ class OrdealEngine {
       moonSightActive,
       soundCaption: this.phase === "ORDEAL" && this.elapsed < this.captionUntil ? this.caption : "",
       canReport: this.human.alive && (nearbyBody || nearButton),
-      taskPrompt: Boolean(nearestStation && !nearestStation.completed && nearestStation.cooldown <= 0) && this.phase === "CALM" && this.human.alive,
+      taskPrompt: Boolean(nearestStation && !nearestStation.completed && nearestStation.cooldown <= 0) && this.phase !== "DISCUSSION" && this.human.alive,
       taskMode: nearestStation && !nearestStation.completed ? (nearestStation.puzzle ? "PUZZLE" : "HOLD") : null,
       stationStatus: nearestStation ? { label: nearestStation.label, completed: nearestStation.completed, reward: nearestStation.reward } : null,
       rewardNotice: this.rewardNotice && this.elapsed < this.rewardNoticeUntil ? this.rewardNotice : null,
@@ -1452,13 +1587,46 @@ class OrdealEngine {
     const dt = this.last ? Math.min((now - this.last) / 1000, 0.035) : 0;
     this.last = now;
     this.elapsed += dt;
+    this.updateDevourEffects(dt);
     if (!this.paused && (!this.roleRevealActive || this.multiplayerClient)) {
       this.update(dt);
+    } else if (dt > 0) {
+      for (const p of this.particles) {
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vx *= Math.pow(0.1, dt);
+        p.vy *= Math.pow(0.1, dt);
+        p.life -= dt;
+      }
+      this.particles = this.particles.filter((p) => p.life > 0);
     }
     this.draw();
     this.emit();
     this.frame = requestAnimationFrame(this.loop);
   };
+
+  updateDevourEffects(dt: number) {
+    if (this.devourEvents.length === 0) return;
+    for (const event of this.devourEvents) {
+      const progress = (this.elapsed - event.startedAt) / event.duration;
+      if (progress >= 0.24 && event.lastChomp < 1) {
+        event.lastChomp = 1;
+        this.burst(event.x + (Math.random() - 0.5) * 18, event.y + 8, event.victimColor, 24);
+        this.burst(event.x, event.y + 4, "#ff2a55", 14);
+      } else if (progress >= 0.48 && event.lastChomp < 2) {
+        event.lastChomp = 2;
+        this.burst(event.x + (Math.random() - 0.5) * 22, event.y + 6, event.victimColor, 28);
+        this.burst(event.x, event.y + 2, "#ff2a55", 16);
+        this.burst(event.x, event.y, "#f5f8ea", 8);
+      } else if (progress >= 0.72 && event.lastChomp < 3) {
+        event.lastChomp = 3;
+        this.burst(event.x, event.y + 14, event.victimColor, 32);
+        this.burst(event.x, event.y + 6, "#f5f8ea", 12);
+      }
+    }
+    this.devourEvents = this.devourEvents.filter((event) => this.elapsed - event.startedAt < event.duration);
+    void dt;
+  }
 
   update(dt: number) {
     if (this.multiplayerClient) {
@@ -1471,11 +1639,11 @@ class OrdealEngine {
           this.phaseTime = 3;
           this.hazard = nextHazard(this.hazard);
           this.phantomRoutes = phantomPaths(Math.floor(Math.random() * 4294967296));
-          this.cancelPuzzle("");
           this.flashMessage(`${HAZARD_LABELS[this.hazard]} INCOMING — prepare your gear and position.`);
         } else if (this.phase === "COUNTDOWN") {
+          this.restoreTrueColors();
           this.phase = "ORDEAL";
-          this.phaseTime = 10;
+          this.phaseTime = ordealDuration(this.hazard);
           this.killCooldownUntil = 0;
           this.killUsedThisOrdeal = false;
           this.moonSightUntil = 0;
@@ -1490,7 +1658,9 @@ class OrdealEngine {
                   ? "MOON GLARE — searing moonlight has bleached every identity into shadow."
                   : this.hazard === "ROOTWAKE"
                     ? "ROOTWAKE — six moon cells have sealed. Only your chamber remains visible."
-                    : "PHANTOM PROCESSION — false wardens now walk among the living.",
+                    : this.hazard === "MIRROR_POOL"
+                      ? "MIRROR POOL — controls are inverted for 25s! Bumping another warden swaps your colors."
+                      : "PHANTOM PROCESSION — false wardens now walk among the living.",
           );
         } else if (this.phase === "ORDEAL") {
           this.phase = "CALM";
@@ -1505,7 +1675,7 @@ class OrdealEngine {
 
     for (const station of this.stations) {
       station.cooldown = Math.max(0, station.cooldown - dt);
-      const targetClosure = this.phase === "CALM" ? 0 : 1;
+      const targetClosure = this.phase === "DISCUSSION" ? 1 : 0;
       station.rootClosure = (station.rootClosure ?? targetClosure) + (targetClosure - (station.rootClosure ?? targetClosure)) * Math.min(1, dt * 8);
     }
     if (!this.multiplayerClient && this.phase === "ORDEAL") {
@@ -1561,6 +1731,7 @@ class OrdealEngine {
         const rvx = Math.round(this.human.vx);
         const rvy = Math.round(this.human.vy);
         const fl = this.human.flashlight;
+        const wk = Boolean(this.human.working);
         const prev = this.lastSentInput;
         if (
           rx !== prev.x
@@ -1569,33 +1740,40 @@ class OrdealEngine {
           || rvy !== prev.vy
           || Math.abs(aim - prev.angle) > 0.04
           || fl !== prev.flashlight
+          || wk !== prev.working
           || this.elapsed - this.lastInputHeartbeat >= 0.5
         ) {
           this.lastInputHeartbeat = this.elapsed;
-          this.lastSentInput = { x: rx, y: ry, vx: rvx, vy: rvy, angle: aim, flashlight: fl };
-          const seq = this.multiplayerClient.sendInput(rx, ry, rvx, rvy, aim, fl);
+          this.lastSentInput = { x: rx, y: ry, vx: rvx, vy: rvy, angle: aim, flashlight: fl, working: wk };
+          const seq = this.multiplayerClient.sendInput(rx, ry, rvx, rvy, aim, fl, wk);
           this.pendingInputs.set(seq, { x: rx, y: ry });
           if (this.pendingInputs.size > 180) this.pendingInputs.delete(this.pendingInputs.keys().next().value!);
         }
       }
     } else {
       this.updateBots(dt);
+      this.checkMirrorPoolBumps();
     }
   }
 
   updateHuman(dt: number) {
     const player = this.human;
-    if (!player.alive) return;
-    if (this.multiplayerClient && !this.multiplayerClient.connected) { player.vx = 0; player.vy = 0; return; }
+    if (!player.alive) {
+      player.working = false;
+      return;
+    }
+    if (this.multiplayerClient && !this.multiplayerClient.connected) { player.vx = 0; player.vy = 0; player.working = false; return; }
     player.flashlight = this.phase === "ORDEAL" && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil;
     if (this.activePuzzle) {
       player.vx = 0;
       player.vy = 0;
+      player.working = true;
       return;
     }
     const pressed = (code: string) => this.keys.has(code) || this.touchKeys.has(code);
-    let dx = Number(pressed("KeyD") || pressed("ArrowRight")) - Number(pressed("KeyA") || pressed("ArrowLeft"));
-    let dy = Number(pressed("KeyS") || pressed("ArrowDown")) - Number(pressed("KeyW") || pressed("ArrowUp"));
+    const invert = this.phase === "ORDEAL" && this.hazard === "MIRROR_POOL" ? -1 : 1;
+    let dx = (Number(pressed("KeyD") || pressed("ArrowRight")) - Number(pressed("KeyA") || pressed("ArrowLeft"))) * invert;
+    let dy = (Number(pressed("KeyS") || pressed("ArrowDown")) - Number(pressed("KeyW") || pressed("ArrowUp"))) * invert;
     const length = Math.hypot(dx, dy) || 1;
     dx /= length;
     dy /= length;
@@ -1606,23 +1784,29 @@ class OrdealEngine {
     if (!dy) player.vy *= Math.pow(0.004, dt);
     const nextX = clamp(player.x + player.vx * dt, ROOM.left + 36, ROOM.right - 36);
     const nextY = clamp(player.y + player.vy * dt, ROOM.top + 48, ROOM.bottom - 32);
-    const next = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72
+    const impostorPhasing = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && player.role === "IMPOSTOR";
+    const rootChecked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && !impostorPhasing
       ? resolveRootPosition(nextX, nextY)
       : { x: nextX, y: nextY };
+    const next = impostorPhasing ? rootChecked : resolveObstaclePosition(rootChecked.x, rootChecked.y);
     if (next.x !== nextX) player.vx *= 0.08;
     if (next.y !== nextY) player.vy *= 0.08;
     player.x = next.x;
     player.y = next.y;
 
     const station = this.stations.find((entry) => dist(entry, player) < 84 && !entry.completed && entry.cooldown <= 0);
-    if (station && !station.puzzle && pressed("KeyE") && this.phase === "CALM") {
+    if (station && !station.puzzle && pressed("KeyE") && this.phase !== "DISCUSSION") {
       this.taskHold += dt;
       if (this.taskHold >= 1.8) {
         this.taskHold = 0;
+        player.working = false;
         this.completeStation(station, player.role === "IMPOSTOR");
+      } else {
+        player.working = true;
       }
     } else {
       this.taskHold = Math.max(0, this.taskHold - dt * 1.4);
+      player.working = this.taskHold > 0.08;
     }
   }
 
@@ -1636,7 +1820,7 @@ class OrdealEngine {
       }
       if (this.elapsed > player.thinkAt || dist(player, { x: player.targetX, y: player.targetY }) < 22) {
         player.thinkAt = this.elapsed + 1.2 + Math.random() * 2.2;
-        if (this.phase === "CALM" || this.phase === "COUNTDOWN") {
+        if (this.phase === "CALM" || this.phase === "COUNTDOWN" || (this.phase === "ORDEAL" && player.role === "CREWMATE" && Math.random() < 0.65)) {
           const station = this.stations[player.atStation % this.stations.length];
           player.targetX = station.x + (Math.random() - 0.5) * 28;
           player.targetY = station.y + (station.side === "top" ? 66 : station.side === "bottom" ? -62 : 0) + (Math.random() - 0.5) * 24;
@@ -1646,7 +1830,6 @@ class OrdealEngine {
           const victims = this.players.filter((entry) =>
             entry.alive
             && entry.role === "CREWMATE"
-            && (this.hazard !== "ROOTWAKE" || sharesRootCell(entry, player))
           );
           const victim = victims.sort((a, b) => dist(a, player) - dist(b, player))[0];
           if (victim) {
@@ -1667,20 +1850,24 @@ class OrdealEngine {
       player.vy += ((dy / length) * speed - player.vy) * Math.min(1, dt * 5);
       const nextX = clamp(player.x + player.vx * dt, ROOM.left + 36, ROOM.right - 36);
       const nextY = clamp(player.y + player.vy * dt, ROOM.top + 48, ROOM.bottom - 32);
-      const next = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72
+      const impostorPhasing = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && player.role === "IMPOSTOR";
+      const rootChecked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && !impostorPhasing
         ? resolveRootPosition(nextX, nextY)
         : { x: nextX, y: nextY };
+      const next = impostorPhasing ? rootChecked : resolveObstaclePosition(rootChecked.x, rootChecked.y);
       if (next.x !== nextX) player.vx *= -0.18;
       if (next.y !== nextY) player.vy *= -0.18;
       player.x = next.x;
       player.y = next.y;
 
-      if (this.phase === "CALM" && player.role === "CREWMATE") {
+      player.working = false;
+      if (this.phase !== "DISCUSSION" && player.role === "CREWMATE") {
         const station = this.stations[player.atStation % this.stations.length];
         if (station.completed) {
           player.atStation = (player.atStation + 1) % this.stations.length;
         } else if (dist(player, station) < 78 && station.cooldown <= 0) {
-          this.taskProgress = Math.min(100, this.taskProgress + dt * 0.34);
+          player.working = true;
+          this.taskProgress = Math.min(100, this.taskProgress + dt * (this.phase === "ORDEAL" ? 0.5 : 0.34));
           if (Math.random() < dt * 0.2) {
             station.cooldown = 3;
             player.gearCharges[station.reward] = Math.min(3, player.gearCharges[station.reward] + 1);
@@ -1699,12 +1886,11 @@ class OrdealEngine {
           player.flareDropped = true;
           player.gearCharges.FLARE -= 1;
         }
-        if (player.role === "IMPOSTOR" && !this.killUsedThisOrdeal && this.elapsed >= this.killCooldownUntil && this.phaseTime < 8.4) {
+        if (player.role === "IMPOSTOR" && !this.killUsedThisOrdeal && this.elapsed >= this.killCooldownUntil && this.phaseTime < ordealDuration(this.hazard) - 1.6) {
           const victim = this.players
             .filter((entry) =>
               entry.alive
               && entry.role === "CREWMATE"
-              && (this.hazard !== "ROOTWAKE" || sharesRootCell(entry, player))
             )
             .sort((a, b) => dist(a, player) - dist(b, player))[0];
           if (victim && dist(victim, player) < 66) {
@@ -1753,53 +1939,73 @@ class OrdealEngine {
     const ctx = this.ctx;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    if (!this.reducedMotion && this.elapsed < this.devourShakeUntil) {
+      const decay = clamp((this.devourShakeUntil - this.elapsed) / 0.88, 0, 1);
+      const shakeX = Math.sin(this.elapsed * 68) * this.devourShakePower * decay;
+      const shakeY = Math.cos(this.elapsed * 54) * this.devourShakePower * 0.78 * decay;
+      ctx.translate(shakeX, shakeY);
+    }
     this.drawRoom(ctx);
     this.drawBeams(ctx);
     for (const body of this.bodies) this.drawBody(ctx, body);
     const moonGlareActive = this.phase === "ORDEAL" && this.hazard === "MOONGLARE";
     const phantomProcessionActive = this.phase === "ORDEAL" && this.hazard === "PHANTOMS";
     const rootwakeActive = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE";
-    if (moonGlareActive) this.drawLighting(ctx);
-    const ordered = [
-      ...this.players.filter((player) => player.alive).map((player) => ({ player, phantom: false })),
-      ...(phantomProcessionActive ? this.getPhantoms().map((player) => ({ player, phantom: true })) : []),
-    ].sort((a, b) => a.player.y - b.player.y);
     const moonSightActive = this.human.role === "IMPOSTOR" && this.elapsed < this.moonSightUntil;
+    if (moonGlareActive && !moonSightActive) this.drawLighting(ctx);
+    type RenderItem =
+      | { kind: "PLAYER"; y: number; player: Player; phantom: boolean }
+      | { kind: "OBSTACLE"; y: number; obstacle: SanctuaryObstacle };
+    const ordered: RenderItem[] = [
+      ...this.players.filter((player) => player.alive).map((player): RenderItem => ({ kind: "PLAYER", y: player.y, player, phantom: false })),
+      ...(phantomProcessionActive ? this.getPhantoms().map((player): RenderItem => ({ kind: "PLAYER", y: player.y, player, phantom: true })) : []),
+      ...SANCTUARY_OBSTACLES.map((obstacle): RenderItem => ({ kind: "OBSTACLE", y: obstacle.y, obstacle })),
+    ].sort((a, b) => a.y - b.y);
     const sonarActive = this.selectedItem === "SONAR" && this.elapsed < this.itemActiveUntil;
     for (const entry of ordered) {
+      if (entry.kind === "OBSTACLE") {
+        this.drawObstacle(ctx, entry.obstacle);
+        continue;
+      }
       const { player } = entry;
       if (entry.phantom) {
-        this.drawSlime(ctx, player, true, false, false, 0.78);
-        if (sonarActive) this.drawPhantomMarker(ctx, player);
+        this.drawSlime(ctx, player, true, false, false, moonSightActive ? 0.25 : 0.78);
+        if (sonarActive || moonSightActive) this.drawPhantomMarker(ctx, player);
         continue;
       }
       const isLocal = player.id === this.localPlayerId;
-      const revealed = isLocal || moonSightActive || this.isRevealed(player);
+      const occludedBehindCover = !isLocal && !moonSightActive && isOccludedByObstacle(this.human, player) && !this.flares.some((f) => dist(f, player) < 146);
+      const revealed = isLocal || moonSightActive || (!occludedBehindCover && this.isRevealed(player));
       if (this.phase === "ORDEAL" && this.hazard === "BLACKOUT" && !revealed) continue;
-      const silhouette = moonGlareActive || phantomProcessionActive || (this.phase === "ORDEAL" && this.hazard === "FOG" && !revealed);
-      const colorMuted = this.phase === "ORDEAL" && !silhouette && (this.hazard === "BLACKOUT" || this.hazard === "FOG");
-      const visibilityAlpha = this.phase !== "ORDEAL"
+      const silhouette = !moonSightActive && (moonGlareActive || phantomProcessionActive || occludedBehindCover || (this.phase === "ORDEAL" && (this.hazard === "FOG" || this.hazard === "MIRROR_POOL") && !revealed));
+      const colorMuted = !moonSightActive && this.phase === "ORDEAL" && !silhouette && (this.hazard === "BLACKOUT" || this.hazard === "FOG" || this.hazard === "MIRROR_POOL");
+      const baseAlpha = moonSightActive || this.phase !== "ORDEAL"
         ? 1
         : this.hazard === "BLACKOUT"
           ? 0.56
-          : this.hazard === "FOG"
-            ? silhouette ? 0.48 : 0.7
+          : this.hazard === "FOG" || this.hazard === "MIRROR_POOL"
+            ? silhouette ? 0.48 : 0.78
             : this.hazard === "PHANTOMS"
               ? 0.78
             : 1;
+      const visibilityAlpha = occludedBehindCover ? Math.min(baseAlpha, 0.34) : baseAlpha;
       this.drawSlime(ctx, player, silhouette, moonSightActive && !isLocal, colorMuted, visibilityAlpha);
+    }
+    for (const event of this.devourEvents) {
+      const isParticipant = event.killerId === this.localPlayerId || event.id === this.localPlayerId || event.id === `body-${this.localPlayerId}`;
+      if (isParticipant || moonSightActive || this.isRevealed({ ...this.human, id: event.id, x: event.x, y: event.y, flashlight: false })) {
+        this.drawDevourEffect(ctx, event, !moonSightActive && (moonGlareActive || phantomProcessionActive));
+      }
     }
     if (!moonGlareActive) this.drawLighting(ctx);
     this.drawParticles(ctx);
     if (rootwakeActive) {
       this.drawRootwakeOcclusion(ctx);
       this.drawRootwake(ctx);
-      // Sight reveals anonymous auras through roots, never opens paths or reveals costumes.
-      if (moonSightActive) for (const player of this.players) {
-        if (!player.alive || player.id === this.localPlayerId || sharesRootCell(player, this.human)) continue;
-        ctx.save(); ctx.strokeStyle = "#e0b1ef"; ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.ellipse(player.x, player.y + 4, 18, 24, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
-      }
+    }
+    if (moonSightActive) {
+      this.drawMoonSightOverlay(ctx);
     }
     if (this.phase === "COUNTDOWN" && this.hazard === "ROOTWAKE") {
       ctx.save(); ctx.strokeStyle = "#d8edb6b0"; ctx.lineWidth = 3; ctx.setLineDash([10, 9]);
@@ -1807,30 +2013,77 @@ class OrdealEngine {
       ctx.restore();
     }
     this.drawCanvasLabels(ctx);
+    ctx.restore();
+  }
+
+  drawMoonSightOverlay(ctx: CanvasRenderingContext2D) {
+    const pulse = 0.5 + Math.sin(this.elapsed * 9) * 0.5;
+    ctx.save();
+    for (const player of this.players) {
+      if (!player.alive) continue;
+      const isLocal = player.id === this.localPlayerId;
+      if (!isLocal) {
+        // Directional tracking tether in the crewmate's exact slime color
+        ctx.save();
+        ctx.strokeStyle = player.color;
+        ctx.globalAlpha = 0.45 + pulse * 0.25;
+        ctx.lineWidth = 2.2;
+        ctx.setLineDash([7, 7]);
+        ctx.beginPath();
+        ctx.moveTo(this.human.x, this.human.y);
+        ctx.lineTo(player.x, player.y);
+        ctx.stroke();
+        ctx.restore();
+
+        // Color-coded target ring around the crewmate
+        ctx.save();
+        ctx.strokeStyle = player.color;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = 0.85;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y + 4, 42 + pulse * 5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+      // Re-draw living slimes in 100% vibrant color above darkness/fog/glare/roots
+      this.drawSlime(ctx, player, false, !isLocal, false, 1);
+    }
+    ctx.restore();
   }
 
   drawRootwakeOcclusion(ctx: CanvasRenderingContext2D) {
     const strength = rootwakeStrength(this.phase, this.hazard, this.phaseTime);
     if (strength <= 0) return;
     const cell = getRootCell(this.human.x, this.human.y);
-    ctx.save();
-    ctx.fillStyle = `rgba(1,4,10,${0.985 * strength})`;
-    ctx.beginPath();
-    ctx.rect(0, 0, W, H);
-    ctx.rect(cell.x, cell.y, cell.w, cell.h);
-    ctx.fill("evenodd");
-
     const pulse = 0.5 + Math.sin(this.elapsed * 4.8) * 0.5;
-    ctx.strokeStyle = `rgba(108,255,181,${strength * (0.14 + pulse * 0.12)})`;
-    ctx.lineWidth = 9;
-    ctx.strokeRect(cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6);
-    ctx.strokeStyle = `rgba(139,247,181,${strength * (0.5 + pulse * 0.22)})`;
-    ctx.lineWidth = 2.5;
-    ctx.strokeRect(cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6);
-    ctx.fillStyle = `rgba(205,255,222,${strength * 0.82})`;
-    ctx.font = "900 11px ui-monospace, monospace";
-    ctx.textAlign = "left";
-    ctx.fillText(`CELL ${cell.index + 1}  •  LOCAL WARD`, cell.x + 16, cell.y + 24);
+    ctx.save();
+    if (this.human.role !== "IMPOSTOR") {
+      ctx.fillStyle = `rgba(1,4,10,${0.985 * strength})`;
+      ctx.beginPath();
+      ctx.rect(0, 0, W, H);
+      ctx.rect(cell.x, cell.y, cell.w, cell.h);
+      ctx.fill("evenodd");
+
+      ctx.strokeStyle = `rgba(108,255,181,${strength * (0.14 + pulse * 0.12)})`;
+      ctx.lineWidth = 9;
+      ctx.strokeRect(cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6);
+      ctx.strokeStyle = `rgba(139,247,181,${strength * (0.5 + pulse * 0.22)})`;
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6);
+      ctx.fillStyle = `rgba(205,255,222,${strength * 0.82})`;
+      ctx.font = "900 11px ui-monospace, monospace";
+      ctx.textAlign = "left";
+      ctx.fillText(`CELL ${cell.index + 1}  •  LOCAL WARD`, cell.x + 16, cell.y + 24);
+    } else {
+      // Impostor sees the entire map during Root Cage and phases through root barriers
+      ctx.strokeStyle = `rgba(108,255,181,${strength * (0.28 + pulse * 0.18)})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6);
+      ctx.fillStyle = `rgba(205,255,222,${strength * 0.9})`;
+      ctx.font = "900 11px ui-monospace, monospace";
+      ctx.textAlign = "left";
+      ctx.fillText(`CELL ${cell.index + 1}  •  IMPOSTOR ROOTWALK (FULL MAP VISION • PASS THROUGH ROOTS)`, ROOM.left + 16, ROOM.top + 24);
+    }
     ctx.restore();
   }
 
@@ -1838,6 +2091,9 @@ class OrdealEngine {
     const strength = rootwakeStrength(this.phase, this.hazard, this.phaseTime);
     if (strength <= 0) return;
     ctx.save();
+    if (this.human.role === "IMPOSTOR") {
+      ctx.globalAlpha = 0.55;
+    }
     for (const [barrierIndex, barrier] of ROOT_BARRIERS.entries()) {
       const horizontal = barrier.w > barrier.h;
       const rootWidth = horizontal ? barrier.h : barrier.w;
@@ -1972,7 +2228,7 @@ class OrdealEngine {
 
 
   drawStation(ctx: CanvasRenderingContext2D, station: Station) {
-    drawForestSanctum(ctx, station, this.elapsed, this.phase !== "CALM", dist(station, this.human) < 128);
+    drawForestSanctum(ctx, station, this.elapsed, this.phase === "DISCUSSION", dist(station, this.human) < 128);
   }
 
   drawEmergency(ctx: CanvasRenderingContext2D) {
@@ -2045,10 +2301,36 @@ class OrdealEngine {
     }
   }
 
+  drawWorkingStatus(ctx: CanvasRenderingContext2D, x: number, badgeY: number) {
+    const pulse = 0.72 + Math.sin(this.elapsed * 5.2) * 0.28;
+    const text = "✦ WORKING SHRINE";
+    ctx.save();
+    ctx.font = "800 10px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    const width = Math.ceil(ctx.measureText(text).width) + 16;
+    const height = 18;
+    const rx = x - width / 2;
+    const ry = badgeY - 12;
+    ctx.fillStyle = "rgba(8, 22, 18, 0.88)";
+    ctx.strokeStyle = `rgba(126, 244, 198, ${(0.55 * pulse).toFixed(2)})`;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.roundRect(rx, ry, width, height, 9);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = `rgba(216, 255, 234, ${(0.82 + 0.18 * pulse).toFixed(2)})`;
+    ctx.fillText(text, x, badgeY);
+    ctx.restore();
+  }
+
   drawSlime(ctx: CanvasRenderingContext2D, player: Player, silhouette = false, moonSightMarked = false, colorMuted = false, visibilityAlpha = 1) {
     const speed = Math.hypot(player.vx, player.vy);
     const seed = Array.from(player.id).reduce((sum, letter) => (sum * 31 + letter.charCodeAt(0)) % 997, 0);
     const pose = this.slimeAnimator.sample(player, this.elapsed, this.reducedMotion);
+    const activeDevour = this.devourEvents.find((e) => e.killerId === player.id && (this.elapsed - e.startedAt) < e.duration * 0.86);
+    const devourChomp = activeDevour ? Math.sin(((this.elapsed - activeDevour.startedAt) / (activeDevour.duration * 0.86)) * Math.PI * 6) : 0;
+    const scaleX = activeDevour ? pose.scaleX * (1.22 + devourChomp * 0.18) : pose.scaleX;
+    const scaleY = activeDevour ? pose.scaleY * (0.86 - devourChomp * 0.15) : pose.scaleY;
     const x = player.x;
     const y = player.y + pose.offsetY;
     const baseColor = colorMuted ? muteHexColor(player.color) : player.color;
@@ -2093,7 +2375,7 @@ class OrdealEngine {
     ctx.save();
     // Deform around the feet. Body, eyes and costume share one transform.
     ctx.translate(x, y + 31);
-    ctx.transform(pose.scaleX, 0, pose.shear, pose.scaleY, 0, 0);
+    ctx.transform(scaleX, 0, pose.shear, scaleY, 0, 0);
     ctx.translate(0, -31);
     if (silhouette) {
       slimeOutline(ctx);
@@ -2106,6 +2388,9 @@ class OrdealEngine {
       ctx.fill();
       ctx.stroke();
       ctx.restore();
+      if (player.working && player.alive) {
+        this.drawWorkingStatus(ctx, x, Math.max(18, player.y - 76));
+      }
       ctx.restore();
       return;
     }
@@ -2131,6 +2416,9 @@ class OrdealEngine {
     ctx.strokeText(label, x, labelY);
     ctx.fillStyle = privateRed ? "#ff5362" : (colorMuted ? "#cfd8dc" : "#ffffff");
     ctx.fillText(label, x, labelY);
+    if (player.working && player.alive) {
+      this.drawWorkingStatus(ctx, x, Math.max(16, labelY - 20));
+    }
     ctx.restore();
   }
 
@@ -2224,33 +2512,303 @@ class OrdealEngine {
     ctx.restore();
   }
 
-  drawBody(ctx: CanvasRenderingContext2D, body: Body) {
-    const wobble = Math.sin(this.elapsed * 3 + body.age) * 2;
+  drawDevourEffect(ctx: CanvasRenderingContext2D, event: DevourEvent, silhouette = false) {
+    const progress = clamp((this.elapsed - event.startedAt) / event.duration, 0, 1);
+    const chompCycle = (progress / 0.78) * Math.PI * 3;
+    const jawOpen = progress < 0.78
+      ? Math.abs(Math.cos(chompCycle))
+      : Math.max(0, 1 - (progress - 0.78) / 0.22);
+    const snapImpact = Math.max(0, 1 - jawOpen * 3.2);
+    const fadeOut = progress > 0.82 ? clamp(1 - (progress - 0.82) / 0.18, 0, 1) : 1;
+    const jawColor = silhouette ? "#4a5864" : event.killerColor;
+
     ctx.save();
-    ctx.translate(body.x, body.y + 28);
-    ctx.fillStyle = `${body.color}a8`;
-    ctx.strokeStyle = "#111827";
-    ctx.lineWidth = 5;
+    ctx.translate(event.x, event.y + 10);
+    ctx.globalAlpha = fadeOut;
+
+    // 1. Crimson/abyssal feeding aura & shockwave rings on each jaw clamp
+    const auraRadius = 56 + snapImpact * 26;
+    const aura = ctx.createRadialGradient(0, 4, 6, 0, 4, auraRadius);
+    aura.addColorStop(0, "rgba(255, 36, 78, 0.48)");
+    aura.addColorStop(0.55, "rgba(96, 8, 32, 0.28)");
+    aura.addColorStop(1, "rgba(12, 2, 8, 0)");
+    ctx.fillStyle = aura;
     ctx.beginPath();
-    ctx.moveTo(-45, 5);
-    ctx.bezierCurveTo(-38, -18, -12, -15 - wobble, -2, -9);
-    ctx.bezierCurveTo(9, -26, 34, -15, 43, 2);
-    ctx.bezierCurveTo(56, 14, 22, 22, 7, 15);
-    ctx.bezierCurveTo(-9, 26, -47, 20, -45, 5);
+    ctx.arc(0, 4, auraRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 2. Victim slime being crushed and pulled into the maw (0.0 -> 0.78)
+    if (progress < 0.78) {
+      const shrink = 1 - progress * 0.76;
+      const shakeX = Math.sin(this.elapsed * 95) * (4 + snapImpact * 5);
+      const squashX = shrink * (1.18 - jawOpen * 0.28);
+      const squashY = shrink * (0.36 + jawOpen * 0.56);
+      ctx.save();
+      ctx.translate(shakeX, 6);
+      ctx.scale(squashX, squashY);
+      slimeOutline(ctx);
+      ctx.fillStyle = snapImpact > 0.45 ? "#fff0f3" : event.victimColor;
+      ctx.strokeStyle = "#19040b";
+      ctx.lineWidth = 3;
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 3. Giant Abyssal Predator Jaws (Upper & Lower Mandibles + 12 Razor Fangs)
+    const upperY = -8 - jawOpen * 28;
+    const lowerY = 14 + jawOpen * 24;
+    const jawWidth = 48 + snapImpact * 8;
+
+    // Dark throat void between jaws
+    ctx.fillStyle = "rgba(18, 2, 10, 0.92)";
+    ctx.beginPath();
+    ctx.ellipse(0, (upperY + lowerY) / 2, jawWidth * 0.92, Math.max(6, (lowerY - upperY) * 0.62), 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Stretching slime saliva strands between upper and lower teeth
+    if (jawOpen > 0.15) {
+      ctx.strokeStyle = `${event.victimColor}cc`;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      for (const sx of [-28, -11, 9, 27]) {
+        ctx.moveTo(sx, upperY + 10);
+        ctx.quadraticCurveTo(sx * 0.7, (upperY + lowerY) / 2, sx * 0.9, lowerY - 10);
+      }
+      ctx.stroke();
+    }
+
+    // Upper Jaw Rim
+    ctx.fillStyle = jawColor;
+    ctx.strokeStyle = "#120309";
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.moveTo(-jawWidth, upperY + 6);
+    ctx.quadraticCurveTo(0, upperY - 26, jawWidth, upperY + 6);
+    ctx.quadraticCurveTo(0, upperY - 4, -jawWidth, upperY + 6);
+    ctx.closePath();
     ctx.fill();
     ctx.stroke();
-    ctx.fillStyle = "rgba(255,255,255,.55)";
+
+    // Lower Jaw Rim
     ctx.beginPath();
-    ctx.ellipse(-14, -8, 12, 4, -0.2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#f2f7e8";
-    ctx.strokeStyle = "#111827";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.roundRect(-5, -28, 12, 33, 5);
+    ctx.moveTo(-jawWidth, lowerY - 6);
+    ctx.quadraticCurveTo(0, lowerY + 24, jawWidth, lowerY - 6);
+    ctx.quadraticCurveTo(0, lowerY + 4, -jawWidth, lowerY - 6);
+    ctx.closePath();
     ctx.fill();
     ctx.stroke();
+
+    // 6 Upper Fangs pointing down
+    const fangPositions = [-35, -21, -7, 7, 21, 35];
+    for (const [idx, fx] of fangPositions.entries()) {
+      const fangLen = (idx === 0 || idx === 5 ? 13 : 18) + snapImpact * 4;
+      ctx.fillStyle = "#f7faec";
+      ctx.strokeStyle = "#16040b";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(fx - 5.5, upperY + 1);
+      ctx.lineTo(fx + 5.5, upperY + 1);
+      ctx.lineTo(fx, upperY + fangLen);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Crimson/slime tip on fang
+      ctx.fillStyle = idx % 2 === 0 ? "#ff2a55" : event.victimColor;
+      ctx.beginPath();
+      ctx.moveTo(fx - 2.6, upperY + fangLen * 0.55);
+      ctx.lineTo(fx + 2.6, upperY + fangLen * 0.55);
+      ctx.lineTo(fx, upperY + fangLen);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // 6 Lower Fangs pointing up (offset slightly to interlock)
+    for (const [idx, baseFx] of fangPositions.entries()) {
+      const fx = baseFx + (idx % 2 === 0 ? 3 : -3);
+      const fangLen = (idx === 0 || idx === 5 ? 12 : 17) + snapImpact * 4;
+      ctx.fillStyle = "#f7faec";
+      ctx.strokeStyle = "#16040b";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(fx - 5, lowerY - 1);
+      ctx.lineTo(fx + 5, lowerY - 1);
+      ctx.lineTo(fx, lowerY - fangLen);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = idx % 2 === 1 ? "#ff2a55" : event.victimColor;
+      ctx.beginPath();
+      ctx.moveTo(fx - 2.4, lowerY - fangLen * 0.55);
+      ctx.lineTo(fx + 2.4, lowerY - fangLen * 0.55);
+      ctx.lineTo(fx, lowerY - fangLen);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // 4. Crisscross bite slash flash when teeth slam shut
+    if (snapImpact > 0.32) {
+      ctx.strokeStyle = `rgba(255, 235, 240, ${(snapImpact * 0.9).toFixed(2)})`;
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.moveTo(-42, -18);
+      ctx.lineTo(42, 22);
+      ctx.moveTo(42, -18);
+      ctx.lineTo(-42, 22);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(255, 42, 85, ${(snapImpact * 0.85).toFixed(2)})`;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(0, 3, 44 + (1 - snapImpact) * 24, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
     ctx.restore();
+  }
+
+  drawBody(ctx: CanvasRenderingContext2D, body: Body) {
+    const activeDevour = this.devourEvents.find((e) => e.id === body.id);
+    const devourProgress = activeDevour ? (this.elapsed - activeDevour.startedAt) / activeDevour.duration : 1;
+    const puddleScale = activeDevour ? clamp(devourProgress * 1.22, 0.2, 1) : 1;
+    const seed = Array.from(body.id).reduce((sum, ch) => (sum * 31 + ch.charCodeAt(0)) % 997, 0);
+    const t = this.elapsed * 2.6 + body.age + seed * 0.1;
+    const wobble = Math.sin(t) * 2.4;
+    const wobble2 = Math.cos(t * 0.85) * 2.1;
+
+    ctx.save();
+    ctx.translate(body.x, body.y + 26);
+    ctx.scale(puddleScale, puddleScale);
+
+    // 1. Damp ground shadow beneath the puddle
+    const stain = ctx.createRadialGradient(0, 4, 8, 0, 4, 64);
+    stain.addColorStop(0, "rgba(3, 9, 15, 0.62)");
+    stain.addColorStop(0.7, "rgba(3, 9, 15, 0.28)");
+    stain.addColorStop(1, "rgba(3, 9, 15, 0)");
+    ctx.fillStyle = stain;
+    ctx.beginPath();
+    ctx.ellipse(0, 5, 62, 26, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 2. Satellite splatter droplets around the main puddle
+    const droplets = [
+      { x: -53, y: 9, rx: 8.5, ry: 5.2, rot: -0.25 },
+      { x: 51, y: 11, rx: 7.5, ry: 4.8, rot: 0.3 },
+      { x: -37, y: -17, rx: 6.2, ry: 4.0, rot: -0.4 },
+      { x: 40, y: -14, rx: 7.0, ry: 4.4, rot: 0.35 },
+      { x: 15, y: 23, rx: 6.8, ry: 3.8, rot: 0.12 },
+      { x: -19, y: 22, rx: 5.2, ry: 3.2, rot: -0.18 },
+    ];
+    ctx.fillStyle = `${body.color}c4`;
+    ctx.strokeStyle = "#0d1520";
+    ctx.lineWidth = 2.6;
+    for (const [idx, d] of droplets.entries()) {
+      const pulse = Math.sin(t + idx * 1.3) * 0.6;
+      ctx.beginPath();
+      ctx.ellipse(d.x, d.y, d.rx + pulse, d.ry - pulse * 0.4, d.rot, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // 3. Outer spreading slime puddle (multi-lobed organic shape)
+    ctx.fillStyle = `${body.color}b8`;
+    ctx.strokeStyle = "#0d1520";
+    ctx.lineWidth = 4.5;
+    ctx.beginPath();
+    ctx.moveTo(-48, 4);
+    ctx.bezierCurveTo(-52, -12, -32, -20 - wobble, -14, -15 + wobble2 * 0.5);
+    ctx.bezierCurveTo(-2, -25 - wobble2, 22, -24 + wobble, 35, -12);
+    ctx.bezierCurveTo(52, -6, 56, 10 + wobble, 41, 16);
+    ctx.bezierCurveTo(28, 24 + wobble2, 8, 20, -5, 22 - wobble * 0.6);
+    ctx.bezierCurveTo(-24, 25, -45, 18 - wobble2, -48, 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // 4. Inner thicker slime core pool
+    ctx.fillStyle = body.color;
+    ctx.globalAlpha = 0.88;
+    ctx.beginPath();
+    ctx.moveTo(-33, 3);
+    ctx.bezierCurveTo(-35, -8, -18, -13 - wobble * 0.6, -4, -10);
+    ctx.bezierCurveTo(10, -16 - wobble2 * 0.6, 27, -11, 31, 1);
+    ctx.bezierCurveTo(36, 11, 16, 15 + wobble * 0.5, 2, 13);
+    ctx.bezierCurveTo(-14, 16, -31, 12, -33, 3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // 5. Glossy wet liquid highlights
+    ctx.fillStyle = "rgba(255, 255, 255, 0.58)";
+    ctx.beginPath();
+    ctx.ellipse(-16, -8 - wobble * 0.3, 13, 4.2, -0.22, 0, Math.PI * 2);
+    ctx.ellipse(14, -9 + wobble2 * 0.3, 8.5, 3.0, 0.28, 0, Math.PI * 2);
+    ctx.ellipse(-4, 10, 9.5, 2.6, 0.08, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 6. Simmering slime bubbles on the puddle surface
+    const bubbles = [
+      { x: -24, y: 4, baseR: 4.2, phase: 0 },
+      { x: 21, y: 5, baseR: 3.6, phase: 2.1 },
+      { x: 4, y: -5, baseR: 3.2, phase: 4.2 },
+    ];
+    for (const b of bubbles) {
+      const cycle = (this.elapsed * 1.4 + b.phase + seed * 0.05) % 1;
+      const r = b.baseR * (0.55 + cycle * 0.65);
+      const alpha = cycle < 0.85 ? 0.75 : (1 - cycle) * 5;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = "rgba(255, 255, 255, 0.28)";
+      ctx.strokeStyle = "#0d1520";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+      ctx.beginPath();
+      ctx.arc(b.x - r * 0.3, b.y - r * 0.3, Math.max(1, r * 0.28), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 7. Dissolved slime eyes floating in the puddle after the devouring maw finishes
+    if (devourProgress >= 0.6) {
+      const eyeAlpha = clamp((devourProgress - 0.6) / 0.25, 0, 1);
+      ctx.save();
+      ctx.globalAlpha = eyeAlpha * 0.9;
+      ctx.fillStyle = "#11161f";
+      ctx.beginPath();
+      ctx.ellipse(-9, 1 + wobble * 0.25, 4.2, 3.0, -0.35, 0, Math.PI * 2);
+      ctx.ellipse(9, 3 - wobble2 * 0.25, 4.0, 2.8, 0.42, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
+      ctx.beginPath();
+      ctx.arc(-10.2, 0.2 + wobble * 0.25, 1.2, 0, Math.PI * 2);
+      ctx.arc(7.8, 2.2 - wobble2 * 0.25, 1.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
+  getCrystalBlink(seed = 0): number {
+    if (this.phase !== "ORDEAL" || this.hazard !== "BLACKOUT") return 0;
+    const t = this.elapsed + seed * 0.017;
+    const slot = Math.floor(t * 2.3);
+    const slotFrac = t * 2.3 - slot;
+    const hash = Math.sin(slot * 127.1 + 311.7 + seed * 0.13) * 43758.5453;
+    const rand = hash - Math.floor(hash);
+    // Dormant ~68% of the time during Blackout; randomly blinks in the remaining slots
+    if (rand > 0.32) return 0;
+    const isDoubleBlink = rand < 0.14;
+    const pulse = isDoubleBlink
+      ? Math.max(
+          Math.exp(-Math.pow((slotFrac - 0.24) / 0.1, 2)),
+          0.88 * Math.exp(-Math.pow((slotFrac - 0.62) / 0.12, 2)),
+        )
+      : Math.exp(-Math.pow((slotFrac - 0.44) / 0.15, 2));
+    return pulse > 0.08 ? clamp(pulse, 0, 1) : 0;
   }
 
   isRevealed(player: Player) {
@@ -2258,6 +2816,13 @@ class OrdealEngine {
     if (player.flashlight) return true;
     if (dist(player, this.human) < (this.hazard === "BLACKOUT" ? 66 : 92)) return true;
     if (this.flares.some((flare) => dist(player, flare) < 146)) return true;
+    if (this.phase === "ORDEAL" && this.hazard === "BLACKOUT") {
+      for (const obs of SANCTUARY_OBSTACLES) {
+        if (obs.kind !== "CRYSTAL_SPIRE") continue;
+        const blink = this.getCrystalBlink(obs.x);
+        if (blink > 0.25 && dist(player, obs) < 118 * blink) return true;
+      }
+    }
     if (this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil) {
       const aim = Math.atan2(this.mouse.y - this.human.y, this.mouse.x - this.human.x);
       const target = Math.atan2(player.y - this.human.y, player.x - this.human.x);
@@ -2303,6 +2868,23 @@ class OrdealEngine {
       ctx.restore();
       return;
     }
+    if (this.hazard === "MIRROR_POOL") {
+      ctx.save();
+      ctx.fillStyle = "rgba(14, 38, 66, 0.38)";
+      ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = "rgba(139, 233, 253, 0.22)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (const player of this.players) {
+        if (!player.alive) continue;
+        const ripple = ((this.elapsed * 42) % 44) + 18;
+        ctx.moveTo(player.x + ripple, player.y + 28);
+        ctx.ellipse(player.x, player.y + 28, ripple, ripple * 0.36, 0, 0, Math.PI * 2);
+      }
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
     if (this.hazard !== "BLACKOUT" && this.hazard !== "FOG") return;
     const mask = this.maskCtx;
     const moonSightActive = this.human.role === "IMPOSTOR" && this.elapsed < this.moonSightUntil;
@@ -2331,6 +2913,15 @@ class OrdealEngine {
         mask.fill();
       }
       for (const flare of this.flares) this.cutRadial(mask, flare.x, flare.y, 152);
+      if (this.hazard === "BLACKOUT") {
+        for (const obs of SANCTUARY_OBSTACLES) {
+          if (obs.kind !== "CRYSTAL_SPIRE") continue;
+          const blink = this.getCrystalBlink(obs.x);
+          if (blink > 0) {
+            this.cutRadial(mask, obs.x, obs.y - 24, 132 * blink);
+          }
+        }
+      }
       if (this.selectedItem === "SONAR" && this.elapsed < this.itemActiveUntil) {
         const ring = ((this.elapsed * 110) % 190) + 30;
         mask.strokeStyle = "rgba(0,0,0,.9)";
@@ -2345,6 +2936,25 @@ class OrdealEngine {
     }
     mask.globalCompositeOperation = "source-over";
     ctx.drawImage(this.mask, 0, 0);
+
+    // Subtle cyan wash over blinking crystals during Blackout
+    if (this.hazard === "BLACKOUT") {
+      for (const obs of SANCTUARY_OBSTACLES) {
+        if (obs.kind !== "CRYSTAL_SPIRE") continue;
+        const blink = this.getCrystalBlink(obs.x);
+        if (blink <= 0) continue;
+        ctx.save();
+        const flash = ctx.createRadialGradient(obs.x, obs.y - 26, 6, obs.x, obs.y - 20, 132 * blink);
+        flash.addColorStop(0, `rgba(176, 250, 255, ${(0.34 * blink).toFixed(3)})`);
+        flash.addColorStop(0.45, `rgba(52, 212, 255, ${(0.16 * blink).toFixed(3)})`);
+        flash.addColorStop(1, "rgba(24, 130, 180, 0)");
+        ctx.fillStyle = flash;
+        ctx.beginPath();
+        ctx.arc(obs.x, obs.y - 20, 132 * blink, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
   }
 
   drawParticles(ctx: CanvasRenderingContext2D) {
@@ -2393,13 +3003,535 @@ class OrdealEngine {
     ctx.restore();
   }
 
+  drawObstacle(ctx: CanvasRenderingContext2D, obs: SanctuaryObstacle) {
+    const humanBehind =
+      this.human.y < obs.y + 8
+      && Math.abs(this.human.x - obs.x) < obs.canopyRadius + 16
+      && this.human.y > obs.y - obs.canopyHeight - 16;
+    const canopyAlpha = humanBehind ? 0.38 : 1;
+    const sway = Math.sin(this.elapsed * 1.6 + obs.x * 0.03) * 2.2;
+    const pulse = 0.5 + Math.sin(this.elapsed * 2.8 + obs.y * 0.05) * 0.5;
+
+    ctx.save();
+    ctx.translate(obs.x, obs.y);
+
+    // 1. Soft ground shadow & mossy base ring
+    const shadow = ctx.createRadialGradient(0, 6, 4, 0, 6, obs.r * 1.9);
+    shadow.addColorStop(0, "rgba(4, 14, 16, 0.52)");
+    shadow.addColorStop(0.65, "rgba(4, 14, 16, 0.24)");
+    shadow.addColorStop(1, "rgba(4, 14, 16, 0)");
+    ctx.fillStyle = shadow;
+    ctx.beginPath();
+    ctx.ellipse(0, 7, obs.r * 1.9, obs.r * 0.9, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Mossy stone/root base collar
+    ctx.fillStyle = "#2b473f";
+    ctx.strokeStyle = "rgba(164, 198, 168, 0.35)";
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.ellipse(0, 3, obs.r * 1.15, obs.r * 0.62, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // 2. Upper 2.5D structure (auto-fades when player walks behind it for a clean POV)
+    ctx.globalAlpha = canopyAlpha;
+
+    if (obs.kind === "CRYSTAL_SPIRE") {
+      // Dormant mineral sapphire cluster by default; blinks randomly ONLY during BLACKOUT Ordeal
+      const blink = this.getCrystalBlink(obs.x);
+
+      // Ambient ground & spire halo ONLY when actively blinking during Blackout
+      if (blink > 0) {
+        const halo = ctx.createRadialGradient(0, -32, 4, 0, -28, 72);
+        halo.addColorStop(0, `rgba(164, 248, 255, ${(0.65 * blink).toFixed(3)})`);
+        halo.addColorStop(0.45, `rgba(54, 214, 255, ${(0.32 * blink).toFixed(3)})`);
+        halo.addColorStop(1, "rgba(18, 118, 168, 0)");
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(0, -28, 72, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Carved dark basalt stone socket at the base
+      ctx.fillStyle = "#1c2c36";
+      ctx.strokeStyle = "#0d171e";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-24, 6);
+      ctx.lineTo(-27, -4);
+      ctx.lineTo(-14, -11);
+      ctx.lineTo(0, -8);
+      ctx.lineTo(15, -12);
+      ctx.lineTo(26, -3);
+      ctx.lineTo(23, 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Helper to draw a multi-faceted crystal prism shard
+      const drawShard = (
+        cx: number,
+        cy: number,
+        rot: number,
+        w: number,
+        h: number,
+      ) => {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(rot);
+
+        // Main crystal body gradient (dormant dark sapphire-slate vs active cyan-ice blink)
+        const bodyGrad = ctx.createLinearGradient(-w, -h, w, 6);
+        if (blink > 0) {
+          bodyGrad.addColorStop(0, `rgba(232, 254, 255, ${0.75 + 0.25 * blink})`);
+          bodyGrad.addColorStop(0.38, "#6ee7ff");
+          bodyGrad.addColorStop(0.75, "#2593ba");
+          bodyGrad.addColorStop(1, "#164863");
+        } else {
+          bodyGrad.addColorStop(0, "#4c7288");
+          bodyGrad.addColorStop(0.38, "#2d4c60");
+          bodyGrad.addColorStop(0.78, "#1c3342");
+          bodyGrad.addColorStop(1, "#11212c");
+        }
+
+        ctx.fillStyle = bodyGrad;
+        ctx.strokeStyle = blink > 0 ? "#b8f7ff" : "#0e1d26";
+        ctx.lineWidth = 2.1;
+        ctx.beginPath();
+        ctx.moveTo(0, -h);
+        ctx.lineTo(w * 0.92, -h * 0.64);
+        ctx.lineTo(w, 0);
+        ctx.lineTo(w * 0.55, 6);
+        ctx.lineTo(-w * 0.55, 6);
+        ctx.lineTo(-w, 0);
+        ctx.lineTo(-w * 0.92, -h * 0.64);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Left lit bevel plane
+        ctx.fillStyle = blink > 0
+          ? `rgba(255, 255, 255, ${(0.36 + 0.42 * blink).toFixed(2)})`
+          : "rgba(135, 184, 210, 0.18)";
+        ctx.beginPath();
+        ctx.moveTo(0, -h * 0.97);
+        ctx.lineTo(-w * 0.86, -h * 0.62);
+        ctx.lineTo(-w * 0.45, 4);
+        ctx.lineTo(0, 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Right deep shadow bevel plane
+        ctx.fillStyle = blink > 0
+          ? "rgba(14, 72, 104, 0.28)"
+          : "rgba(7, 16, 24, 0.42)";
+        ctx.beginPath();
+        ctx.moveTo(0, -h * 0.97);
+        ctx.lineTo(w * 0.86, -h * 0.62);
+        ctx.lineTo(w * 0.48, 4);
+        ctx.lineTo(0, 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Internal crystalline ridge & cross-facet lines
+        ctx.strokeStyle = blink > 0
+          ? `rgba(240, 255, 255, ${(0.65 + 0.35 * blink).toFixed(2)})`
+          : "rgba(116, 162, 186, 0.28)";
+        ctx.lineWidth = blink > 0 ? 1.7 : 1.1;
+        ctx.beginPath();
+        ctx.moveTo(0, -h * 0.96);
+        ctx.lineTo(-w * 0.14, -h * 0.42);
+        ctx.lineTo(0, 4);
+        ctx.moveTo(-w * 0.86, -h * 0.62);
+        ctx.lineTo(-w * 0.14, -h * 0.42);
+        ctx.lineTo(w * 0.86, -h * 0.62);
+        ctx.stroke();
+
+        ctx.restore();
+      };
+
+      // Rear angled secondary shards
+      drawShard(-15, -6, -0.34, 8.5, 42);
+      drawShard(16, -5, 0.31, 8, 39);
+
+      // Central tall prime crystal obelisk
+      drawShard(0, -2, 0.02, 15.5, 80);
+
+      // Foreground flanking shards
+      drawShard(-19, 1, -0.58, 7, 27);
+      drawShard(19, 2, 0.54, 6.8, 25);
+
+      // Base rim rocks overlapping the bottom of the shards
+      ctx.fillStyle = "#263a45";
+      ctx.strokeStyle = "#0e1920";
+      ctx.lineWidth = 1.6;
+      for (const [rx, ry, rw, rh] of [[-13, 3, 9, 5], [2, 4, 11, 5.5], [14, 3, 8, 4.5]]) {
+        ctx.beginPath();
+        ctx.ellipse(rx, ry, rw, rh, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // Active Blackout blink spark & arcane discharge arcs
+      if (blink > 0) {
+        ctx.fillStyle = `rgba(235, 254, 255, ${(0.85 * blink).toFixed(2)})`;
+        ctx.beginPath();
+        ctx.arc(0, -82, 3.6 * blink, 0, Math.PI * 2);
+        ctx.arc(-22 + sway * 0.6, -46, 2.5 * blink, 0, Math.PI * 2);
+        ctx.arc(24 - sway * 0.6, -38, 2.2 * blink, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (obs.kind === "RUNED_MONOLITH") {
+      // Weathered sanctuary standing stone with glowing lunar runes
+      const stoneGrad = ctx.createLinearGradient(-16, -74, 18, 6);
+      stoneGrad.addColorStop(0, "#8f9e95");
+      stoneGrad.addColorStop(0.5, "#566862");
+      stoneGrad.addColorStop(1, "#2c3d39");
+      ctx.fillStyle = stoneGrad;
+      ctx.strokeStyle = "#162421";
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.moveTo(-13, 5);
+      ctx.lineTo(-16, -54);
+      ctx.lineTo(-4, -74);
+      ctx.lineTo(11, -68);
+      ctx.lineTo(16, -46);
+      ctx.lineTo(14, 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Moss cap on monolith shoulder
+      ctx.fillStyle = "#5f8c6c";
+      ctx.beginPath();
+      ctx.ellipse(-3, -64, 11, 5, -0.25, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Pulsing carved moon rune sigils
+      ctx.strokeStyle = `rgba(164, 245, 212, ${(0.52 + pulse * 0.38).toFixed(2)})`;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(0, -42, 7, 0.3, Math.PI * 1.7);
+      ctx.moveTo(0, -31);
+      ctx.lineTo(0, -14);
+      ctx.moveTo(-5, -23);
+      ctx.lineTo(5, -23);
+      ctx.stroke();
+    } else if (obs.kind === "ANCIENT_TREE") {
+      // 1. Deep shadow foliage backdrop behind upper branches
+      ctx.fillStyle = "#17312b";
+      ctx.strokeStyle = "#0d1f1b";
+      ctx.lineWidth = 2.2;
+      for (const [bx, by, brx, bry] of [
+        [-28 + sway * 0.4, -54, 24, 18],
+        [28 + sway * 0.4, -52, 24, 18],
+        [-14 + sway * 0.5, -72, 26, 20],
+        [16 + sway * 0.5, -70, 25, 19],
+      ]) {
+        ctx.beginPath();
+        ctx.ellipse(bx, by, brx, bry, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // 2. Sculpted gnarled silverwood trunk with flaring root buttresses & 3 forked boughs
+      const trunkGrad = ctx.createLinearGradient(-20, -56, 20, 10);
+      trunkGrad.addColorStop(0, "#7c705b");
+      trunkGrad.addColorStop(0.45, "#554c3d");
+      trunkGrad.addColorStop(1, "#2b261e");
+      ctx.fillStyle = trunkGrad;
+      ctx.strokeStyle = "#17140f";
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      // Left root flare
+      ctx.moveTo(-26, 7);
+      ctx.quadraticCurveTo(-16, 1, -13, -16);
+      // Left forked branch
+      ctx.quadraticCurveTo(-14, -34, -25, -50);
+      ctx.lineTo(-17, -54);
+      ctx.quadraticCurveTo(-8, -38, -5, -34);
+      // Center bough
+      ctx.lineTo(-3, -58);
+      ctx.lineTo(5, -58);
+      ctx.lineTo(6, -35);
+      // Right forked branch
+      ctx.quadraticCurveTo(11, -39, 19, -52);
+      ctx.lineTo(26, -47);
+      ctx.quadraticCurveTo(15, -33, 13, -15);
+      // Right root flare
+      ctx.quadraticCurveTo(16, 1, 27, 7);
+      ctx.quadraticCurveTo(12, 5, 6, 9);
+      ctx.quadraticCurveTo(0, 4, -7, 9);
+      ctx.quadraticCurveTo(-14, 5, -26, 7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Bark grain ridges & moonlit rim highlight on trunk
+      ctx.strokeStyle = "rgba(182, 168, 138, 0.32)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-18, 4);
+      ctx.quadraticCurveTo(-10, -14, -10, -34);
+      ctx.moveTo(-4, 6);
+      ctx.quadraticCurveTo(-2, -16, -1, -44);
+      ctx.stroke();
+
+      // Warm amber spirit hollow in the trunk
+      ctx.fillStyle = "#14110c";
+      ctx.beginPath();
+      ctx.ellipse(1, -15, 5.2, 7.8, -0.08, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = `rgba(232, 206, 128, ${(0.28 + pulse * 0.22).toFixed(2)})`;
+      ctx.beginPath();
+      ctx.ellipse(1, -14, 3.1, 4.8, -0.08, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 3. Multi-layered scalloped leaf clusters (mid-tone & moonlit crown puffs)
+      const canopyClusters = [
+        { x: -30 + sway * 0.5, y: -48, rx: 21, ry: 15, c1: "#4d826e", c2: "#24493e" },
+        { x: 30 + sway * 0.5, y: -46, rx: 21, ry: 15, c1: "#497d69", c2: "#21443a" },
+        { x: -17 + sway * 0.65, y: -62, rx: 25, ry: 18, c1: "#669e86", c2: "#2d594c" },
+        { x: 18 + sway * 0.65, y: -60, rx: 24, ry: 17, c1: "#619880", c2: "#2b5548" },
+        { x: sway * 0.6, y: -50, rx: 26, ry: 18, c1: "#5b917b", c2: "#285043" },
+        { x: -8 + sway * 0.8, y: -76, rx: 24, ry: 17, c1: "#8bc2a7", c2: "#3b6e5d" },
+        { x: 10 + sway * 0.8, y: -74, rx: 22, ry: 16, c1: "#82b99e", c2: "#386858" },
+      ];
+      for (const c of canopyClusters) {
+        const g = ctx.createRadialGradient(c.x - c.rx * 0.3, c.y - c.ry * 0.35, 3, c.x, c.y, c.rx);
+        g.addColorStop(0, c.c1);
+        g.addColorStop(1, c.c2);
+        ctx.fillStyle = g;
+        ctx.strokeStyle = "#132b25";
+        ctx.lineWidth = 1.9;
+        ctx.beginPath();
+        ctx.ellipse(c.x, c.y, c.rx, c.ry, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // Moonlit rim-highlight crescents on top leaf clusters
+      ctx.fillStyle = "rgba(196, 240, 214, 0.32)";
+      for (const [hx, hy, hrx, hry] of [
+        [-11 + sway * 0.8, -82, 14, 6],
+        [-22 + sway * 0.65, -69, 13, 5.5],
+        [15 + sway * 0.7, -68, 12, 5],
+      ]) {
+        ctx.beginPath();
+        ctx.ellipse(hx, hy, hrx, hry, -0.18, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Softly drifting firefly spores
+      ctx.fillStyle = `rgba(226, 250, 184, ${(0.55 + pulse * 0.4).toFixed(2)})`;
+      ctx.beginPath();
+      ctx.arc(-20 + sway, -68, 2.2, 0, Math.PI * 2);
+      ctx.arc(22 - sway, -58, 1.9, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (obs.kind === "WEEPING_WILLOW") {
+      // Redesigned Moonwell Spirit Willow: graceful forked silver-bark trunk,
+      // lush multi-tiered cloud canopy, and tapered hanging leaf ribbons (no flat oval or stick lines)
+
+      // 1. Rear shadow foliage clusters
+      ctx.fillStyle = "#193833";
+      ctx.strokeStyle = "#0e221f";
+      ctx.lineWidth = 2;
+      for (const [bx, by, brx, bry] of [
+        [-28 + sway * 0.4, -50, 22, 16],
+        [28 + sway * 0.4, -48, 22, 16],
+        [sway * 0.5, -66, 28, 19],
+      ]) {
+        ctx.beginPath();
+        ctx.ellipse(bx, by, brx, bry, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // 2. Soft rear hanging leaf-ribbons (behind the trunk)
+      ctx.fillStyle = "#2b5e54";
+      for (const [lx, ly, len] of [[-32, -44, 24], [31, -42, 23]]) {
+        const s = sway * 0.9;
+        ctx.beginPath();
+        ctx.moveTo(lx - 4 + s * 0.3, ly);
+        ctx.quadraticCurveTo(lx - 6 + s, ly + len * 0.55, lx + s * 1.3, ly + len);
+        ctx.quadraticCurveTo(lx + 5 + s * 0.8, ly + len * 0.55, lx + 4 + s * 0.3, ly);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // 3. Graceful S-curved silver-ash trunk with flaring roots & 3 sweeping boughs
+      const willowTrunk = ctx.createLinearGradient(-18, -56, 18, 8);
+      willowTrunk.addColorStop(0, "#868272");
+      willowTrunk.addColorStop(0.5, "#5c5749");
+      willowTrunk.addColorStop(1, "#333027");
+      ctx.fillStyle = willowTrunk;
+      ctx.strokeStyle = "#191713";
+      ctx.lineWidth = 2.3;
+      ctx.beginPath();
+      ctx.moveTo(-22, 7);
+      ctx.quadraticCurveTo(-12, 0, -10, -18);
+      ctx.quadraticCurveTo(-11, -34, -24, -48);
+      ctx.lineTo(-16, -52);
+      ctx.quadraticCurveTo(-5, -38, -3, -32);
+      ctx.lineTo(0, -56);
+      ctx.lineTo(7, -55);
+      ctx.lineTo(6, -33);
+      ctx.quadraticCurveTo(12, -38, 23, -49);
+      ctx.lineTo(29, -44);
+      ctx.quadraticCurveTo(14, -32, 11, -16);
+      ctx.quadraticCurveTo(13, 1, 23, 7);
+      ctx.quadraticCurveTo(9, 4, 4, 8);
+      ctx.quadraticCurveTo(-2, 4, -8, 8);
+      ctx.quadraticCurveTo(-14, 4, -22, 7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Silver-bark highlight veins
+      ctx.strokeStyle = "rgba(205, 200, 180, 0.34)";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(-14, 4);
+      ctx.quadraticCurveTo(-7, -14, -7, -32);
+      ctx.moveTo(1, 5);
+      ctx.quadraticCurveTo(2, -14, 3, -42);
+      ctx.stroke();
+
+      // 4. Foreground tapered leaf-ribbons & glowing dewdrop blossoms hanging beneath the boughs
+      for (const [lx, ly, len, tone] of [
+        [-22, -40, 24, "#4b8e7d"],
+        [-9, -38, 21, "#5ca390"],
+        [11, -38, 22, "#4b8e7d"],
+        [23, -40, 25, "#5ca390"],
+      ] as const) {
+        const s = sway * 1.05;
+        ctx.fillStyle = tone;
+        ctx.strokeStyle = "#16352f";
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(lx - 4.5 + s * 0.35, ly);
+        ctx.quadraticCurveTo(lx - 6.5 + s, ly + len * 0.55, lx + s * 1.35, ly + len);
+        ctx.quadraticCurveTo(lx + 5.5 + s * 0.85, ly + len * 0.55, lx + 4.5 + s * 0.35, ly);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Bioluminescent willow dewdrop bud at the tip of each frond
+        ctx.fillStyle = `rgba(182, 250, 222, ${(0.65 + pulse * 0.3).toFixed(2)})`;
+        ctx.beginPath();
+        ctx.arc(lx + s * 1.35, ly + len + 1.5, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 5. Lush scalloped willow cloud-canopy (7 overlapping volumetric foliage puffs)
+      const willowPuffs = [
+        { x: -27 + sway * 0.55, y: -46, rx: 19, ry: 13.5, c1: "#589c89", c2: "#275248" },
+        { x: 27 + sway * 0.55, y: -45, rx: 19, ry: 13.5, c1: "#549683", c2: "#254e45" },
+        { x: -14 + sway * 0.65, y: -57, rx: 22, ry: 15.5, c1: "#74b8a3", c2: "#316659" },
+        { x: 15 + sway * 0.65, y: -56, rx: 22, ry: 15.5, c1: "#6eb29d", c2: "#2e6155" },
+        { x: sway * 0.6, y: -48, rx: 23, ry: 15, c1: "#68ab96", c2: "#2c5c50" },
+        { x: -6 + sway * 0.8, y: -69, rx: 21, ry: 14.5, c1: "#9cd9c4", c2: "#417a6b" },
+        { x: 8 + sway * 0.8, y: -67, rx: 19, ry: 13.5, c1: "#92d0ba", c2: "#3d7365" },
+      ];
+      for (const p of willowPuffs) {
+        const g = ctx.createRadialGradient(p.x - p.rx * 0.28, p.y - p.ry * 0.32, 3, p.x, p.y, p.rx);
+        g.addColorStop(0, p.c1);
+        g.addColorStop(1, p.c2);
+        ctx.fillStyle = g;
+        ctx.strokeStyle = "#15302a";
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y, p.rx, p.ry, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // Moonlit crown highlights
+      ctx.fillStyle = "rgba(216, 252, 238, 0.36)";
+      ctx.beginPath();
+      ctx.ellipse(-7 + sway * 0.8, -74, 13, 5, -0.15, 0, Math.PI * 2);
+      ctx.ellipse(14 + sway * 0.68, -62, 11, 4.5, 0.18, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // MOSS_PILLAR: Fluted sanctuary stone column wrapped in ivy & glowing moonblossom vines
+      const colGrad = ctx.createLinearGradient(-15, -66, 15, 6);
+      colGrad.addColorStop(0, "#aebba9");
+      colGrad.addColorStop(0.5, "#6f8274");
+      colGrad.addColorStop(1, "#3b4d44");
+      ctx.fillStyle = colGrad;
+      ctx.strokeStyle = "#192621";
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.roundRect(-14, -62, 28, 67, 5);
+      ctx.fill();
+      ctx.stroke();
+
+      // Column capital & base plinth
+      ctx.beginPath();
+      ctx.roundRect(-19, -68, 38, 10, 4);
+      ctx.roundRect(-18, -2, 36, 8, 3);
+      ctx.fill();
+      ctx.stroke();
+
+      // Fluted vertical grooves
+      ctx.strokeStyle = "rgba(26, 42, 36, 0.45)";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      for (const gx of [-7, 0, 7]) {
+        ctx.moveTo(gx, -55);
+        ctx.lineTo(gx, -5);
+      }
+      ctx.stroke();
+
+      // Wrapping ivy vine & glowing moonblossom
+      ctx.strokeStyle = "#4d855c";
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.moveTo(-14, -12);
+      ctx.bezierCurveTo(16, -24, -16, -42, 13, -54);
+      ctx.stroke();
+      ctx.fillStyle = "#e8f7c8";
+      ctx.beginPath();
+      ctx.arc(4, -34, 3.2, 0, Math.PI * 2);
+      ctx.arc(-5, -20, 2.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
   drawCanvasLabels(ctx: CanvasRenderingContext2D) {
+    // Ambient current Sanctuary Zone indicator in top-left of the arena
+    const currentZone = sanctuaryZoneName(this.human.x, this.human.y);
+    ctx.save();
+    ctx.font = "800 10px ui-monospace, monospace";
+    const zoneText = `✦ ${currentZone}`;
+    const zoneWidth = Math.ceil(ctx.measureText(zoneText).width) + 18;
+    ctx.fillStyle = "rgba(7, 19, 22, 0.76)";
+    ctx.strokeStyle = "rgba(158, 222, 196, 0.38)";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.roundRect(88, 82, zoneWidth, 22, 6);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "rgba(218, 242, 226, 0.9)";
+    ctx.textAlign = "left";
+    ctx.fillText(zoneText, 97, 96);
+    ctx.restore();
+
     if (this.phase === "COUNTDOWN") {
       // The accessible HTML preparation banner leaves the paths and cell warnings visible.
       ctx.fillStyle = "#e4edc7";
       ctx.font = "700 13px ui-monospace, monospace";
       ctx.textAlign = "center";
       ctx.fillText("MEMORIZE NEARBY WARDENS • PREPARE YOUR GEAR", W / 2, H - 20);
+    }
+    if (this.phase === "CALM" && this.human.trueColor && this.human.color !== this.human.trueColor) {
+      ctx.fillStyle = "rgba(139,233,253,.95)";
+      ctx.font = "900 12px ui-monospace, monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("MIRROR GLAMOUR ACTIVE • YOUR SWAPPED COLOR PERSISTS UNTIL MEETING", W / 2, 53);
     }
     if (this.phase === "ORDEAL") {
       const moonSightActive = this.human.role === "IMPOSTOR" && this.elapsed < this.moonSightUntil;
@@ -2417,6 +3549,9 @@ class OrdealEngine {
       } else if (this.hazard === "PHANTOMS") {
         label = "PHANTOM PROCESSION • TRUST YOUR ECHO BELL";
         labelColor = "rgba(172,159,255,.96)";
+      } else if (this.hazard === "MIRROR_POOL") {
+        label = "MIRROR POOL • CONTROLS INVERTED & BUMP SWAPS COLORS";
+        labelColor = "rgba(139,233,253,.96)";
       }
       if (moonSightActive) {
         label = "MOON SIGHT • LIVING AURAS EXPOSED";
@@ -2456,21 +3591,6 @@ const HAT_META: Record<Hat, { label: string; title: string }> = {
   moth: { label: "MOTH", title: "Lunar Crest" },
   mooncap: { label: "MOONCAP", title: "Star Point" },
 };
-
-const WARDEN_CALLSIGNS = [
-  "Sylph",
-  "Bramble",
-  "Lumen",
-  "Vesper",
-  "Mochi",
-  "Cinder",
-  "Nori",
-  "Thistle",
-  "Solstice",
-  "Glimmer",
-  "Rune",
-  "Zephyr",
-];
 
 function HatGraphic({ hat }: { hat: Hat }) {
   if (hat === "antlers") {
@@ -2575,6 +3695,160 @@ function SlimeAvatar({
   );
 }
 
+const CIRCLE_WARDEN_NAMES = ["Pebble", "Nori", "YOU", "Mochi", "Bubbles"] as const;
+const CIRCLE_WARDEN_QUIPS: readonly (readonly string[])[] = [
+  [
+    "I was at the shrine. Probably.",
+    "My lantern flickered right by the willow!",
+    "Don’t look at me, I’m just a very round pebble.",
+    "Whoever rang the Echo Bell owes me an explanation.",
+  ],
+  [
+    "That shadow looked familiar…",
+    "I saw two slimes near the Hollow, then only one.",
+    "Check the moss prints! They lead toward the pond.",
+    "Stay in pairs when the sea fog rolls in.",
+  ],
+  WARDEN_ALIBIS,
+  [
+    "Who turned off the moon?!",
+    "I dropped my Moonblossom and ran for my life!",
+    "Wait—can impostors squeeze through root cages?!",
+    "If the blue crystal blinks, stand inside its light!",
+  ],
+  [
+    "We can trust each other… right?",
+    "Let’s stick together by the campfire.",
+    "I’m 98% sure Mochi just vented into a bush.",
+    "Boop me again and I’m calling an emergency meeting!",
+  ],
+];
+const BOOP_EMOTES = ["✦", "♪", "♡", "!", "☽", "✿", "⚡"] as const;
+
+let lobbyAudioCtx: AudioContext | null = null;
+function playLobbySfx(
+  kind: "boop" | "wave" | "switch" | "weather" | "customize" | "moon" | "launch",
+  variant = 0
+) {
+  if (typeof window === "undefined") return;
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return;
+    if (!lobbyAudioCtx) lobbyAudioCtx = new Ctx();
+    const ctx = lobbyAudioCtx;
+    if (ctx.state === "suspended") void ctx.resume();
+    const now = ctx.currentTime;
+
+    if (kind === "boop") {
+      const baseFreqs = [392, 440, 523.25, 587.33, 659.25];
+      const f0 = baseFreqs[variant % baseFreqs.length];
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(f0 * 0.85, now);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 1.38, now + 0.09);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 1.12, now + 0.19);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.085, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.21);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.22);
+    } else if (kind === "wave") {
+      [392, 440, 523.25, 659.25, 783.99].forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const t = now + idx * 0.055;
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(freq, t);
+        osc.frequency.exponentialRampToValueAtTime(freq * 1.18, t + 0.14);
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(0.06, t + 0.018);
+        gain.gain.exponentialRampToValueAtTime(0.0008, t + 0.18);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.19);
+      });
+    } else if (kind === "customize") {
+      const f0 = 480 + (variant % 6) * 45;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(f0, now);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 1.25, now + 0.08);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.06, now + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.11);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.12);
+    } else if (kind === "switch") {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(variant ? 540 : 460, now);
+      osc.frequency.exponentialRampToValueAtTime(variant ? 680 : 580, now + 0.07);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.045, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.09);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.1);
+    } else if (kind === "weather") {
+      const chords = [
+        [523.25, 659.25], // CALM
+        [349.23, 466.16], // FOG
+        [220, 277.18],    // BLACKOUT
+      ];
+      const pair = chords[variant % chords.length];
+      pair.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const t = now + idx * 0.04;
+        osc.type = variant === 2 ? "sine" : "triangle";
+        osc.frequency.setValueAtTime(freq, t);
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(0.05, t + 0.025);
+        gain.gain.exponentialRampToValueAtTime(0.0008, t + 0.28);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.3);
+      });
+    } else if (kind === "moon") {
+      [783.99, 1046.5, 1318.5].forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const t = now + idx * 0.06;
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, t);
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(0.045, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0008, t + 0.36);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.38);
+      });
+    } else if (kind === "launch") {
+      [261.63, 329.63, 392, 523.25].forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const t = now + idx * 0.05;
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(freq, t);
+        osc.frequency.exponentialRampToValueAtTime(freq * 1.12, t + 0.28);
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(0.065, t + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0008, t + 0.36);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.38);
+      });
+    }
+  } catch {
+    // Ignore audio context restrictions before user gesture
+  }
+}
+
 function Lobby({
   onLaunch,
   multiplayerClient,
@@ -2592,8 +3866,16 @@ function Lobby({
   const [players, setPlayers] = useState(6);
   const [role, setRole] = useState<RoleChoice>("RANDOM");
 
-  // Multiplayer form state
-  const [nickname, setNickname] = useState("Warden");
+  // Interactive preview stage state
+  const [stagePointer, setStagePointer] = useState({ x: 50, y: 52, gazeX: 0, gazeY: 0, active: false });
+  const [boopedWarden, setBoopedWarden] = useState<{ index: number; emote: string; seq: number } | null>(null);
+  const [isGroupWaving, setIsGroupWaving] = useState(false);
+  const [moonPulse, setMoonPulse] = useState(0);
+  const [isLaunching, setIsLaunching] = useState(false);
+  const [motionPaused, setMotionPaused] = useState(false);
+
+  // Multiplayer form state (deterministic initial render, randomized callsign on mount)
+  const [nickname, setNickname] = useState(WARDEN_CALLSIGNS[0]);
   const [selectedColor, setSelectedColor] = useState(COLORS[0]);
   const [selectedHat, setSelectedHat] = useState<Hat>("antlers");
   const [selectedEyes, setSelectedEyes] = useState<EyeStyle>("FIERCE");
@@ -2602,7 +3884,7 @@ function Lobby({
   const [targetPlayers, setTargetPlayers] = useState(6);
   const [copied, setCopied] = useState(false);
   const [hideRoomCode, setHideRoomCode] = useState(false);
-  const [editingInRoom, setEditingInRoom] = useState(false);
+  const [editingInRoom, setEditingInRoom] = useState(true);
   const [lobbyChatDraft, setLobbyChatDraft] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
   const [isRefreshingRooms, setIsRefreshingRooms] = useState(false);
@@ -2617,7 +3899,14 @@ function Lobby({
   const readyCount = inRoom && mpState ? mpState.players.filter((p) => p.ready || p.isHost).length : 0;
   const displayError = mpError || mpState?.lastError || "";
   const occupiedColors = new Set(mpState?.players.filter((p) => p.id !== mpState.playerId).map((p) => p.color) ?? []);
+  const occupiedNames = mpState?.players.filter((p) => p.id !== mpState.playerId).map((p) => p.name) ?? [];
   const showRoomResults = Boolean(mpState?.connected && roomsChecked);
+
+  useEffect(() => {
+    // Randomize only after hydration so the server/client first render agrees.
+    const frame = requestAnimationFrame(() => setNickname(randomWardenCallsign()));
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   useEffect(() => {
     lobbyConsoleRef.current?.scrollTo(0, 0);
@@ -2629,6 +3918,7 @@ function Lobby({
       if (!state.connected) setRoomsChecked(false);
       const own = state.players.find((p) => p.id === state.playerId);
       if (own) {
+        setNickname(own.name);
         setSelectedColor(own.color);
         setSelectedHat(own.hat);
         setSelectedEyes(normalizeEyeStyle(own.eyeStyle));
@@ -2658,6 +3948,7 @@ function Lobby({
   };
 
   const handleSwitchTab = (nextTab: "SOLO" | "MULTI") => {
+    if (nextTab !== tab) playLobbySfx("switch", nextTab === "SOLO" ? 1 : 0);
     setTab(nextTab);
     setMpError("");
     multiplayerClient?.clearError();
@@ -2666,12 +3957,53 @@ function Lobby({
     }
   };
 
+  const triggerWardenBoop = (index: number, customEmote?: string) => {
+    const emote = customEmote ?? BOOP_EMOTES[(index + previewQuip) % BOOP_EMOTES.length];
+    setBoopedWarden((prev) => ({ index, emote, seq: (prev?.seq ?? 0) + 1 }));
+    playLobbySfx("boop", index);
+  };
+
+  const handleStageWave = () => {
+    playLobbySfx("wave");
+    setIsGroupWaving(true);
+    setPreviewQuip((q) => q + 1);
+    window.setTimeout(() => setIsGroupWaving(false), 780);
+  };
+
+  const handleCycleColor = () => {
+    const available = COLORS.filter((c) => !occupiedColors.has(c));
+    const pool = available.length > 0 ? available : [...COLORS];
+    const nextIdx = (pool.indexOf(selectedColor) + 1) % pool.length;
+    const nextColor = pool[nextIdx] ?? selectedColor;
+    playLobbySfx("customize", nextIdx);
+    triggerWardenBoop(2, "🎨");
+    handleProfileChange(nickname, nextColor, selectedHat, selectedEyes);
+  };
+
+  const handleCycleHat = () => {
+    const nextIdx = (HATS.indexOf(selectedHat) + 1) % HATS.length;
+    const nextHat = HATS[nextIdx] ?? selectedHat;
+    playLobbySfx("customize", nextIdx + 2);
+    triggerWardenBoop(2, "✦");
+    handleProfileChange(nickname, selectedColor, nextHat, selectedEyes);
+  };
+
+  const handleCycleEyes = () => {
+    const nextIdx = (EYE_STYLES.indexOf(selectedEyes) + 1) % EYE_STYLES.length;
+    const nextEyes = EYE_STYLES[nextIdx] ?? selectedEyes;
+    playLobbySfx("customize", nextIdx + 4);
+    triggerWardenBoop(2, "👀");
+    handleProfileChange(nickname, selectedColor, selectedHat, nextEyes);
+  };
+
   const handleRandomizeProfile = () => {
-    const randomName = WARDEN_CALLSIGNS[Math.floor(Math.random() * WARDEN_CALLSIGNS.length)];
+    const randomName = randomWardenCallsign([...occupiedNames, nickname]);
     const available = COLORS.filter((color) => !occupiedColors.has(color));
     const randomColor = available[Math.floor(Math.random() * available.length)] ?? selectedColor;
     const randomHat = HATS[Math.floor(Math.random() * HATS.length)];
     const randomEyes = EYE_STYLES[Math.floor(Math.random() * EYE_STYLES.length)];
+    playLobbySfx("wave");
+    triggerWardenBoop(2, "🎲");
     setNickname(randomName);
     setSelectedColor(randomColor);
     setSelectedHat(randomHat);
@@ -2687,8 +4019,24 @@ function Lobby({
     setSelectedHat(nextHat);
     setSelectedEyes(nextEyes);
     if (inRoom && multiplayerClient) {
-      multiplayerClient.updateProfile(nextName.trim() || "Warden", nextColor, nextHat, nextEyes);
+      const fallbackName = myNetPlayer?.name || randomWardenCallsign(occupiedNames);
+      multiplayerClient.updateProfile(nextName.trim() || fallbackName, nextColor, nextHat, nextEyes);
     }
+  };
+
+  const handleSoloLaunch = () => {
+    if (isLaunching) return;
+    playLobbySfx("launch");
+    setIsLaunching(true);
+    const launchProfile: SoloProfile = {
+      name: availablePlayerName(nickname, []),
+      color: selectedColor,
+      hat: selectedHat,
+      eyeStyle: selectedEyes,
+    };
+    window.setTimeout(() => {
+      onLaunch(players, role, launchProfile);
+    }, 380);
   };
 
   const handleCreateRoom = async () => {
@@ -2698,7 +4046,9 @@ function Lobby({
     setIsConnecting(true);
     try {
       await multiplayerClient.connect();
-      multiplayerClient.createRoom(nickname.trim() || "Warden", selectedColor, selectedHat, selectedEyes);
+      const callsign = availablePlayerName(nickname, []);
+      setNickname(callsign);
+      multiplayerClient.createRoom(callsign, selectedColor, selectedHat, selectedEyes);
     } catch (error) {
       setMpError(error instanceof Error ? error.message : "Failed to connect to game server. Please retry.");
     } finally {
@@ -2714,7 +4064,9 @@ function Lobby({
     setIsConnecting(true);
     try {
       await multiplayerClient.connect();
-      multiplayerClient.joinRoom(codeToJoin, nickname.trim() || "Warden", selectedColor, selectedHat, selectedEyes);
+      const callsign = availablePlayerName(nickname, []);
+      setNickname(callsign);
+      multiplayerClient.joinRoom(codeToJoin, callsign, selectedColor, selectedHat, selectedEyes);
     } catch (error) {
       setMpError(error instanceof Error ? error.message : "Failed to connect to room. Verify code and server connection.");
     } finally {
@@ -2744,11 +4096,40 @@ function Lobby({
     if (!textOverride) setLobbyChatDraft("");
   };
 
+  const handleStagePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (motionPaused) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+    const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+    const gazeX = Number((((x - 50) / 50) * 4.5).toFixed(2));
+    const gazeY = Number((((y - 52) / 50) * 3.2).toFixed(2));
+    setStagePointer({ x, y, gazeX, gazeY, active: true });
+  };
+
+  const handleStagePointerLeave = () => {
+    setStagePointer((prev) => ({ ...prev, gazeX: 0, gazeY: 0, active: false }));
+  };
+
+  const speakerQuipPool = CIRCLE_WARDEN_QUIPS[previewSpeaker] ?? WARDEN_ALIBIS;
+  const activeDialogueLine = speakerQuipPool[previewQuip % speakerQuipPool.length];
+  const cursorLitWarden =
+    stagePointer.active && studioView === "CIRCLE"
+      ? Math.min(4, Math.max(0, Math.floor((stagePointer.x / 100) * 5)))
+      : -1;
+
   return (
-    <main className={`lobby-shell moon-studio ${inRoom ? "studio-in-room" : ""}`}>
+    <main className={`lobby-shell moon-studio ${inRoom ? "studio-in-room" : "studio-at-home"} ${isLaunching ? "studio-launching" : ""} ${motionPaused ? "home-motion-paused" : ""}`}>
+      {isLaunching && (
+        <div className="studio-launch-portal" aria-hidden="true">
+          <div className="launch-portal-ring" />
+          <span>ENTERING THE MOONWARD…</span>
+        </div>
+      )}
       <div className="studio-frame">
       <header className="lobby-nav">
         <Logo />
+        {!inRoom && <button className="home-motion-toggle" type="button" aria-pressed={motionPaused} onClick={() => { setMotionPaused(!motionPaused); handleStagePointerLeave(); }}>{motionPaused ? "▷ Resume animations" : "Ⅱ Pause animations"}</button>}
         <div className="nav-status">
           <span />
           {inRoom
@@ -2763,9 +4144,11 @@ function Lobby({
 
       <section className={`lobby-grid ${tab === "MULTI" ? "lobby-grid-multi" : ""} ${inRoom ? "lobby-grid-room" : ""}`}>
         <aside className="studio-guide" aria-label="Moonwarden game guide">
-          <div className="eyebrow"><span>SILVERPINE SUMMIT</span></div>
-          <h1>Play with friends.<br /><em>Trust no one.</em></h1>
-          <p className="lede">A magical forest. One hidden impostor. Create a room or join your friends below.</p>
+          <div className="eyebrow"><span>☽ SILVERPINE SUMMIT</span><small>A SOCIAL DEDUCTION ADVENTURE</small></div>
+          <h1>Little slimes.<br /><em>Big suspicions.</em></h1>
+          <p className="lede">Your friends. A magical forest.<br className="home-copy-break" /> One very convincing impostor.</p>
+          {!inRoom && tab === "MULTI" && <div className="home-play-shortcuts"><button type="button" onClick={handleCreateRoom} disabled={isConnecting || !multiplayerClient}>{isConnecting ? "Connecting…" : "Create a room"}<span aria-hidden="true">↗</span></button><a href="#home-room-code">Join with a code <span aria-hidden="true">↓</span></a></div>}
+          <div className="home-hero-tags"><span>✦ 4–8 wardens</span><span>No download</span><span>Free to play</span></div>
           <div className="lobby-mode-switch" role="tablist" aria-label="Game Mode">
             <button role="tab" aria-selected={tab === "MULTI"} className={tab === "MULTI" ? "active" : ""} onClick={() => handleSwitchTab("MULTI")}>
               <span>✦ MULTIPLAYER</span><span className="live-pill">{inRoom ? "IN ROOM" : "WITH FRIENDS"}</span>
@@ -2788,46 +4171,117 @@ function Lobby({
 
         <div className="lobby-copy studio-stage">
           <div className="studio-view-switch" role="group" aria-label="Character preview view">
-            <button type="button" aria-pressed={studioView === "WARDEN"} onClick={() => { setStudioView("WARDEN"); setPreviewSpeaker(2); }}>Your warden</button>
-            <button type="button" aria-pressed={studioView === "CIRCLE"} onClick={() => setStudioView("CIRCLE")}>The circle</button>
+            <button
+              type="button"
+              aria-pressed={studioView === "WARDEN"}
+              onClick={() => {
+                if (studioView !== "WARDEN") playLobbySfx("switch", 0);
+                setStudioView("WARDEN");
+                setPreviewSpeaker(2);
+              }}
+            >
+              Your warden
+            </button>
+            <button
+              type="button"
+              aria-pressed={studioView === "CIRCLE"}
+              onClick={() => {
+                if (studioView !== "CIRCLE") playLobbySfx("switch", 1);
+                setStudioView("CIRCLE");
+              }}
+            >
+              The circle
+            </button>
           </div>
-          <div className={`sanctuary-preview preview-${previewMood.toLowerCase()} studio-view-${studioView.toLowerCase()}`}>
-            <div className="studio-stage-title"><small>{studioView === "WARDEN" ? "YOUR MOONLIT ALTER EGO" : "FRIENDLY FACES. QUESTIONABLE ALIBIS."}</small><h2>{studioView === "WARDEN" ? nickname.trim() || "Warden" : "The usual suspects."}</h2><p>{studioView === "WARDEN" ? `${COLOR_NAMES[selectedColor]} · ${HAT_META[selectedHat].title}` : "Preview circle · not a live room"}</p></div>
+          <div
+            className={`sanctuary-preview preview-${previewMood.toLowerCase()} studio-view-${studioView.toLowerCase()} ${stagePointer.active ? "has-pointer" : ""}`}
+            onPointerMove={handleStagePointerMove}
+            onPointerLeave={handleStagePointerLeave}
+            style={{
+              "--cursor-x": `${stagePointer.x}%`,
+              "--cursor-y": `${stagePointer.y}%`,
+              "--gaze-x": `${stagePointer.gazeX}px`,
+              "--gaze-y": `${stagePointer.gazeY}px`,
+            } as React.CSSProperties}
+          >
+            <div className="studio-stage-title" key={studioView}>
+              <small>{studioView === "WARDEN" ? "YOUR MOONLIT ALTER EGO" : "FRIENDLY FACES. QUESTIONABLE ALIBIS."}</small>
+              <h2>{studioView === "WARDEN" ? nickname.trim() || WARDEN_CALLSIGNS[0] : "The usual suspects."}</h2>
+              <p>{studioView === "WARDEN" ? `${COLOR_NAMES[selectedColor]} · ${HAT_META[selectedHat].title} · ${EYE_LABELS[selectedEyes]} eyes` : "Preview circle · tap any slime or sweep your lantern"}</p>
+            </div>
             <div className="preview-heading"><span>✦ A PEEK INTO THE SANCTUARY</span><small>INTERACTIVE PREVIEW</small></div>
-            <div className="preview-moon" aria-hidden="true" />
+            <HomeGrove />
+            <button
+              type="button"
+              className={`preview-moon ${moonPulse > 0 ? "is-pulsing" : ""}`}
+              aria-label="Make a wish on the moon"
+              onClick={() => {
+                playLobbySfx("moon");
+                setMoonPulse((p) => p + 1);
+              }}
+            />
+            {moonPulse > 0 && <div key={moonPulse} className="preview-shooting-star" aria-hidden="true" />}
+            <div className="preview-lantern-beam" aria-hidden="true" />
+            <div className="preview-fog-layer" aria-hidden="true" />
             <div className="preview-orbit" aria-hidden="true" />
             <div className="preview-fireflies" aria-hidden="true">{Array.from({ length: 8 }, (_, i) => <i key={i} style={{ "--i": i, "--top": `${16 + (i * 23) % 70}%` } as React.CSSProperties} />)}</div>
-            <div className="preview-dialogue" role="status" aria-live="polite">
-              <b>{previewSpeaker === 2 ? nickname.trim() || "Warden" : ["Pebble", "Nori", "", "Mochi", "Bubbles"][previewSpeaker]}:</b>{" "}
-              {previewSpeaker === 2 ? WARDEN_ALIBIS[previewQuip] : ["I was at the shrine. Probably.", "That shadow looked familiar…", "", "Who turned off the moon?!", "We can trust each other… right?"][previewSpeaker]}
+            <div className="stage-quick-bar" role="toolbar" aria-label="Quick stage actions">
+              <button type="button" onClick={handleCycleColor} title="Cycle slime color">🎨 Hue</button>
+              <button type="button" onClick={handleCycleHat} title="Cycle headdress">🎩 Hat</button>
+              <button type="button" onClick={handleCycleEyes} title="Cycle eye expression">👀 Eyes</button>
+              <button type="button" onClick={handleStageWave} title="Make the wardens wave">✨ Wave</button>
+            </div>
+            <div className="preview-dialogue" role="status" aria-live="polite" key={`${previewSpeaker}-${previewQuip}`}>
+              <b>{previewSpeaker === 2 ? nickname.trim() || WARDEN_CALLSIGNS[0] : CIRCLE_WARDEN_NAMES[previewSpeaker]}:</b>{" "}
+              {activeDialogueLine}
             </div>
             <div className="preview-circle" role="group" aria-label="Meet the preview wardens">
             {COLORS.slice(0, 5).map((color, index) => {
               const showcaseColor = index === 2 ? selectedColor : COLORS.filter((hue) => hue !== selectedColor)[index < 2 ? index : index - 1];
               const showcaseHat = index === 2 ? selectedHat : HATS[index % HATS.length];
+              const isBooped = boopedWarden?.index === index;
+              const isCursorLit = cursorLitWarden === index;
               return (
                 <button
                   type="button"
-                  className={`preview-warden ${index === 2 ? "is-you" : ""}`}
-                  aria-label={index === 2 ? "Hear your warden’s alibi" : `Hear ${["Pebble", "Nori", "", "Mochi", "Bubbles"][index]}’s alibi`}
+                  className={`preview-warden ${index === 2 ? "is-you" : ""} ${isBooped ? "is-booped" : ""} ${isGroupWaving ? "is-waving" : ""} ${isCursorLit ? "is-cursor-lit" : ""}`}
+                  aria-label={index === 2 ? "Hear your warden’s alibi" : `Hear ${CIRCLE_WARDEN_NAMES[index]}’s alibi`}
                   aria-pressed={previewSpeaker === index}
-                  onClick={() => { setPreviewSpeaker(index); if (index === 2) setPreviewQuip((quip) => (quip + 1) % WARDEN_ALIBIS.length); }}
+                  inert={studioView === "WARDEN" && index !== 2}
+                  onClick={() => {
+                    setPreviewSpeaker(index);
+                    setPreviewQuip((quip) => quip + 1);
+                    triggerWardenBoop(index);
+                  }}
                   key={color}
                 >
+                  {isBooped && boopedWarden && (
+                    <span key={boopedWarden.seq} className="warden-emote-pop" aria-hidden="true">
+                      {boopedWarden.emote}
+                    </span>
+                  )}
                   <SlimeAvatar color={showcaseColor} hat={showcaseHat} eyeStyle={index === 2 ? selectedEyes : EYE_STYLES[index % EYE_STYLES.length]} size="lg" />
-                  <span className="preview-name">{index === 2 ? "YOU" : ["Pebble", "Nori", "", "Mochi", "Bubbles"][index]}</span>
+                  <span className="preview-name">{index === 2 ? "YOU" : CIRCLE_WARDEN_NAMES[index]}</span>
                 </button>
               );
             })}
             </div>
             <div className="preview-weather" role="group" aria-label="Preview an Ordeal">
-              {(["CALM", "FOG", "BLACKOUT"] as const).map((mood) => (
-                <button type="button" key={mood} aria-pressed={previewMood === mood} onClick={() => setPreviewMood(mood)}>
+              {(["CALM", "FOG", "BLACKOUT"] as const).map((mood, moodIdx) => (
+                <button
+                  type="button"
+                  key={mood}
+                  aria-pressed={previewMood === mood}
+                  onClick={() => {
+                    if (previewMood !== mood) playLobbySfx("weather", moodIdx);
+                    setPreviewMood(mood);
+                  }}
+                >
                   {mood === "CALM" ? "☽ Moonlit calm" : mood === "FOG" ? "≋ Sea fog" : "✧ Blackout"}
                 </button>
               ))}
             </div>
-            <p className="preview-caption" aria-live="polite">{previewMood === "CALM" ? "Tap a slime for an alibi. Then try changing the weather." : previewMood === "FOG" ? "In the fog, colors and accessories give way to anonymous shapes." : "When the light goes out, stay close. Unlit strangers disappear."}</p>
+            <p className="preview-caption" aria-live="polite">{previewMood === "CALM" ? "Tap a slime to boop & hear an alibi, or use the quick pills above." : previewMood === "FOG" ? "In the fog, colors fade to silhouettes. Move your cursor to part the mist." : "When blackout falls, sweep your cursor like a lantern to reveal hidden wardens."}</p>
           </div>
         </div>
 
@@ -2868,24 +4322,95 @@ function Lobby({
               </div>
             )}
 
+            <div className="console-panel-stage" key={inRoom ? "room" : tab}>
             {tab === "SOLO" ? (
               <>
-                <p className="solo-practice-note">A quiet rehearsal with AI wardens. Learn the shrines and Ordeals before inviting your friends.</p>
-                <label className="field-label" htmlFor="player-count">WARDEN CIRCLE <span>{players} SLOTS</span></label>
+                <p className="solo-practice-note">A quiet rehearsal with AI wardens. Customize your slime, learn the shrines, and brave the Ordeals.</p>
+
+                <section className="home-wardrobe solo-wardrobe" aria-label="Customize your Warden">
+                  <div className="wardrobe-summary-bar">
+                    <SlimeAvatar color={selectedColor} hat={selectedHat} eyeStyle={selectedEyes} size="sm" />
+                    <span>
+                      <small>YOUR WARDEN</small>
+                      <strong>{nickname.trim() || WARDEN_CALLSIGNS[0]}</strong>
+                      <em>{COLOR_NAMES[selectedColor]} · {HAT_META[selectedHat].label} · {EYE_LABELS[selectedEyes]} eyes</em>
+                    </span>
+                    <button type="button" className="wardrobe-surprise-pill" onClick={handleRandomizeProfile} title="Randomize Warden Identity">
+                      🎲 RANDOM
+                    </button>
+                  </div>
+                  <div className="mp-customizer-card">
+                    <div className="mp-customizer-controls">
+                      <label className="field-label" htmlFor="solo-nickname">
+                        CALLSIGN <span>{nickname.length}/16</span>
+                      </label>
+                      <input
+                        id="solo-nickname"
+                        className="mp-field"
+                        maxLength={16}
+                        value={nickname}
+                        onChange={(e) => setNickname(e.target.value)}
+                        placeholder="Enter your warden name…"
+                      />
+
+                      <div className="field-label" style={{ marginTop: 12 }}>
+                        SLIME HUE <span>{COLOR_NAMES[selectedColor]}</span>
+                      </div>
+                      <div className="mp-palette" role="group" aria-label="Slime Color">
+                        {COLORS.map((c, idx) => (
+                          <button
+                            key={c}
+                            type="button"
+                            className={`mp-color-btn ${selectedColor === c ? "active" : ""}`}
+                            style={{ backgroundColor: c, color: c }}
+                            aria-pressed={selectedColor === c}
+                            onClick={() => { playLobbySfx("customize", idx); triggerWardenBoop(2, "🎨"); setSelectedColor(c); }}
+                            title={COLOR_NAMES[c]}
+                            aria-label={`Select slime color ${COLOR_NAMES[c] || c}`}
+                          >
+                            {selectedColor === c && <span className="color-check" aria-hidden="true">✓</span>}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="field-label">
+                        HEADDRESS <span>{HAT_META[selectedHat].title.toUpperCase()}</span>
+                      </div>
+                      <div className="mp-hat-row" role="group" aria-label="Hat selection">
+                        {HATS.map((h, idx) => (
+                          <button
+                            key={h}
+                            type="button"
+                            className={`mp-hat-btn ${selectedHat === h ? "active" : ""}`}
+                            aria-pressed={selectedHat === h}
+                            onClick={() => { playLobbySfx("customize", idx + 2); triggerWardenBoop(2, "✦"); setSelectedHat(h); }}
+                          >
+                            <span className="hat-btn-preview">
+                              <HatGraphic hat={h} />
+                            </span>
+                            <b>{HAT_META[h].label}</b>
+                          </button>
+                        ))}
+                      </div>
+                      <EyeStylePicker value={selectedEyes} onChange={(eyes) => { playLobbySfx("customize", 5); triggerWardenBoop(2, "👀"); setSelectedEyes(eyes); }} />
+                    </div>
+                  </div>
+                </section>
+
+                <label className="field-label" htmlFor="player-count" style={{ marginTop: 14 }}>WARDEN CIRCLE <span>{players} SLOTS</span></label>
                 <input id="player-count" className="player-range" type="range" min="4" max="8" value={players} onChange={(event) => setPlayers(Number(event.target.value))} />
                 <div className="range-labels"><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
 
                 <div className="field-label role-label">TEST IDENTITY <span>PRIVATE TO THIS CLIENT</span></div>
                 <div className="role-switch" role="group" aria-label="Choose test role">
                   {(["RANDOM", "CREWMATE", "IMPOSTOR"] as RoleChoice[]).map((value) => (
-                    <button key={value} className={role === value ? "active" : ""} onClick={() => setRole(value)}>{value === "RANDOM" ? "AUTO" : value}</button>
+                    <button key={value} className={role === value ? "active" : ""} onClick={() => { playLobbySfx("switch", 1); setRole(value); }}>{value === "RANDOM" ? "AUTO" : value}</button>
                   ))}
                 </div>
                 <p className="role-note">Your role stays private. Eyes and headdresses are cosmetic; your role never changes your appearance or movement.</p>
 
-                <EyeStylePicker value={selectedEyes} onChange={setSelectedEyes} />
-                <button className="launch-button" onClick={() => onLaunch(players, role, { name: nickname.trim() || "Warden", color: selectedColor, hat: selectedHat, eyeStyle: selectedEyes })}>
-                  <span>ENTER THE MOONWARD</span><kbd>ENTER</kbd>
+                <button className="launch-button" disabled={isLaunching} onClick={handleSoloLaunch}>
+                  <span>{isLaunching ? "OPENING SANCTUARY…" : "ENTER THE MOONWARD"}</span><kbd>ENTER</kbd>
                 </button>
                 <div className="console-log">
                   <span><i className="green" /> WARDENS GATHERED</span>
@@ -2936,7 +4461,8 @@ function Lobby({
                       <strong>{myNetPlayer?.name || nickname}</strong>
                       <span>
                         {COLOR_NAMES[myNetPlayer?.color || selectedColor] || "Custom"} •{" "}
-                        {HAT_META[myNetPlayer?.hat || selectedHat].title}
+                        {HAT_META[myNetPlayer?.hat || selectedHat].title} •{" "}
+                        {EYE_LABELS[myNetPlayer?.eyeStyle || selectedEyes]} eyes
                       </span>
                     </div>
                   </div>
@@ -2946,7 +4472,7 @@ function Lobby({
                       className={`wardrobe-toggle-btn ${editingInRoom ? "active" : ""}`}
                       onClick={() => setEditingInRoom((v) => !v)}
                     >
-                      {editingInRoom ? "✓ DONE" : "✎ WARDROBE"}
+                      {editingInRoom ? "▲ HIDE WARDROBE" : "✎ CUSTOMIZE"}
                     </button>
                     {!mpState.isHost && (
                       <button
@@ -2981,6 +4507,9 @@ function Lobby({
                       </div>
                     </div>
 
+                    <div className="field-label">
+                      SLIME HUE <span>{COLOR_NAMES[selectedColor]}</span>
+                    </div>
                     <div className="mp-palette" role="group" aria-label="Slime Color">
                       {COLORS.map((c) => (
                         <button
@@ -2993,10 +4522,15 @@ function Lobby({
                           onClick={() => handleProfileChange(nickname, c, selectedHat)}
                           title={`${COLOR_NAMES[c]}${occupiedColors.has(c) ? " — taken" : ""}`}
                           aria-label={`Select slime color ${COLOR_NAMES[c] || c}`}
-                        />
+                        >
+                          {selectedColor === c && <span className="color-check" aria-hidden="true">✓</span>}
+                        </button>
                       ))}
                     </div>
 
+                    <div className="field-label">
+                      HEADDRESS <span>{HAT_META[selectedHat].title.toUpperCase()}</span>
+                    </div>
                     <div className="mp-hat-row" role="group" aria-label="Hat selection">
                       {HATS.map((h) => (
                         <button
@@ -3225,10 +4759,10 @@ function Lobby({
             ) : (
               <div className="mp-config">
                 <div className="home-gateway-intro">
-                  <h2>PLAY WITH FRIENDS</h2>
-                  <p>Create a private room. Share the code. Start together.</p>
+                  <h2>PLAY WITH FRIENDS <span aria-hidden="true">↗</span></h2>
+                  <p>Your next “it wasn’t me” moment starts here.</p>
                 </div>
-                <label className="play-name" htmlFor="play-nickname">Your name <small>Ready to play as you are. Customize later.</small>
+                <label className="play-name" htmlFor="play-nickname">Your name <small>Randomized callsign ready — or pick your own below.</small>
                   <input id="play-nickname" className="mp-field" maxLength={16} value={nickname} onChange={(event) => setNickname(event.target.value)} placeholder="Enter your warden name…" autoComplete="nickname" />
                 </label>
                 <div className="mp-actions-grid">
@@ -3249,6 +4783,7 @@ function Lobby({
                     </div>
                     <form className="mp-code-entry-form" onSubmit={(e) => { e.preventDefault(); void handleJoinRoom(); }}>
                       <input
+                        id="home-room-code"
                         className="mp-field mp-code-input"
                         maxLength={4}
                         value={joinCode}
@@ -3263,11 +4798,11 @@ function Lobby({
                   </div>
                 </div>
 
-                <details className="home-wardrobe">
-                  <summary>
+                <details className="home-wardrobe" aria-label="Customize your Warden">
+                  <summary className="wardrobe-summary-bar">
                     <SlimeAvatar color={selectedColor} hat={selectedHat} eyeStyle={selectedEyes} size="sm" />
-                    <span><small>YOU’RE ENTERING AS</small><strong>{nickname.trim() || "Warden"}</strong><em>{COLOR_NAMES[selectedColor]} · {HAT_META[selectedHat].label} · {EYE_LABELS[selectedEyes]} eyes</em></span>
-                    <b>WARDROBE <i aria-hidden="true">⌄</i></b>
+                    <span><small>YOU’RE ENTERING AS</small><strong>{nickname.trim() || WARDEN_CALLSIGNS[0]}</strong><em>{COLOR_NAMES[selectedColor]} · {HAT_META[selectedHat].label} · {EYE_LABELS[selectedEyes]} eyes</em></span>
+                    <b>Customize <span aria-hidden="true">＋</span></b>
                   </summary>
                 <div className="mp-customizer-card">
                   <div className="mp-customizer-controls">
@@ -3275,17 +4810,19 @@ function Lobby({
                       SLIME HUE <span>{COLOR_NAMES[selectedColor]}</span>
                     </div>
                     <div className="mp-palette" role="group" aria-label="Slime Color">
-                      {COLORS.map((c) => (
+                      {COLORS.map((c, idx) => (
                         <button
                           key={c}
                           type="button"
                           className={`mp-color-btn ${selectedColor === c ? "active" : ""}`}
                           style={{ backgroundColor: c, color: c }}
                           aria-pressed={selectedColor === c}
-                          onClick={() => setSelectedColor(c)}
+                          onClick={() => { playLobbySfx("customize", idx); triggerWardenBoop(2, "🎨"); setSelectedColor(c); }}
                           title={COLOR_NAMES[c]}
                           aria-label={`Select slime color ${COLOR_NAMES[c] || c}`}
-                        />
+                        >
+                          {selectedColor === c && <span className="color-check" aria-hidden="true">✓</span>}
+                        </button>
                       ))}
                     </div>
 
@@ -3293,13 +4830,13 @@ function Lobby({
                       HEADDRESS <span>{HAT_META[selectedHat].title.toUpperCase()}</span>
                     </div>
                     <div className="mp-hat-row" role="group" aria-label="Hat selection">
-                      {HATS.map((h) => (
+                      {HATS.map((h, idx) => (
                         <button
                           key={h}
                           type="button"
                           className={`mp-hat-btn ${selectedHat === h ? "active" : ""}`}
                           aria-pressed={selectedHat === h}
-                          onClick={() => setSelectedHat(h)}
+                          onClick={() => { playLobbySfx("customize", idx + 2); triggerWardenBoop(2, "✦"); setSelectedHat(h); }}
                         >
                           <span className="hat-btn-preview">
                             <HatGraphic hat={h} />
@@ -3308,7 +4845,7 @@ function Lobby({
                         </button>
                       ))}
                     </div>
-                    <EyeStylePicker value={selectedEyes} onChange={setSelectedEyes} />
+                    <EyeStylePicker value={selectedEyes} onChange={(eyes) => { playLobbySfx("customize", 5); triggerWardenBoop(2, "👀"); setSelectedEyes(eyes); }} />
                     <button type="button" className="mp-random-btn" onClick={handleRandomizeProfile} title="Randomize Warden Identity">↻ SURPRISE ME</button>
                   </div>
                 </div>
@@ -3366,8 +4903,10 @@ function Lobby({
                 </div>
               </div>
             )}
+            </div>
           </div>
         </div>
+        {!inRoom && <HomeFieldGuide />}
       </section>
 
       <footer className="lobby-footer"><span>WASD / ARROWS TO MOVE</span><span>E TASK</span><span>F ITEM</span><span>R REPORT</span><span>Q / SPACE KILL</span></footer>
@@ -3460,6 +4999,7 @@ function Game({
   const musicFadeRef = useRef<number | null>(null);
   const chatLogRef = useRef<HTMLDivElement>(null);
   const meetingSerialRef = useRef(0);
+  const [meetingKey, setMeetingKey] = useState(0);
   const [snapshot, setSnapshot] = useState<Snapshot>(initialSnapshot());
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [puzzle, setPuzzle] = useState<TaskPuzzle | null>(null);
@@ -3468,9 +5008,9 @@ function Game({
   const [result, setResult] = useState("");
   const [roleReveal, setRoleReveal] = useState<Role | null>(null);
   const [musicEnabled, setMusicEnabled] = useState(true);
-  const [musicReady, setMusicReady] = useState(false);
+  const [musicReady, setMusicReady] = useState(true);
   const [musicBlocked, setMusicBlocked] = useState(false);
-  const [soundEnabled, setSoundEnabled] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
   const [lowGlare, setLowGlare] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
@@ -3491,6 +5031,7 @@ function Game({
         setChatDraft("");
       } else if (!next.tally) {
         meetingSerialRef.current += 1;
+        setMeetingKey(meetingSerialRef.current);
         setChatMessages(openingChat(next));
         setChatDraft("");
       }
@@ -3598,7 +5139,6 @@ function Game({
         })
         .catch(() => {
           setMusicBlocked(true);
-          setMusicReady(false);
         });
     } else {
       crossfadeTo(0, 0, 620);
@@ -3611,6 +5151,30 @@ function Game({
       }
     };
   }, [snapshot.phase, musicEnabled, musicReady]);
+
+  useEffect(() => {
+    if (!musicEnabled || !musicBlocked) return;
+    const unlockOnGesture = () => {
+      const normalMusic = normalMusicRef.current;
+      const ordealMusic = ordealMusicRef.current;
+      if (!normalMusic || !ordealMusic) return;
+      const ordealActive = snapshot.phase === "ORDEAL";
+      const activeTrack = ordealActive ? ordealMusic : normalMusic;
+      void activeTrack.play()
+        .then(() => {
+          setMusicBlocked(false);
+          setMusicReady(true);
+          activeTrack.volume = ordealActive ? 0.26 : 0.2;
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener("pointerdown", unlockOnGesture, { once: true });
+    window.addEventListener("keydown", unlockOnGesture, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlockOnGesture);
+      window.removeEventListener("keydown", unlockOnGesture);
+    };
+  }, [musicEnabled, musicBlocked, snapshot.phase]);
 
   useEffect(() => {
     if (!deathReveal) return;
@@ -3653,11 +5217,11 @@ function Game({
       })
       .catch(() => {
         setMusicBlocked(true);
-        setMusicReady(false);
       });
   };
   const dismissRoleReveal = () => {
     if (musicEnabled) primeBackgroundMusic();
+    if (soundEnabled) void engineRef.current?.audio.unlock();
     setRoleReveal(null);
     if (engineRef.current) {
       engineRef.current.roleRevealActive = false;
@@ -3723,14 +5287,11 @@ function Game({
     engineRef.current?.setTouch(code, down);
   }, []);
   const toggleBackgroundMusic = () => {
-    if (musicEnabled && musicReady && !musicBlocked) {
+    if (musicEnabled) {
       setMusicEnabled(false);
       return;
     }
-    if (musicReady && !musicBlocked) {
-      setMusicEnabled(true);
-      return;
-    }
+    setMusicEnabled(true);
     primeBackgroundMusic();
   };
 
@@ -3743,12 +5304,12 @@ function Game({
           <button className="music-button" aria-pressed={soundEnabled} onClick={async () => setSoundEnabled(await engineRef.current?.audio.toggle() ?? false)}>{soundEnabled ? "SFX ON" : "ENABLE SFX"}</button>
           <button className="music-button" aria-pressed={lowGlare} onClick={() => { const next = !lowGlare; setLowGlare(next); if (engineRef.current) engineRef.current.lowGlare = next; }}>{lowGlare ? "SOFT GLARE ON" : "SOFT GLARE"}</button>
           <button
-            className={`music-button ${musicEnabled && musicReady && !musicBlocked ? "active" : ""} ${!musicReady || musicBlocked ? "blocked" : ""}`}
+            className={`music-button ${musicEnabled ? "active" : ""}`}
             onClick={toggleBackgroundMusic}
-            aria-pressed={musicEnabled && musicReady && !musicBlocked}
-            aria-label={!musicReady || musicBlocked ? "Enable background music" : `${musicEnabled ? "Disable" : "Enable"} background music`}
+            aria-pressed={musicEnabled}
+            aria-label={`${musicEnabled ? "Disable" : "Enable"} background music`}
           >
-            <span aria-hidden="true">♪</span>{!musicReady || musicBlocked ? "ENABLE BGM" : musicEnabled ? "BGM ON" : "BGM OFF"}
+            <span aria-hidden="true">♪</span>{musicEnabled ? "BGM ON" : "BGM OFF"}
           </button>
           <button className="leave-button" onClick={onExit}>LEAVE SIM</button>
         </div>
@@ -3777,7 +5338,7 @@ function Game({
 
         {snapshot.message && <div className="toast-message">{snapshot.message}</div>}
         {snapshot.soundCaption && <div className="sound-caption" role="status" aria-live="polite">♬ {snapshot.soundCaption}</div>}
-        {snapshot.phase === "COUNTDOWN" && <div className="ordeal-preparation" role="status"><b>{HAZARD_LABELS[snapshot.hazard]} INCOMING</b><span>{snapshot.hazard === "ROOTWAKE" ? "Choose your chamber before the roots seal." : snapshot.hazard === "PHANTOMS" ? "Ready your Echo Bell. Not every shape is real." : snapshot.hazard === "MOONGLARE" ? "Memorize nearby wardens. Identities will disappear." : "Ready your Glowing Mushroom or Moonblossom."}</span></div>}
+        {snapshot.phase === "COUNTDOWN" && <div className="ordeal-preparation" role="status"><b>{HAZARD_LABELS[snapshot.hazard]} INCOMING</b><span>{snapshot.hazard === "ROOTWAKE" ? "Choose your chamber before the roots seal." : snapshot.hazard === "PHANTOMS" ? "Ready your Echo Bell. Not every shape is real." : snapshot.hazard === "MOONGLARE" ? "Memorize nearby wardens. Identities will disappear." : snapshot.hazard === "MIRROR_POOL" ? "Controls will invert for 25s! Bumping another warden swaps your colors." : "Ready your Glowing Mushroom or Moonblossom."}</span></div>}
         {!snapshot.humanAlive && <div className="spectator-chip">SPECTATING • YOU ARE JELLY</div>}
 
         {snapshot.rewardNotice && (
@@ -3891,8 +5452,24 @@ function Game({
             <small>IDENTITY CONFIRMED // PRIVATE</small>
             <h2 id="death-reveal-title">YOU WERE DISSOLVED</h2>
             <div className="killer-label">KILLED BY</div>
-            <div className="killer-portrait" style={{ "--killer-color": deathReveal.killerColor } as React.CSSProperties} aria-hidden="true">
-              <span><i /><i /><b /></span>
+            <div
+              className="killer-portrait"
+              style={{
+                "--killer-color": deathReveal.killerColor,
+                "--victim-color": deathReveal.victimColor || "#63e6be",
+              } as React.CSSProperties}
+              aria-hidden="true"
+            >
+              <em className="devour-victim"><u /></em>
+              <span>
+                <i />
+                <i />
+                <b className="devour-maw">
+                  <s className="devour-fangs-top" />
+                  <s className="devour-fangs-bottom" />
+                </b>
+              </span>
+              <ins className="devour-splatter" />
             </div>
             <strong>{deathReveal.killerName}</strong>
             <p>You now know the Impostor—but the living crew cannot hear you.</p>
@@ -3935,9 +5512,23 @@ function Game({
       )}
 
       {meeting && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="meeting-title">
+        <div
+          key={`meeting-${meetingKey}`}
+          className={`modal-backdrop meeting-backdrop ${meeting.tally ? "is-tally" : "is-discussion"} ${meeting.reason.includes("PUDDLE") || meeting.reason.includes("BODY") ? "body-report" : "bell-report"}`}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="meeting-title"
+        >
+          <div className="meeting-shockwave" aria-hidden="true"><i /><i /><i /></div>
           <div className="meeting-card">
-            <div className="meeting-alert"><span>!</span><div><small>{meeting.tally ? "VOTES COUNTED" : `REPORTED BY ${meeting.reporter}`}</small><h2 id="meeting-title">{meeting.reason}</h2></div><b>{meeting.tally ? "FINAL TALLY" : "DISCUSS + VOTE"}</b></div>
+            <div className="meeting-alert">
+              <span>{meeting.tally ? "⚖" : "!"}</span>
+              <div>
+                <small>{meeting.tally ? "VOTES COUNTED" : `REPORTED BY ${meeting.reporter}`}</small>
+                <h2 id="meeting-title">{meeting.reason}</h2>
+              </div>
+              <b>{meeting.tally ? "FINAL TALLY" : "DISCUSS + VOTE"}</b>
+            </div>
             <div className="meeting-content">
               {meeting.tally ? (
                 <div className="vote-tally-screen">
@@ -3947,8 +5538,12 @@ function Game({
                     <p>The crew’s votes have been counted.</p>
                   </div>
                   <div className="tally-grid" aria-label="Vote totals by player">
-                    {meeting.tally.map((entry) => (
-                      <div className={`tally-card ${entry.isTop ? "top-tally" : ""} ${entry.targetId === meeting.ejectedId ? "ejected" : ""} ${entry.targetId ? "" : "skip-tally"}`} key={entry.targetId || "SKIP"}>
+                    {meeting.tally.map((entry, idx) => (
+                      <div
+                        className={`tally-card ${entry.isTop ? "top-tally" : ""} ${entry.targetId === meeting.ejectedId ? "ejected" : ""} ${entry.targetId ? "" : "skip-tally"}`}
+                        style={{ "--card-idx": idx } as React.CSSProperties}
+                        key={entry.targetId || "SKIP"}
+                      >
                         <b className="tally-name">{entry.targetName}</b>
                         {entry.targetColor ? (
                           <span className="tally-slime"><SlimePortrait color={entry.targetColor} eyeStyle={entry.targetEyeStyle} /></span>
@@ -3995,10 +5590,15 @@ function Game({
                   <section className="vote-panel" aria-label="Cast your vote">
                     <p>Discuss first, then select the slime you distrust. The next screen shows the final tally.</p>
                     <div className="vote-grid">
-                      {meeting.candidates.map((player) => {
+                      {meeting.candidates.map((player, idx) => {
                         const isYou = player.id === snapshot.localPlayerId;
                         return (
-                          <button key={player.id} disabled={!player.alive || isYou || !snapshot.humanAlive} onClick={() => engineRef.current?.vote(player.id)}>
+                          <button
+                            key={player.id}
+                            style={{ "--card-idx": idx } as React.CSSProperties}
+                            disabled={!player.alive || isYou || !snapshot.humanAlive}
+                            onClick={() => engineRef.current?.vote(player.id)}
+                          >
                             <span className="vote-slime"><SlimePortrait color={player.alive ? player.color : "#53616b"} eyeStyle={player.eyeStyle} /></span>
                             <b>{player.name}</b><small>{player.alive ? (isYou ? "YOU" : "VOTE") : "ELIMINATED"}</small>
                           </button>

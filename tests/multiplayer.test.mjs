@@ -205,6 +205,7 @@ test("Multiplayer GameRoom: Rootwake grid seals players inside their current cel
   const player = room.addClient("root-tester", client, "Bramble", "#48e0a4", "antlers");
   room.handleMessage("root-tester", { type: "START_MATCH", botFill: false, targetPlayers: 1 });
 
+  player.role = "CREWMATE";
   room.phase = "ORDEAL";
   room.phaseTime = 5;
   room.hazard = "ROOTWAKE";
@@ -237,6 +238,20 @@ test("Multiplayer GameRoom: Rootwake grid seals players inside their current cel
 
   assert.equal(player.x, 600);
   assert.equal(player.y, 332);
+
+  // Impostor can pass freely through Rootwake walls across cells
+  player.role = "IMPOSTOR";
+  room.handleMessage("root-tester", {
+    type: "PLAYER_INPUT",
+    x: 900,
+    y: 520,
+    vx: 184,
+    vy: 184,
+    angle: 0,
+    flashlight: false,
+  });
+  assert.equal(player.x, 900);
+  assert.equal(player.y, 520);
 
   room.destroy();
   registry.removeRoom(room.code);
@@ -390,7 +405,23 @@ test("room colors stay unique on join, profile races, bot fill, and slot reuse",
   assert.equal(room.addClient("new", createMockClient(), "New", releasedColor, "hood").color, releasedColor);
   room.handleMessage("host", { type: "START_MATCH", botFill: true, targetPlayers: 8 });
   assert.equal(new Set(Array.from(room.players.values(), (p) => p.color)).size, 8);
+  assert.equal(new Set(Array.from(room.players.values(), (p) => p.name.toLowerCase())).size, 8);
   assert.equal(Array.from(room.players.values()).filter((p) => p.role === "IMPOSTOR").length, 1);
+});
+
+test("default Warden callsign randomizes and room callsigns stay unique on join, profile update, and bot fill", (t) => {
+  const room = new GameServerRegistry().createRoom();
+  t.after(() => room.destroy());
+  const p1 = room.addClient("p1", createMockClient(), "Warden", PLAYER_COLORS[0], "hood");
+  assert.notEqual(p1.name.toLowerCase(), "warden");
+  const c2 = createMockClient();
+  const p2 = room.addClient("p2", c2, p1.name, PLAYER_COLORS[1], "moth");
+  assert.notEqual(p2.name.toLowerCase(), p1.name.toLowerCase());
+  room.handleMessage("p2", { type: "UPDATE_PROFILE", playerName: p1.name, color: p2.color, hat: "moth" });
+  assert.notEqual(p2.name.toLowerCase(), p1.name.toLowerCase());
+  assert.match(c2.popMessage("ERROR_ALERT").message, /already taken/);
+  room.handleMessage("p1", { type: "START_MATCH", botFill: true, targetPlayers: 8 });
+  assert.equal(new Set(Array.from(room.players.values(), (p) => p.name.toLowerCase())).size, 8);
 });
 
 test("compact movement keeps roles private, reduces bytes, and skips congested peers", (t) => {
@@ -421,6 +452,7 @@ test("invalid and reordered movement cannot corrupt a room or tunnel through Roo
   t.after(() => room.destroy());
   const player = room.addClient("host", createMockClient(), "Host", PLAYER_COLORS[0], "hood");
   room.handleMessage("host", { type: "START_MATCH", botFill: false, targetPlayers: 4 });
+  player.role = "CREWMATE";
   const input = { type: "PLAYER_INPUT", x: 300, y: 180, vx: 100, vy: 0, angle: 0, flashlight: false, seq: 2 };
   room.handleMessage("host", input);
   room.handleMessage("host", { ...input, x: 250, seq: 1 });

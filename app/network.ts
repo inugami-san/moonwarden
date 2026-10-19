@@ -584,9 +584,9 @@ export class MultiplayerClient {
     this.send({ type: "START_MATCH", botFill, targetPlayers });
   }
 
-  public sendInput(x: number, y: number, vx: number, vy: number, angle: number, flashlight: boolean) {
+  public sendInput(x: number, y: number, vx: number, vy: number, angle: number, flashlight: boolean, working?: boolean) {
     const seq = ++this.inputSeq;
-    this.send({ type: "PLAYER_INPUT", x, y, vx, vy, angle, flashlight, seq });
+    this.send({ type: "PLAYER_INPUT", x, y, vx, vy, angle, flashlight, ...(working ? { working: true } : {}), seq });
     return seq;
   }
 
