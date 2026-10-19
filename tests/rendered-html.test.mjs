@@ -70,6 +70,8 @@ test("play-first menu exposes entry and name before optional customization", asy
   assert.match(html, /href="#home-room-code"/);
   assert.match(html, /<details class="home-wardrobe"/);
   assert.match(html, /Pause animations/);
+  assert.match(html, /class="home-entry-column"/);
+  assert.match(html, /class="home-social-column"/);
   assert.doesNotMatch(html, /Brainwave|3D Boy Character|Dome Light|Add 3D objects|Export/);
 });
 
@@ -81,6 +83,17 @@ test("home field guide exposes all six ordeals without changing match rules", as
   assert.equal((guide.match(/<button/g) ?? []).length, 6);
   assert.equal((guide.match(/aria-pressed="true"/g) ?? []).length, 1);
   assert.match(html, /id="home-ordeal-story"[\s\S]*?aria-live="polite"/);
+});
+
+test("welcome forest has layered decorative trees and a twilight palette without changing player colors", async () => {
+  const html = await (await render()).text();
+  for (const layer of ["distant", "middle", "near", "floor"]) assert.ok(html.includes(`data-forest-layer="${layer}"`));
+  assert.ok((html.match(/href="#[^"]+-forest-pine"/g) ?? []).length >= 50, "reused tree art fills the forest without adding image downloads");
+  assert.match(html, /class="home-atmosphere" aria-hidden="true"/);
+  const css = await readFile(new URL("../app/home-welcome.css", import.meta.url), "utf8");
+  assert.match(css, /--home-ink: #302e50/);
+  assert.match(css, /\.home-atmosphere[^}]*pointer-events: none/);
+  assert.doesNotMatch(css, /filter:\s*hue-rotate/, "recolor the scenery, not players' selected colors");
 });
 
 test("wardrobe offers five labeled eye styles with exactly one selected", async () => {

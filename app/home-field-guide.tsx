@@ -13,14 +13,25 @@ const ORDEALS = [
 
 /** Decorative code-native art: no downloads or per-frame React updates. */
 export function HomeAtmosphere() {
+  const forestId = `${useId().replace(/:/g, "")}-forest-pine`;
   return <div className="home-atmosphere" aria-hidden="true">
     <div className="home-aurora home-aurora-one" /><div className="home-aurora home-aurora-two" />
-    <svg className="home-horizon" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMax slice">
-      <path d="M0 550 175 285 350 540 550 360 760 610 1010 310 1210 530 1440 220 1600 500V900H0Z" fill="#bfd4c7" />
-      <path d="M0 690Q220 480 440 650T850 610T1250 580T1600 620V900H0Z" fill="#a5c5ae" />
-      <path d="M0 780Q200 650 420 785T880 730T1250 760T1600 710V900H0Z" fill="#88b296" />
-      {[[-25, 500, 1.2], [100, 620, .8], [1460, 500, 1.1], [1540, 580, .9]].map(([x,y,scale],i)=><g key={i} transform={`translate(${x} ${y}) scale(${scale})`} fill="#5f9578"><path d="m50 0-53 105h22l-45 85h27l-39 80h176l-39-80h27l-45-85h22Z" /><path d="M44 250h12v100H44Z" /></g>)}
+    <svg className="home-horizon" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMax slice">
+      <defs><symbol id={forestId} viewBox="0 0 180 380">
+        <path d="M83 200h14v180H83Z" fill="#716b8f" />
+        <path d="M90 0Q68 53 38 94l22-1q-29 49-59 80l36-3q-33 49-64 77l39 1-32 52q54 31 110 31t110-31l-32-52 39-1q-31-28-64-77l36 3q-30-31-59-80l22 1Q112 53 90 0Z" fill="currentColor" />
+        <path d="M90 24v283q-36-5-58-18l38-48-30-1 39-73-31 1 36-66-20 1Z" fill="#e6e4ff" opacity=".1" />
+        <path d="M90 164v179m0-80-32-23m32-36 29-20" stroke="#e9e2ff" strokeWidth="2" opacity=".13" fill="none" />
+      </symbol></defs>
+      <path d="M0 440 175 165 350 420 550 240 760 490 1010 190 1210 410 1440 100 1600 380V1000H0Z" fill="#afb8d6" />
+      <path d="M0 600Q220 390 440 560T850 520T1250 490T1600 530V1000H0Z" fill="#a0a8cc" />
+      <g data-forest-layer="distant" opacity=".75">{Array.from({length:20},(_,i)=><use key={i} href={`#${forestId}`} x={i*88-60} y={260+(i*31)%110} width={110+(i%3)*20} height={260+(i%4)*20} style={{color:"#929ac1"}} />)}</g>
+      <path d="M0 720Q200 590 420 725T880 670T1250 700T1600 650V1000H0Z" fill="#929dbf" />
+      <g data-forest-layer="middle">{Array.from({length:15},(_,i)=><use key={i} href={`#${forestId}`} x={i*120-85} y={420+(i*43)%105} width={160+(i%3)*25} height={340+(i%3)*45} style={{color:i%2 ? "#7b86ad" : "#8993b6"}} />)}</g>
+      <g data-forest-layer="near" opacity=".9">{[[-90,370,290,630],[55,525,240,530],[1190,475,260,550],[1400,300,330,700]].map(([x,y,width,height],i)=><use key={i} href={`#${forestId}`} x={x} y={y} width={width} height={height} style={{color:"#637299"}} />)}</g>
     </svg>
+    <svg className="home-forest-floor" viewBox="0 0 1600 500" preserveAspectRatio="xMidYMax slice"><path d="M0 320Q400 240 800 340t800-40v200H0Z" fill="#9fa8c6" /><g data-forest-layer="floor">{Array.from({length:17},(_,i)=><use key={i} href={`#${forestId}`} x={i*106-90} y={30+(i*31)%100} width={155+(i%3)*20} height={380+(i%2)*80} style={{color:i%2 ? "#6d7a9c" : "#8390b0"}} />)}</g></svg>
+    <div className="home-canopy"><i /><i /><i /></div>
     <div className="home-pollen">{Array.from({length:12},(_,i)=><i key={i} style={{"--seed":i,"--drift-x":`${(i*37)%100}%`,"--drift-y":`${(i*17)%90}%`} as React.CSSProperties} />)}</div>
   </div>;
 }
@@ -29,40 +40,42 @@ export function HomeGrove() {
   const id = useId().replace(/:/g, "");
   return <svg className="home-grove" viewBox="0 0 700 750" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
     <defs>
-      <linearGradient id={`${id}-sky`} x2=".3" y2="1"><stop stopColor="#cce6d8" /><stop offset="1" stopColor="#f1edc5" /></linearGradient>
-      <linearGradient id={`${id}-water`} x2="0" y2="1"><stop stopColor="#bfe5d2" /><stop offset="1" stopColor="#679e97" /></linearGradient>
-      <linearGradient id={`${id}-pine`} x2="1" y2="1"><stop stopColor="#37765e" /><stop offset="1" stopColor="#76a889" /></linearGradient>
-      <radialGradient id={`${id}-glow`}><stop stopColor="#fffbd6" stopOpacity=".8" /><stop offset="1" stopColor="#fffbd6" stopOpacity="0" /></radialGradient>
+      <linearGradient id={`${id}-sky`} x2=".3" y2="1"><stop stopColor="#242b50" /><stop offset=".6" stopColor="#62688e" /><stop offset="1" stopColor="#b2a3bd" /></linearGradient>
+      <linearGradient id={`${id}-water`} x2="0" y2="1"><stop stopColor="#c6cbef" /><stop offset="1" stopColor="#596b9c" /></linearGradient>
+      <linearGradient id={`${id}-pine`} x2="1" y2="1"><stop stopColor="#283c62" /><stop offset="1" stopColor="#586c8c" /></linearGradient>
+      <radialGradient id={`${id}-glow`}><stop stopColor="#f5ddbc" stopOpacity=".5" /><stop offset="1" stopColor="#d7c5ff" stopOpacity="0" /></radialGradient>
     </defs>
     <path fill={`url(#${id}-sky)`} d="M0 0h700v750H0Z" />
     <circle fill={`url(#${id}-glow)`} cx="468" cy="220" r="220" />
-    <path fill="#a8c9bf" d="m0 327 110-140 78 98 84-59 120 146 115-110 71 64 122-134v558H0Z" />
-    <path fill="#e4edde" opacity=".7" d="m110 187-30 57 28-12 24 18 18-13Zm162 39-25 34 22-5 20 16 11-9Z" />
-    <path fill="#8fb9a6" d="M0 415q110-112 250-20t260-38q90-30 190 20v373H0Z" />
-    <path fill="#bad8bb" opacity=".65" d="M0 391q190 50 350-5t350 16v23q-160-23-320 13T0 417Z" className="grove-mist" />
-    <path fill="#5c936e" d="M0 540q140-155 370-30t330-39v279H0Z" />
-    <ellipse cx="380" cy="643" rx="285" ry="136" fill="#81b08c" />
+    <g fill="#f1e9dc" opacity=".7">{Array.from({length:16},(_,i)=><circle key={i} cx={45+(i*83)%620} cy={28+(i*53)%215} r={i%4===0 ? 1.8 : .9} />)}</g>
+    <path fill="#777fa2" d="m0 327 110-140 78 98 84-59 120 146 115-110 71 64 122-134v558H0Z" />
+    <path fill="#d4d4e8" opacity=".65" d="m110 187-30 57 28-12 24 18 18-13Zm162 39-25 34 22-5 20 16 11-9Z" />
+    <path fill="#626e94" d="M0 415q110-112 250-20t260-38q90-30 190 20v373H0Z" />
+    <g fill="#4c5b80" opacity=".8">{Array.from({length:13},(_,i)=><path key={i} d="m0 0-24 56h10l-22 40h72L14 56h10Z" transform={`translate(${i*60-10} ${285+(i*37)%80}) scale(${.65+(i%3)*.18})`} />)}</g>
+    <path fill="#a9afd1" opacity=".35" d="M0 391q190 50 350-5t350 16v23q-160-23-320 13T0 417Z" className="grove-mist" />
+    <path fill="#3d5274" d="M0 540q140-155 370-30t330-39v279H0Z" />
+    <ellipse cx="380" cy="643" rx="285" ry="136" fill="#536787" />
     <path d="M256 750q-25-65 66-90t-25-42q-47-26 15-39 109-17 168 7 65 33-37 65t34 99" fill={`url(#${id}-water)`} />
-    <g fill="none" stroke="#d4edcf" strokeWidth="2" opacity=".6" className="grove-water-lines"><path d="M313 601q63-16 111 0m-120 17q57-13 106-2m-71 48q38-13 76-6m-122 43q50-14 89-5" /></g>
-    <ellipse cx="350" cy="550" rx="187" ry="74" fill="#8da879" />
-    <ellipse cx="350" cy="540" rx="181" ry="66" fill="#dce6b3" />
-    <ellipse cx="350" cy="540" rx="147" ry="47" fill="#b9d4a0" />
-    <g fill="none" stroke="#e9efc5" opacity=".6"><ellipse cx="350" cy="540" rx="115" ry="34" /><path d="m350 509 25 30-25 31-25-31Z" /></g>
-    {[[-34, 86, 1.25], [70, 233, .72], [582, 128, 1.04], [654, 242, .88]].map(([x, y, scale], i) => <g key={i} transform={`translate(${x} ${y}) scale(${scale})`}>
-      <path d="M47 220h17v190q-9 8-17 0Z" fill="#57765a" />
+    <g fill="none" stroke="#e2d8f8" strokeWidth="2" opacity=".6" className="grove-water-lines"><path d="M313 601q63-16 111 0m-120 17q57-13 106-2m-71 48q38-13 76-6m-122 43q50-14 89-5" /></g>
+    <ellipse cx="350" cy="550" rx="187" ry="74" fill="#5b6484" />
+    <ellipse cx="350" cy="540" rx="181" ry="66" fill="#a5a0bb" />
+    <ellipse cx="350" cy="540" rx="147" ry="47" fill="#898cae" />
+    <g fill="none" stroke="#e4d2b8" opacity=".7"><ellipse cx="350" cy="540" rx="115" ry="34" /><path d="m350 509 25 30-25 31-25-31Z" /></g>
+    {[[-34, 86, 1.25], [60, 190, .72], [112, 305, .52], [520, 290, .6], [582, 128, 1.04], [654, 242, .88]].map(([x, y, scale], i) => <g key={i} transform={`translate(${x} ${y}) scale(${scale})`}>
+      <path d="M47 220h17v190q-9 8-17 0Z" fill="#5b5e79" />
       <path d="M55 0Q25 55 4 87l22 2q-24 45-52 70l40 3q-32 48-67 77 40 29 108 29t108-29q-35-29-67-77l40-3q-28-25-52-70l22-2Q85 55 55 0Z" fill={`url(#${id}-pine)`} />
-      <path d="M55 19q-14 45-36 66l27 2-44 69 41 3-58 77q26 14 70 16Z" fill="#b9d3a5" opacity=".18" />
-      <path d="M55 120v290m0-185-33-25m33-21 31-24" fill="none" stroke="#779979" strokeWidth="3" />
+      <path d="M55 19q-14 45-36 66l27 2-44 69 41 3-58 77q26 14 70 16Z" fill="#bcc8ed" opacity=".16" />
+      <path d="M55 120v290m0-185-33-25m33-21 31-24" fill="none" stroke="#8190b1" strokeWidth="3" />
     </g>)}
-    <g fill="#597b62" stroke="#8ca482" strokeWidth="2"><path d="m156 564 15-28 24 1 14 25-22 9Z" /><path d="m501 556 13-22 29 6 5 24-30 4Z" /></g>
+    <g fill="#535b7b" stroke="#9c9cb4" strokeWidth="2"><path d="m156 564 15-28 24 1 14 25-22 9Z" /><path d="m501 556 13-22 29 6 5 24-30 4Z" /></g>
     <g fill="#e6dfa9"><path d="m182 550 2 10m-5-7 8 2m339-9 1 13m-6-9 11 4" /></g>
     {[[94, 574], [558, 593], [610, 655], [135, 688]].map(([x, y], i) => <g key={i} transform={`translate(${x} ${y})`} className="grove-mushroom">
       <path d="M-4 0h8v24q-4 7-8 0Z" fill="#f2edcc" />
-      <path d="M-24 1q0-34 24-34T24 1q-24 10-48 0Z" fill={i % 2 ? "#e7c795" : "#bfe7cf"} />
+      <path d="M-24 1q0-34 24-34T24 1q-24 10-48 0Z" fill={i % 2 ? "#e7c795" : "#c5c2ef"} />
       <circle cx="-8" cy="-12" r="4" fill="#fff9d9" /><circle cx="10" cy="-16" r="3" fill="#fff9d9" />
     </g>)}
     <g fill="#fff8c4"><path d="m170 213 3 9 9 3-9 3-3 9-3-9-9-3 9-3Z" /><path d="m521 105 3 9 9 3-9 3-3 9-3-9-9-3 9-3Z" /></g>
-    <g stroke="#8cba8c" strokeWidth="2" fill="none"><path d="M54 750q5-52-15-77m16 60 26-31m554 48q-7-43 15-61m-16 38-20-23" /></g>
+    <g stroke="#8f97bc" strokeWidth="2" fill="none"><path d="M54 750q5-52-15-77m16 60 26-31m554 48q-7-43 15-61m-16 38-20-23" /></g>
   </svg>;
 }
 

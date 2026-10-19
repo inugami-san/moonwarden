@@ -4629,6 +4629,7 @@ function Lobby({
                   <h2>PLAY WITH FRIENDS <span aria-hidden="true">↗</span></h2>
                   <p>Your next “it wasn’t me” moment starts here.</p>
                 </div>
+                <div className="home-entry-column">
                 <label className="play-name" htmlFor="play-nickname">Your name <small>Randomized callsign ready — or pick your own below.</small>
                   <input id="play-nickname" className="mp-field" maxLength={16} value={nickname} onChange={(event) => setNickname(event.target.value)} placeholder="Enter your warden name…" autoComplete="nickname" />
                 </label>
@@ -4664,7 +4665,9 @@ function Lobby({
                     </form>
                   </div>
                 </div>
+                </div>
 
+                <div className="home-social-column">
                 <details className="home-wardrobe" aria-label="Customize your Warden">
                   <summary className="wardrobe-summary-bar">
                     <SlimeAvatar color={selectedColor} hat={selectedHat} eyeStyle={selectedEyes} size="sm" />
@@ -4767,6 +4770,7 @@ function Lobby({
                       <span>{isRefreshingRooms ? "Listening for circles in the forest…" : showRoomResults ? "No open circles yet. Create one and bring your friends!" : "Looking for company? Find an open circle, or create your own above."}</span>
                     </div>
                   )}
+                </div>
                 </div>
               </div>
             )}
