@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 
 const ORDEALS = [
   { icon: "✧", name: "Total Blackout", tag: "FOLLOW THE LIGHT", text: "The sanctuary goes dark. Keep your glowing mushroom close — and your friends closer.", tip: "Nearby light reveals hidden wardens.", tone: "night" },
@@ -12,25 +12,57 @@ const ORDEALS = [
 ] as const;
 
 /** Decorative code-native art: no downloads or per-frame React updates. */
+export function HomeAtmosphere() {
+  return <div className="home-atmosphere" aria-hidden="true">
+    <div className="home-aurora home-aurora-one" /><div className="home-aurora home-aurora-two" />
+    <svg className="home-horizon" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMax slice">
+      <path d="M0 550 175 285 350 540 550 360 760 610 1010 310 1210 530 1440 220 1600 500V900H0Z" fill="#bfd4c7" />
+      <path d="M0 690Q220 480 440 650T850 610T1250 580T1600 620V900H0Z" fill="#a5c5ae" />
+      <path d="M0 780Q200 650 420 785T880 730T1250 760T1600 710V900H0Z" fill="#88b296" />
+      {[[-25, 500, 1.2], [100, 620, .8], [1460, 500, 1.1], [1540, 580, .9]].map(([x,y,scale],i)=><g key={i} transform={`translate(${x} ${y}) scale(${scale})`} fill="#5f9578"><path d="m50 0-53 105h22l-45 85h27l-39 80h176l-39-80h27l-45-85h22Z" /><path d="M44 250h12v100H44Z" /></g>)}
+    </svg>
+    <div className="home-pollen">{Array.from({length:12},(_,i)=><i key={i} style={{"--seed":i,"--drift-x":`${(i*37)%100}%`,"--drift-y":`${(i*17)%90}%`} as React.CSSProperties} />)}</div>
+  </div>;
+}
+
 export function HomeGrove() {
+  const id = useId().replace(/:/g, "");
   return <svg className="home-grove" viewBox="0 0 700 750" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
-    <path fill="#b3d7c8" d="M0 300 116 170 244 329 370 201 540 353 700 221V750H0Z" />
-    <path fill="#8fbead" d="M0 394 147 292 315 424 468 307 700 408V750H0Z" />
-    <ellipse cx="350" cy="690" rx="470" ry="230" fill="#699d81" />
-    <ellipse cx="350" cy="615" rx="280" ry="125" fill="#a9cfa0" />
-    <ellipse cx="350" cy="585" rx="208" ry="76" fill="#cfdfaa" />
-    {[[-30, 100, 1.2], [82, 220, .75], [580, 140, 1.05], [650, 230, .9]].map(([x, y, scale], i) => <g key={i} transform={`translate(${x} ${y}) scale(${scale})`}>
-      <path d="M47 220h17v190H47Z" fill="#557e68" />
-      <path d="m55 0-66 135h29l-47 91h36l-48 91h191l-48-91h36l-47-91h30Z" fill={i % 2 ? "#6c9f87" : "#508b76"} />
-      <path d="M55 24v279H-27l48-83H1l42-84H24Z" fill="#a0c3a1" opacity=".22" />
+    <defs>
+      <linearGradient id={`${id}-sky`} x2=".3" y2="1"><stop stopColor="#cce6d8" /><stop offset="1" stopColor="#f1edc5" /></linearGradient>
+      <linearGradient id={`${id}-water`} x2="0" y2="1"><stop stopColor="#bfe5d2" /><stop offset="1" stopColor="#679e97" /></linearGradient>
+      <linearGradient id={`${id}-pine`} x2="1" y2="1"><stop stopColor="#37765e" /><stop offset="1" stopColor="#76a889" /></linearGradient>
+      <radialGradient id={`${id}-glow`}><stop stopColor="#fffbd6" stopOpacity=".8" /><stop offset="1" stopColor="#fffbd6" stopOpacity="0" /></radialGradient>
+    </defs>
+    <path fill={`url(#${id}-sky)`} d="M0 0h700v750H0Z" />
+    <circle fill={`url(#${id}-glow)`} cx="468" cy="220" r="220" />
+    <path fill="#a8c9bf" d="m0 327 110-140 78 98 84-59 120 146 115-110 71 64 122-134v558H0Z" />
+    <path fill="#e4edde" opacity=".7" d="m110 187-30 57 28-12 24 18 18-13Zm162 39-25 34 22-5 20 16 11-9Z" />
+    <path fill="#8fb9a6" d="M0 415q110-112 250-20t260-38q90-30 190 20v373H0Z" />
+    <path fill="#bad8bb" opacity=".65" d="M0 391q190 50 350-5t350 16v23q-160-23-320 13T0 417Z" className="grove-mist" />
+    <path fill="#5c936e" d="M0 540q140-155 370-30t330-39v279H0Z" />
+    <ellipse cx="380" cy="643" rx="285" ry="136" fill="#81b08c" />
+    <path d="M256 750q-25-65 66-90t-25-42q-47-26 15-39 109-17 168 7 65 33-37 65t34 99" fill={`url(#${id}-water)`} />
+    <g fill="none" stroke="#d4edcf" strokeWidth="2" opacity=".6" className="grove-water-lines"><path d="M313 601q63-16 111 0m-120 17q57-13 106-2m-71 48q38-13 76-6m-122 43q50-14 89-5" /></g>
+    <ellipse cx="350" cy="550" rx="187" ry="74" fill="#8da879" />
+    <ellipse cx="350" cy="540" rx="181" ry="66" fill="#dce6b3" />
+    <ellipse cx="350" cy="540" rx="147" ry="47" fill="#b9d4a0" />
+    <g fill="none" stroke="#e9efc5" opacity=".6"><ellipse cx="350" cy="540" rx="115" ry="34" /><path d="m350 509 25 30-25 31-25-31Z" /></g>
+    {[[-34, 86, 1.25], [70, 233, .72], [582, 128, 1.04], [654, 242, .88]].map(([x, y, scale], i) => <g key={i} transform={`translate(${x} ${y}) scale(${scale})`}>
+      <path d="M47 220h17v190q-9 8-17 0Z" fill="#57765a" />
+      <path d="M55 0Q25 55 4 87l22 2q-24 45-52 70l40 3q-32 48-67 77 40 29 108 29t108-29q-35-29-67-77l40-3q-28-25-52-70l22-2Q85 55 55 0Z" fill={`url(#${id}-pine)`} />
+      <path d="M55 19q-14 45-36 66l27 2-44 69 41 3-58 77q26 14 70 16Z" fill="#b9d3a5" opacity=".18" />
+      <path d="M55 120v290m0-185-33-25m33-21 31-24" fill="none" stroke="#779979" strokeWidth="3" />
     </g>)}
-    <path d="M180 750q0-70 170-110t120-85q50 32-69 90t-69 105" fill="#e4e8b7" opacity=".65" />
+    <g fill="#597b62" stroke="#8ca482" strokeWidth="2"><path d="m156 564 15-28 24 1 14 25-22 9Z" /><path d="m501 556 13-22 29 6 5 24-30 4Z" /></g>
+    <g fill="#e6dfa9"><path d="m182 550 2 10m-5-7 8 2m339-9 1 13m-6-9 11 4" /></g>
     {[[94, 574], [558, 593], [610, 655], [135, 688]].map(([x, y], i) => <g key={i} transform={`translate(${x} ${y})`} className="grove-mushroom">
       <path d="M-4 0h8v24q-4 7-8 0Z" fill="#f2edcc" />
       <path d="M-24 1q0-34 24-34T24 1q-24 10-48 0Z" fill={i % 2 ? "#e7c795" : "#bfe7cf"} />
       <circle cx="-8" cy="-12" r="4" fill="#fff9d9" /><circle cx="10" cy="-16" r="3" fill="#fff9d9" />
     </g>)}
-    <g fill="#f4efbb"><path d="m170 213 3 9 9 3-9 3-3 9-3-9-9-3 9-3Z" /><path d="m521 105 3 9 9 3-9 3-3 9-3-9-9-3 9-3Z" /></g>
+    <g fill="#fff8c4"><path d="m170 213 3 9 9 3-9 3-3 9-3-9-9-3 9-3Z" /><path d="m521 105 3 9 9 3-9 3-3 9-3-9-9-3 9-3Z" /></g>
+    <g stroke="#8cba8c" strokeWidth="2" fill="none"><path d="M54 750q5-52-15-77m16 60 26-31m554 48q-7-43 15-61m-16 38-20-23" /></g>
   </svg>;
 }
 

@@ -32,7 +32,9 @@ import {
 import { ForestAudio, soundDirection } from "./forest-audio";
 import { drawMoonGlade } from "./moon-glade";
 import { fittedCanvasBounds } from "./canvas-bounds";
-import { HomeFieldGuide, HomeGrove } from "./home-field-guide";
+import { HomeAtmosphere, HomeFieldGuide, HomeGrove } from "./home-field-guide";
+import { DEVOUR_SECONDS, drawSlimeConsumption, type DevourVisual } from "./slime-devour";
+import { ConsumptionPortrait } from "./consumption-portrait";
 
 type Role = "CREWMATE" | "IMPOSTOR";
 type RoleChoice = Role | "RANDOM";
@@ -129,13 +131,9 @@ type DeathReveal = {
   victimColor?: string;
 };
 
-type DevourEvent = {
+type DevourEvent = DevourVisual & {
   id: string;
-  x: number;
-  y: number;
-  victimColor: string;
   killerId?: string;
-  killerColor: string;
   startedAt: number;
   duration: number;
   lastChomp: number;
@@ -379,6 +377,7 @@ class OrdealEngine {
   taskHold = 0;
   killCooldownUntil = 0;
   killUsedThisOrdeal = false;
+  private pendingDevourVictimId: string | null = null;
   moonSightUntil = 0;
   moonSightUsedThisOrdeal = false;
   private abilityPending = false;
@@ -417,37 +416,46 @@ class OrdealEngine {
   }
 
   startDevour(bodyId: string, x: number, y: number, victimColor: string, killerId?: string, killerColor = "#ff4265") {
-    if (this.devourEvents.some((e) => e.id === bodyId)) return;
-    const isVictim = bodyId === this.localPlayerId || bodyId === `body-${this.localPlayerId}`;
-    const isKiller = Boolean(killerId && killerId === this.localPlayerId) || (this.human.role === "IMPOSTOR" && dist(this.human, { x, y }) < 105);
-    const isDirect = isVictim || isKiller;
-    const resolvedKillerId = killerId ?? (isKiller ? this.localPlayerId : this.players.find((p) => p.alive && p.id !== bodyId.replace(/^body-/, "") && dist(p, { x, y }) < 92)?.id);
-    const resolvedKiller = resolvedKillerId ? this.players.find((p) => p.id === resolvedKillerId) : undefined;
-    if (resolvedKiller && dist(resolvedKiller, { x, y }) < 110) {
-      resolvedKiller.x += (x - resolvedKiller.x) * 0.72;
-      resolvedKiller.y += (y - resolvedKiller.y) * 0.72;
+    const existing = this.devourEvents.find((event) => event.id === bodyId);
+    if (existing) {
+      // The victim's private reveal may arrive after the anonymous body packet.
+      if (killerId) {
+        const killer = this.players.find((player) => player.id === killerId);
+        existing.killerId = killerId;
+        existing.killerColor = killerColor;
+        existing.startX = killer?.x ?? existing.startX;
+        existing.startY = killer?.y ?? existing.startY;
+      }
+      return;
     }
+    const isVictim = bodyId === this.localPlayerId || bodyId === `body-${this.localPlayerId}`;
+    const isKiller = killerId === this.localPlayerId || Boolean(this.pendingDevourVictimId && bodyId === `body-${this.pendingDevourVictimId}`);
+    if (isKiller) this.pendingDevourVictimId = null;
+    const isDirect = isVictim || isKiller;
+    // Do not guess another player's role from proximity or move their collider.
+    const resolvedKillerId = killerId ?? (isKiller ? this.localPlayerId : undefined);
+    const resolvedKiller = resolvedKillerId ? this.players.find((p) => p.id === resolvedKillerId) : undefined;
     this.devourEvents.push({
       id: bodyId,
       x,
       y,
       victimColor,
       killerId: resolvedKillerId,
-      killerColor: resolvedKiller?.color || killerColor,
+      killerColor: resolvedKiller?.color || "#637a7b",
+      startX: resolvedKiller?.x ?? x - 34,
+      startY: resolvedKiller?.y ?? y,
       startedAt: this.elapsed,
-      duration: 1.15,
+      duration: DEVOUR_SECONDS,
       lastChomp: 0,
     });
-    this.burst(x, y + 12, victimColor, 38);
-    this.burst(x, y + 6, "#ff2a55", 22);
-    this.burst(x, y + 4, "#f4f9e9", 10);
+    if (!this.reducedMotion) this.burst(x, y + 4, "#d9edc4", 8);
     if (!this.reducedMotion && (isDirect || dist(this.human, { x, y }) < 280)) {
-      this.devourShakeUntil = this.elapsed + 0.88;
-      this.devourShakePower = isDirect ? 10.5 : 5.5;
+      this.devourShakeUntil = this.elapsed + 0.32;
+      this.devourShakePower = isDirect ? 3 : 1.2;
     }
     this.audio.devour(this.human, { x, y }, isDirect);
     if (!isDirect && this.human.alive && dist(this.human, { x, y }) <= HEARING_RANGE && (this.hazard !== "ROOTWAKE" || sharesRootCell(this.human, { x, y }))) {
-      this.caption = "Visceral crunching nearby";
+      this.caption = "A strange gulp nearby";
       this.captionUntil = this.elapsed + 1.8;
     }
   }
@@ -596,6 +604,7 @@ class OrdealEngine {
         break;
       case "KILL_RESULT":
         this.killUsedThisOrdeal = msg.spent;
+        if (!msg.accepted) this.pendingDevourVictimId = null;
         if (!msg.accepted) this.flashMessage(msg.spent ? "Your single strike is already spent for this Ordeal." : "Strike missed — the target moved out of reach. Your strike is still available.");
         this.emit(true);
         break;
@@ -743,6 +752,7 @@ class OrdealEngine {
         }
         if (this.phase === "ORDEAL" && previousPhase !== "ORDEAL") {
           this.killUsedThisOrdeal = false;
+          this.pendingDevourVictimId = null;
           this.moonSightUsedThisOrdeal = false;
           this.moonSightUntil = 0;
           this.abilityPending = false;
@@ -828,7 +838,8 @@ class OrdealEngine {
         this.human.vy = 0;
         this.human.working = false;
         this.cancelPuzzle("");
-        this.startDevour(`body-${this.localPlayerId}`, this.human.x, this.human.y, this.human.color, undefined, msg.killerColor);
+        const privateKiller = this.players.find((player) => player.name === msg.killerName);
+        this.startDevour(`body-${this.localPlayerId}`, this.human.x, this.human.y, this.human.color, privateKiller?.id, msg.killerColor);
         this.paused = true;
         this.onDeath({ killerName: msg.killerName, killerColor: msg.killerColor, victimColor: this.human.color });
         this.flashMessage(`You were devoured by ${msg.killerName}. Spectating the remaining crew.`);
@@ -1229,6 +1240,7 @@ class OrdealEngine {
         this.flashMessage("No crewmate in melee range.");
         return;
       }
+      this.pendingDevourVictimId = victim.id;
       this.multiplayerClient.sendKill(victim.id);
       this.killUsedThisOrdeal = true;
       this.killCooldownUntil = this.elapsed + KILL_COOLDOWN_SECONDS;
@@ -1609,19 +1621,9 @@ class OrdealEngine {
     if (this.devourEvents.length === 0) return;
     for (const event of this.devourEvents) {
       const progress = (this.elapsed - event.startedAt) / event.duration;
-      if (progress >= 0.24 && event.lastChomp < 1) {
+      if (!this.reducedMotion && progress >= 0.65 && event.lastChomp < 1) {
         event.lastChomp = 1;
-        this.burst(event.x + (Math.random() - 0.5) * 18, event.y + 8, event.victimColor, 24);
-        this.burst(event.x, event.y + 4, "#ff2a55", 14);
-      } else if (progress >= 0.48 && event.lastChomp < 2) {
-        event.lastChomp = 2;
-        this.burst(event.x + (Math.random() - 0.5) * 22, event.y + 6, event.victimColor, 28);
-        this.burst(event.x, event.y + 2, "#ff2a55", 16);
-        this.burst(event.x, event.y, "#f5f8ea", 8);
-      } else if (progress >= 0.72 && event.lastChomp < 3) {
-        event.lastChomp = 3;
-        this.burst(event.x, event.y + 14, event.victimColor, 32);
-        this.burst(event.x, event.y + 6, "#f5f8ea", 12);
+        this.burst(event.x, event.y + 8, "#e7f1d3", 10);
       }
     }
     this.devourEvents = this.devourEvents.filter((event) => this.elapsed - event.startedAt < event.duration);
@@ -1993,9 +1995,11 @@ class OrdealEngine {
       this.drawSlime(ctx, player, silhouette, moonSightActive && !isLocal, colorMuted, visibilityAlpha);
     }
     for (const event of this.devourEvents) {
+      // Known actors animate inside drawSlime, inheriting the same visibility.
+      if (event.killerId) continue;
       const isParticipant = event.killerId === this.localPlayerId || event.id === this.localPlayerId || event.id === `body-${this.localPlayerId}`;
       if (isParticipant || moonSightActive || this.isRevealed({ ...this.human, id: event.id, x: event.x, y: event.y, flashlight: false })) {
-        this.drawDevourEffect(ctx, event, !moonSightActive && (moonGlareActive || phantomProcessionActive));
+        this.drawDevourEffect(ctx, event, !moonSightActive && this.phase === "ORDEAL");
       }
     }
     if (!moonGlareActive) this.drawLighting(ctx);
@@ -2324,13 +2328,16 @@ class OrdealEngine {
   }
 
   drawSlime(ctx: CanvasRenderingContext2D, player: Player, silhouette = false, moonSightMarked = false, colorMuted = false, visibilityAlpha = 1) {
+    const consumption = this.devourEvents.find((event) => event.killerId === player.id);
+    if (consumption) {
+      this.drawDevourEffect(ctx, consumption, silhouette, player, colorMuted, visibilityAlpha);
+      return;
+    }
     const speed = Math.hypot(player.vx, player.vy);
     const seed = Array.from(player.id).reduce((sum, letter) => (sum * 31 + letter.charCodeAt(0)) % 997, 0);
     const pose = this.slimeAnimator.sample(player, this.elapsed, this.reducedMotion);
-    const activeDevour = this.devourEvents.find((e) => e.killerId === player.id && (this.elapsed - e.startedAt) < e.duration * 0.86);
-    const devourChomp = activeDevour ? Math.sin(((this.elapsed - activeDevour.startedAt) / (activeDevour.duration * 0.86)) * Math.PI * 6) : 0;
-    const scaleX = activeDevour ? pose.scaleX * (1.22 + devourChomp * 0.18) : pose.scaleX;
-    const scaleY = activeDevour ? pose.scaleY * (0.86 - devourChomp * 0.15) : pose.scaleY;
+    const scaleX = pose.scaleX;
+    const scaleY = pose.scaleY;
     const x = player.x;
     const y = player.y + pose.offsetY;
     const baseColor = colorMuted ? muteHexColor(player.color) : player.color;
@@ -2512,164 +2519,23 @@ class OrdealEngine {
     ctx.restore();
   }
 
-  drawDevourEffect(ctx: CanvasRenderingContext2D, event: DevourEvent, silhouette = false) {
-    const progress = clamp((this.elapsed - event.startedAt) / event.duration, 0, 1);
-    const chompCycle = (progress / 0.78) * Math.PI * 3;
-    const jawOpen = progress < 0.78
-      ? Math.abs(Math.cos(chompCycle))
-      : Math.max(0, 1 - (progress - 0.78) / 0.22);
-    const snapImpact = Math.max(0, 1 - jawOpen * 3.2);
-    const fadeOut = progress > 0.82 ? clamp(1 - (progress - 0.82) / 0.18, 0, 1) : 1;
-    const jawColor = silhouette ? "#4a5864" : event.killerColor;
-
-    ctx.save();
-    ctx.translate(event.x, event.y + 10);
-    ctx.globalAlpha = fadeOut;
-
-    // 1. Crimson/abyssal feeding aura & shockwave rings on each jaw clamp
-    const auraRadius = 56 + snapImpact * 26;
-    const aura = ctx.createRadialGradient(0, 4, 6, 0, 4, auraRadius);
-    aura.addColorStop(0, "rgba(255, 36, 78, 0.48)");
-    aura.addColorStop(0.55, "rgba(96, 8, 32, 0.28)");
-    aura.addColorStop(1, "rgba(12, 2, 8, 0)");
-    ctx.fillStyle = aura;
-    ctx.beginPath();
-    ctx.arc(0, 4, auraRadius, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 2. Victim slime being crushed and pulled into the maw (0.0 -> 0.78)
-    if (progress < 0.78) {
-      const shrink = 1 - progress * 0.76;
-      const shakeX = Math.sin(this.elapsed * 95) * (4 + snapImpact * 5);
-      const squashX = shrink * (1.18 - jawOpen * 0.28);
-      const squashY = shrink * (0.36 + jawOpen * 0.56);
-      ctx.save();
-      ctx.translate(shakeX, 6);
-      ctx.scale(squashX, squashY);
-      slimeOutline(ctx);
-      ctx.fillStyle = snapImpact > 0.45 ? "#fff0f3" : event.victimColor;
-      ctx.strokeStyle = "#19040b";
-      ctx.lineWidth = 3;
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // 3. Giant Abyssal Predator Jaws (Upper & Lower Mandibles + 12 Razor Fangs)
-    const upperY = -8 - jawOpen * 28;
-    const lowerY = 14 + jawOpen * 24;
-    const jawWidth = 48 + snapImpact * 8;
-
-    // Dark throat void between jaws
-    ctx.fillStyle = "rgba(18, 2, 10, 0.92)";
-    ctx.beginPath();
-    ctx.ellipse(0, (upperY + lowerY) / 2, jawWidth * 0.92, Math.max(6, (lowerY - upperY) * 0.62), 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Stretching slime saliva strands between upper and lower teeth
-    if (jawOpen > 0.15) {
-      ctx.strokeStyle = `${event.victimColor}cc`;
-      ctx.lineWidth = 2.2;
-      ctx.beginPath();
-      for (const sx of [-28, -11, 9, 27]) {
-        ctx.moveTo(sx, upperY + 10);
-        ctx.quadraticCurveTo(sx * 0.7, (upperY + lowerY) / 2, sx * 0.9, lowerY - 10);
-      }
-      ctx.stroke();
-    }
-
-    // Upper Jaw Rim
-    ctx.fillStyle = jawColor;
-    ctx.strokeStyle = "#120309";
-    ctx.lineWidth = 3.5;
-    ctx.beginPath();
-    ctx.moveTo(-jawWidth, upperY + 6);
-    ctx.quadraticCurveTo(0, upperY - 26, jawWidth, upperY + 6);
-    ctx.quadraticCurveTo(0, upperY - 4, -jawWidth, upperY + 6);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // Lower Jaw Rim
-    ctx.beginPath();
-    ctx.moveTo(-jawWidth, lowerY - 6);
-    ctx.quadraticCurveTo(0, lowerY + 24, jawWidth, lowerY - 6);
-    ctx.quadraticCurveTo(0, lowerY + 4, -jawWidth, lowerY - 6);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // 6 Upper Fangs pointing down
-    const fangPositions = [-35, -21, -7, 7, 21, 35];
-    for (const [idx, fx] of fangPositions.entries()) {
-      const fangLen = (idx === 0 || idx === 5 ? 13 : 18) + snapImpact * 4;
-      ctx.fillStyle = "#f7faec";
-      ctx.strokeStyle = "#16040b";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(fx - 5.5, upperY + 1);
-      ctx.lineTo(fx + 5.5, upperY + 1);
-      ctx.lineTo(fx, upperY + fangLen);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      // Crimson/slime tip on fang
-      ctx.fillStyle = idx % 2 === 0 ? "#ff2a55" : event.victimColor;
-      ctx.beginPath();
-      ctx.moveTo(fx - 2.6, upperY + fangLen * 0.55);
-      ctx.lineTo(fx + 2.6, upperY + fangLen * 0.55);
-      ctx.lineTo(fx, upperY + fangLen);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    // 6 Lower Fangs pointing up (offset slightly to interlock)
-    for (const [idx, baseFx] of fangPositions.entries()) {
-      const fx = baseFx + (idx % 2 === 0 ? 3 : -3);
-      const fangLen = (idx === 0 || idx === 5 ? 12 : 17) + snapImpact * 4;
-      ctx.fillStyle = "#f7faec";
-      ctx.strokeStyle = "#16040b";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(fx - 5, lowerY - 1);
-      ctx.lineTo(fx + 5, lowerY - 1);
-      ctx.lineTo(fx, lowerY - fangLen);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = idx % 2 === 1 ? "#ff2a55" : event.victimColor;
-      ctx.beginPath();
-      ctx.moveTo(fx - 2.4, lowerY - fangLen * 0.55);
-      ctx.lineTo(fx + 2.4, lowerY - fangLen * 0.55);
-      ctx.lineTo(fx, lowerY - fangLen);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    // 4. Crisscross bite slash flash when teeth slam shut
-    if (snapImpact > 0.32) {
-      ctx.strokeStyle = `rgba(255, 235, 240, ${(snapImpact * 0.9).toFixed(2)})`;
-      ctx.lineWidth = 3.2;
-      ctx.beginPath();
-      ctx.moveTo(-42, -18);
-      ctx.lineTo(42, 22);
-      ctx.moveTo(42, -18);
-      ctx.lineTo(-42, 22);
-      ctx.stroke();
-      ctx.strokeStyle = `rgba(255, 42, 85, ${(snapImpact * 0.85).toFixed(2)})`;
-      ctx.lineWidth = 2.2;
-      ctx.beginPath();
-      ctx.arc(0, 3, 44 + (1 - snapImpact) * 24, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    ctx.restore();
+  drawDevourEffect(ctx: CanvasRenderingContext2D, event: DevourEvent, silhouette = false, killer?: Player, muted = false, alpha = 1) {
+    drawSlimeConsumption(ctx, event, (this.elapsed - event.startedAt) / event.duration, {
+      concealed: silhouette || !event.killerId,
+      muted,
+      alpha,
+      reducedMotion: this.reducedMotion,
+      returnTo: killer,
+      eyes: killer?.eyeStyle,
+      drawHat: killer ? (context) => this.drawHat(context, killer.hat, 0, 0, muted) : undefined,
+    });
   }
 
   drawBody(ctx: CanvasRenderingContext2D, body: Body) {
     const activeDevour = this.devourEvents.find((e) => e.id === body.id);
     const devourProgress = activeDevour ? (this.elapsed - activeDevour.startedAt) / activeDevour.duration : 1;
-    const puddleScale = activeDevour ? clamp(devourProgress * 1.22, 0.2, 1) : 1;
+    if (activeDevour && devourProgress < .72) return;
+    const puddleScale = activeDevour ? clamp((devourProgress - .72) / .28, .05, 1) : 1;
     const seed = Array.from(body.id).reduce((sum, ch) => (sum * 31 + ch.charCodeAt(0)) % 997, 0);
     const t = this.elapsed * 2.6 + body.age + seed * 0.1;
     const wobble = Math.sin(t) * 2.4;
@@ -4120,6 +3986,7 @@ function Lobby({
 
   return (
     <main className={`lobby-shell moon-studio ${inRoom ? "studio-in-room" : "studio-at-home"} ${isLaunching ? "studio-launching" : ""} ${motionPaused ? "home-motion-paused" : ""}`}>
+      {!inRoom && <HomeAtmosphere />}
       {isLaunching && (
         <div className="studio-launch-portal" aria-hidden="true">
           <div className="launch-portal-ring" />
@@ -5450,27 +5317,9 @@ function Game({
           <div className="death-ripple" aria-hidden="true"><i /><i /><i /></div>
           <div className="death-reveal-card">
             <small>IDENTITY CONFIRMED // PRIVATE</small>
-            <h2 id="death-reveal-title">YOU WERE DISSOLVED</h2>
+            <h2 id="death-reveal-title">YOU WERE CONSUMED</h2>
             <div className="killer-label">KILLED BY</div>
-            <div
-              className="killer-portrait"
-              style={{
-                "--killer-color": deathReveal.killerColor,
-                "--victim-color": deathReveal.victimColor || "#63e6be",
-              } as React.CSSProperties}
-              aria-hidden="true"
-            >
-              <em className="devour-victim"><u /></em>
-              <span>
-                <i />
-                <i />
-                <b className="devour-maw">
-                  <s className="devour-fangs-top" />
-                  <s className="devour-fangs-bottom" />
-                </b>
-              </span>
-              <ins className="devour-splatter" />
-            </div>
+            <ConsumptionPortrait killerColor={deathReveal.killerColor} victimColor={deathReveal.victimColor || "#63e6be"} />
             <strong>{deathReveal.killerName}</strong>
             <p>You now know the Impostor—but the living crew cannot hear you.</p>
             <button onClick={dismissDeathReveal}>CONTINUE AS SPECTATOR</button>

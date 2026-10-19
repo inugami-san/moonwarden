@@ -5,6 +5,56 @@ import { readFile } from "node:fs/promises";
 import { EYE_STYLES, normalizeEyeStyle } from "../server/appearance.ts";
 import { drawEyeShape, eyePath } from "../app/slime-eyes.ts";
 import { SlimeAnimator } from "../app/slime-motion.ts";
+import { DEVOUR_SECONDS, devourPose, drawSlimeConsumption } from "../app/slime-devour.ts";
+
+test("consumption reaches, envelops, swallows, then returns to a neutral pose", () => {
+  assert.equal(DEVOUR_SECONDS, 1.6);
+  const start = devourPose(0), engulf = devourPose(.5), swallowed = devourPose(.8), end = devourPose(1);
+  assert.equal(start.reach, 0);
+  assert.equal(start.victimScale, 1);
+  assert.ok(engulf.reach > .9 && engulf.scaleX > 1.4);
+  assert.ok(swallowed.victimAlpha < .01 && swallowed.victimScale < .05);
+  assert.equal(end.reach, 0);
+  assert.equal(end.scaleX, 1);
+  assert.equal(end.scaleY, 1);
+  assert.equal(end.coreAlpha, 0);
+  for (const value of [-1, 0, .2, .5, 1, 2, NaN]) assert.ok(Object.values(devourPose(value)).every(Number.isFinite));
+  assert.deepEqual(devourPose(-1), start);
+  assert.deepEqual(devourPose(2), end);
+});
+
+test("concealed consumption hides cosmetics, stays bounded, and never changes player physics", () => {
+  const event = Object.freeze({x:420,y:300,startX:360,startY:300,killerColor:"#20d8ed",victimColor:"#eaa058"});
+  const player = Object.freeze({x:365,y:305});
+  let depth = 0, cosmetics = 0;
+  const ctx = new Proxy({}, {get: (_, key) => {
+    if (key === "save") return () => depth++;
+    if (key === "restore") return () => depth--;
+    if (key === "drawImage") return () => cosmetics++;
+    return (...args) => { for (const arg of args) if (typeof arg === "number") assert.ok(Number.isFinite(arg)); };
+  }, set: () => true});
+  for (const progress of [0,.2,.5,.7,1]) {
+    drawSlimeConsumption(ctx,event,progress,{concealed:true,returnTo:player,drawHat:()=>cosmetics++});
+    assert.equal(depth,0,"balanced Canvas state");
+  }
+  assert.equal(cosmetics,0);
+  assert.equal(event.startX,360); assert.equal(player.x,365);
+  const calm = devourPose(.5,true);
+  assert.equal(calm.reach,0); assert.equal(calm.scaleX,1); assert.equal(calm.scaleY,1);
+});
+
+test("kill visuals remain local, non-repeating and do not infer other players' roles", async () => {
+  const source = await readFile(new URL("../app/page.tsx",import.meta.url),"utf8");
+  const start = source.match(/  startDevour\([\s\S]*?\n  frame =/)?.[0] ?? "";
+  assert.doesNotMatch(start, /resolvedKiller\.(x|y)\s*[+]?=/);
+  assert.doesNotMatch(start, /this\.players\.find\(\(p\) => p\.alive/);
+  assert.match(start, /pendingDevourVictimId/);
+  assert.doesNotMatch(start, /isKiller =[^;]*dist\(/);
+  assert.match(source, /<ConsumptionPortrait killerColor=\{deathReveal.killerColor\}/);
+  const css = await readFile(new URL("../app/consumption.css",import.meta.url),"utf8");
+  assert.doesNotMatch(css,/infinite/);
+  assert.match(css,/prefers-reduced-motion: reduce/);
+});
 
 function animate(vx, vy, fps = 60, seconds = 2) {
   const animator = new SlimeAnimator();
