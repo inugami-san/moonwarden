@@ -1,15 +1,14 @@
 /* Play-first hierarchy. The wardrobe and decorative preview never gate entry. */
-.slime-avatar-motion { position: absolute; inset: 0; transform-origin: 50% 89%; animation: slime-idle-hop 2.8s ease-in-out infinite; }
+.slime-avatar-motion { position: absolute; inset: 0; transform-origin: 50% 89%; animation: slime-idle-hop 3.6s cubic-bezier(.37,0,.33,1) infinite; }
 .slime-avatar-motion > .slime-portrait { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 5px 4px #173c3133); }
 .preview-warden:nth-child(2n) .slime-avatar-motion, .waiting-slot:nth-child(2n) .slime-avatar-motion { animation-delay: -.7s; }
 .preview-warden:nth-child(3n) .slime-avatar-motion, .waiting-slot:nth-child(3n) .slime-avatar-motion { animation-delay: -1.3s; }
 .slime-avatar .slime-portrait-eyes { transform-box: fill-box; transform-origin: center; animation: slime-eye-blink 5.8s linear infinite; }
 @keyframes slime-idle-hop {
-  0%, 100% { transform: translateY(0) scale(1.025, .975); }
-  25% { transform: translateY(-3%) scale(.98, 1.035); }
-  48% { transform: translateY(0) scale(1.045, .955); }
-  68% { transform: translateY(-1.5%) scale(.99, 1.018); }
-  84% { transform: translateY(0) scale(1.015, .985); }
+  0%, 100% { transform: translateY(0) scale(1.015, .985); }
+  22% { transform: translateY(-.8%) scale(.995, 1.005); }
+  46% { transform: translateY(-2.2%) scale(.983, 1.017); }
+  72% { transform: translateY(-.4%) scale(1.022, .978); }
 }
 @keyframes slime-eye-blink {
   0%, 94%, 98%, 100% { transform: scaleY(1); }

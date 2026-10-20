@@ -10,7 +10,7 @@ import { EyeStylePicker } from "./eye-style-picker";
 import { EYE_LABELS } from "./slime-eyes";
 import { SlimeAnimator } from "./slime-motion";
 import { EYE_STYLES, normalizeEyeStyle, type EyeStyle } from "../server/appearance";
-import { drawForestSanctum } from "./sanctum-art";
+import { drawForestSanctum, drawSanctumStatus } from "./sanctum-art";
 import { availablePlayerName, PLAYER_COLORS as COLORS, randomWardenCallsign, WARDEN_CALLSIGNS } from "../server/palette";
 import {
   ECHO_RANGE,
@@ -389,6 +389,7 @@ class OrdealEngine {
   private caption = "";
   private captionUntil = 0;
   private lastCaptionAt = -1;
+  private localStep = { x: 0, y: 0, at: -1 };
   audio = new ForestAudio();
   lowGlare = false;
   private slimeAnimator = new SlimeAnimator();
@@ -453,8 +454,9 @@ class OrdealEngine {
       this.devourShakeUntil = this.elapsed + 0.32;
       this.devourShakePower = isDirect ? 3 : 1.2;
     }
-    this.audio.devour(this.human, { x, y }, isDirect);
-    if (!isDirect && this.human.alive && dist(this.human, { x, y }) <= HEARING_RANGE && (this.hazard !== "ROOTWAKE" || sharesRootCell(this.human, { x, y }))) {
+    const sameChamber = this.phase !== "ORDEAL" || this.hazard !== "ROOTWAKE" || sharesRootCell(this.human, { x, y });
+    if (isDirect || sameChamber) this.audio.devour(this.human, { x, y }, isDirect);
+    if (!isDirect && sameChamber && this.human.alive && dist(this.human, { x, y }) <= HEARING_RANGE) {
       this.caption = "A strange gulp nearby";
       this.captionUntil = this.elapsed + 1.8;
     }
@@ -620,6 +622,11 @@ class OrdealEngine {
           if (msg.item === this.selectedItem) this.itemActiveUntil = 0;
           this.rewardNotice = null;
           this.flashMessage(msg.stationId ? "That shrine was already sealed or the trial ended. No item was awarded." : "That gear charge is no longer available.");
+          this.audio.cue("task-error");
+        } else if (msg.stationId) {
+          this.audio.cue("task-complete");
+        } else if (msg.item) {
+          this.audio.cue("item-use");
         }
         this.emit(true);
         break;
@@ -751,6 +758,7 @@ class OrdealEngine {
           if (!this.gameOver) this.paused = false;
         }
         if (this.phase === "ORDEAL" && previousPhase !== "ORDEAL") {
+          this.audio.cue("ordeal-start");
           this.killUsedThisOrdeal = false;
           this.pendingDevourVictimId = null;
           this.moonSightUsedThisOrdeal = false;
@@ -758,6 +766,7 @@ class OrdealEngine {
           this.abilityPending = false;
           this.heardCueIds.clear();
         }
+        if (this.phase === "CALM" && previousPhase !== "CALM") this.audio.cue("calm");
         if (this.phase !== "ORDEAL") this.moonSightUntil = 0;
         this.emit(stationSealedNow || stationResetNow);
         break;
@@ -847,6 +856,7 @@ class OrdealEngine {
       }
 
       case "MATCH_RESULT": {
+        this.playResultSound(msg.result);
         this.gameOver = true;
         this.paused = true;
         this.onEnd(msg.result);
@@ -1022,11 +1032,12 @@ class OrdealEngine {
   }
 
   setTouch(code: string, down: boolean) {
-    if (down) this.touchKeys.add(code);
+    if (down) { void this.audio.unlock(); this.touchKeys.add(code); }
     else this.touchKeys.delete(code);
   }
 
   selectItem(item: ItemKind) {
+    if (this.selectedItem !== item) this.audio.cue("ui");
     this.selectedItem = item;
     this.emit(true);
   }
@@ -1040,6 +1051,7 @@ class OrdealEngine {
     // The world keeps running while a puzzle is open: the phase timer and bots
     // continue, and the human simply stands still at the shrine.
     this.activePuzzle = puzzle;
+    this.audio.cue("task-open");
     this.taskHold = 0;
     this.human.vx = 0;
     this.human.vy = 0;
@@ -1095,6 +1107,7 @@ class OrdealEngine {
   submitPuzzle(optionIndex: number) {
     if (!this.activePuzzle) return;
     if (optionIndex !== this.activePuzzle.answerIndex) {
+      this.audio.cue("task-error");
       this.activePuzzle = { ...this.activePuzzle, error: this.activePuzzle.kind === "MATH" ? "That calculation is off. Try another answer." : "That link breaks the circuit. Try another node." };
       this.onPuzzle(this.activePuzzle);
       return;
@@ -1127,7 +1140,10 @@ class OrdealEngine {
     }
     const prefix = wasFake ? "Counterfeit rite accepted" : `${station.label} sealed (+${progressGain}% wards)`;
     this.flashMessage(`${prefix}. ${ITEM_LABELS[reward]} acquired for the next Ordeal.`);
-    if (!this.multiplayerClient) station.completedAt = this.elapsed;
+    if (!this.multiplayerClient) {
+      station.completedAt = this.elapsed;
+      this.audio.cue("task-complete");
+    }
     if (!wasFake && !this.multiplayerClient) this.checkWin();
   }
 
@@ -1146,10 +1162,12 @@ class OrdealEngine {
       return;
     }
     if (this.charges[this.selectedItem] <= 0) {
+      this.audio.cue("task-error");
       this.flashMessage(`No ${ITEM_LABELS[this.selectedItem]} charge. Complete its marked moon shrine first.`);
       return;
     }
     this.charges[this.selectedItem] -= 1;
+    if (!this.multiplayerClient) this.audio.cue("item-use");
     this.multiplayerClient?.useItem(this.selectedItem, this.human.x, this.human.y);
     if (this.selectedItem === "FLARE") {
       if (!this.multiplayerClient) {
@@ -1394,6 +1412,7 @@ class OrdealEngine {
 
   vote(targetId: string | null) {
     if (!this.paused || !this.activeMeeting || this.activeMeeting.tally) return;
+    this.audio.cue("vote");
     if (this.multiplayerClient) {
       this.multiplayerClient.sendVote(targetId);
       this.flashMessage(targetId ? "Vote submitted." : "Skip vote submitted.");
@@ -1532,10 +1551,17 @@ class OrdealEngine {
 
   end(result: string) {
     if (this.gameOver) return;
+    this.playResultSound(result);
     this.gameOver = true;
     this.paused = true;
     this.cancelPuzzle("");
     this.onEnd(result);
+  }
+
+  private playResultSound(result: string) {
+    const crewWon = result.startsWith("CREW VICTORY");
+    const won = crewWon === (this.human.role === "CREWMATE");
+    this.audio.cue(won ? "victory" : "defeat");
   }
 
   flashMessage(message: string) {
@@ -1643,6 +1669,7 @@ class OrdealEngine {
           this.phantomRoutes = phantomPaths(Math.floor(Math.random() * 4294967296));
           this.flashMessage(`${HAZARD_LABELS[this.hazard]} INCOMING — prepare your gear and position.`);
         } else if (this.phase === "COUNTDOWN") {
+          this.audio.cue("ordeal-start");
           this.restoreTrueColors();
           this.phase = "ORDEAL";
           this.phaseTime = ordealDuration(this.hazard);
@@ -1665,6 +1692,7 @@ class OrdealEngine {
                       : "PHANTOM PROCESSION — false wardens now walk among the living.",
           );
         } else if (this.phase === "ORDEAL") {
+          this.audio.cue("calm");
           this.phase = "CALM";
           this.phaseTime = 15;
           this.resetStations();
@@ -1704,6 +1732,15 @@ class OrdealEngine {
     this.particles = this.particles.filter((p) => p.life > 0);
     if (!this.roleRevealActive) {
       this.updateHuman(dt);
+    }
+    // Only the local slime gets a soft movement texture. Remote sounds remain
+    // the server's range-limited anonymous cues, never a second location feed.
+    const stepDistance = Math.hypot(this.human.x - this.localStep.x, this.human.y - this.localStep.y);
+    if (this.localStep.at < 0 || stepDistance > 80) {
+      this.localStep = { x: this.human.x, y: this.human.y, at: this.elapsed };
+    } else if (this.human.alive && this.elapsed - this.localStep.at > .28 && stepDistance > 26) {
+      this.audio.cue("step");
+      this.localStep = { x: this.human.x, y: this.human.y, at: this.elapsed };
     }
 
     if (this.multiplayerClient) {
@@ -2001,6 +2038,11 @@ class OrdealEngine {
       if (isParticipant || moonSightActive || this.isRevealed({ ...this.human, id: event.id, x: event.x, y: event.y, flashlight: false })) {
         this.drawDevourEffect(ctx, event, !moonSightActive && this.phase === "ORDEAL");
       }
+    }
+    // Draw state badges above actors, but beneath visibility masks so a sealed
+    // shrine stays readable without exposing other Rootwake chambers.
+    for (const station of this.stations) {
+      drawSanctumStatus(ctx, station, this.elapsed, this.phase === "DISCUSSION", dist(station, this.human) < 128);
     }
     if (!moonGlareActive) this.drawLighting(ctx);
     this.drawParticles(ctx);
@@ -2526,6 +2568,7 @@ class OrdealEngine {
       alpha,
       reducedMotion: this.reducedMotion,
       returnTo: killer,
+      motion: killer ? this.slimeAnimator.sample(killer, this.elapsed, this.reducedMotion) : undefined,
       eyes: killer?.eyeStyle,
       drawHat: killer ? (context) => this.drawHat(context, killer.hat, 0, 0, muted) : undefined,
     });
@@ -5092,7 +5135,7 @@ function Game({
   };
   const dismissRoleReveal = () => {
     if (musicEnabled) primeBackgroundMusic();
-    if (soundEnabled) void engineRef.current?.audio.unlock();
+    if (soundEnabled) void engineRef.current?.audio.unlock().then((ready) => { if (ready) engineRef.current?.audio.cue("ui"); });
     setRoleReveal(null);
     if (engineRef.current) {
       engineRef.current.roleRevealActive = false;
@@ -5167,7 +5210,7 @@ function Game({
   };
 
   return (
-    <main className="game-shell">
+    <main className="game-shell" onPointerDownCapture={() => { void engineRef.current?.audio.unlock(); }} onKeyDownCapture={() => { void engineRef.current?.audio.unlock(); }}>
       <header className="game-nav">
         <Logo />
         <div className={`phase-chip phase-${snapshot.phase.toLowerCase()}`}><span />{phaseLabel}<b>{Math.ceil(snapshot.time).toString().padStart(2, "0")}</b></div>
@@ -5259,7 +5302,7 @@ function Game({
           </button>
         )}
 
-        {snapshot.stationStatus?.completed && snapshot.phase === "CALM" && (
+        {snapshot.stationStatus?.completed && snapshot.phase !== "DISCUSSION" && (
           <div className="station-sealed-prompt" role="status">
             <span>✓</span><div><b>WARD SEALED</b><small>{snapshot.stationStatus.label} reopens next round • choose another sanctum</small></div>
           </div>

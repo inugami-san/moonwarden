@@ -1,26 +1,40 @@
 import { slimeEyes, slimeOutline, slimePalette, slimeSkin } from "./slime-art";
+import type { SlimePose } from "./slime-motion";
 import type { EyeStyle } from "../server/appearance";
 
 export const DEVOUR_SECONDS = 1.6;
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const ease = (value: number) => { const t = clamp01(value); return t * t * (3 - 2 * t); };
 
-/** One feeding gesture; presentation only, never an authoritative movement. */
+/** Same anonymous material as a living concealed actor, with no identifying art. */
+function anonymousSlime(ctx: CanvasRenderingContext2D) {
+  slimeOutline(ctx);
+  const gradient = ctx.createLinearGradient(-25, -38, 28, 38);
+  gradient.addColorStop(0, "rgba(137,150,157,.94)");
+  gradient.addColorStop(1, "rgba(63,75,84,.96)");
+  ctx.fillStyle = gradient;
+  ctx.strokeStyle = "rgba(31,42,49,.9)";
+  ctx.lineWidth = 1.3;
+  ctx.fill(); ctx.stroke();
+}
+
+/** A planted body, a soft wrap, then one absorption. No world movement or biting. */
 export function devourPose(progress: number, reducedMotion = false) {
   const p = clamp01(Number.isFinite(progress) ? progress : 0);
-  const reach = ease((p - .12) / .34) * (1 - ease((p - .78) / .22));
-  const envelope = Math.sin(ease((p - .24) / .46) * Math.PI);
-  const swallow = ease((p - .35) / .35);
-  const settle = p > .72 ? Math.sin((p - .72) / .28 * Math.PI * 3) * (1 - p) : 0;
+  const wrap = ease((p - .12) / .26) * (1 - ease((p - .6) / .2));
+  const absorb = ease((p - .28) / .44);
+  const swell = Math.sin(Math.PI * ease((p - .18) / .7));
+  const recoil = Math.sin(Math.PI * ease((p - .72) / .28)) * .035;
+  const width = 1 + swell * .16 - recoil;
   return {
     progress: p,
-    reach: reducedMotion ? 0 : reach,
-    scaleX: reducedMotion ? 1 : 1 + envelope * .48 - settle * .35,
-    scaleY: reducedMotion ? 1 : 1 - envelope * .2 + settle * .3,
-    victimScale: reducedMotion ? 1 : 1 - swallow * .98,
-    victimAlpha: 1 - ease((p - (reducedMotion ? .15 : .53)) / .2),
-    coreAlpha: reducedMotion ? 0 : ease((p - .53) / .14) * (1 - ease((p - .8) / .2)),
-    ripple: ease((p - .62) / .38),
+    reach: reducedMotion ? 0 : wrap,
+    scaleX: reducedMotion ? 1 : width,
+    scaleY: reducedMotion ? 1 : 1 / width,
+    victimScale: reducedMotion ? 1 : 1 - absorb * .98,
+    victimAlpha: 1 - ease((p - (reducedMotion ? .15 : .52)) / .2),
+    coreAlpha: reducedMotion ? 0 : ease((p - .48) / .14) * (1 - ease((p - .72) / .18)),
+    ripple: ease((p - .57) / .43),
   };
 }
 
@@ -29,9 +43,21 @@ export type DevourVisual = {
   startX: number; startY: number;
 };
 
+/** Pure, bounded layout: moving the killer never adds a second lunge/return. */
+export function consumptionLayout(event: DevourVisual, progress: number, anchor = { x: event.startX, y: event.startY }) {
+  const p = clamp01(Number.isFinite(progress) ? progress : 0);
+  const absorb = ease((p - .28) / .44);
+  return {
+    x: anchor.x,
+    y: anchor.y,
+    victimX: event.x + (anchor.x - event.x) * absorb,
+    victimY: event.y + (anchor.y - event.y) * absorb,
+  };
+}
+
 export function drawSlimeConsumption(ctx: CanvasRenderingContext2D, event: DevourVisual, progress: number, options: {
   concealed?: boolean; muted?: boolean; reducedMotion?: boolean; alpha?: number;
-  returnTo?: { x: number; y: number }; eyes?: EyeStyle;
+  returnTo?: { x: number; y: number }; eyes?: EyeStyle; motion?: SlimePose;
   drawHat?: (ctx: CanvasRenderingContext2D) => void;
 } = {}) {
   const pose = devourPose(progress, options.reducedMotion);
@@ -39,62 +65,73 @@ export function drawSlimeConsumption(ctx: CanvasRenderingContext2D, event: Devou
   const killerColor = hidden ? "#637a7b" : options.muted ? "#738e85" : event.killerColor;
   const victimColor = hidden || options.muted ? "#8a9b97" : event.victimColor;
   const palette = slimePalette(killerColor);
-  const recovery = ease((pose.progress - .78) / .22);
-  const target = options.returnTo ?? { x: event.startX, y: event.startY };
-  const x = event.startX + (event.x - event.startX) * pose.reach + (target.x - event.startX) * recovery;
-  const y = event.startY + (event.y - event.startY) * pose.reach + (target.y - event.startY) * recovery;
+  const layout = consumptionLayout(event, options.reducedMotion ? 0 : pose.progress, options.returnTo);
+  const { x, y } = layout;
+  const motion = options.reducedMotion ? undefined : options.motion;
+  const alpha = Math.max(0, Math.min(1, options.alpha ?? 1));
   ctx.save();
-  ctx.globalAlpha = options.alpha ?? 1;
-  // Rippling moonlight, not a full-screen flash or gore burst.
-  ctx.strokeStyle = hidden ? "#9aaead" : palette.rim;
-  ctx.lineWidth = 1.8;
-  ctx.globalAlpha *= (1 - pose.ripple) * .6;
-  ctx.beginPath(); ctx.ellipse(event.x, event.y + 28, 35 + pose.ripple * 44, 10 + pose.ripple * 10, 0, 0, Math.PI * 2); ctx.stroke();
-  ctx.globalAlpha = options.alpha ?? 1;
-  // The victim is pulled under the membrane rather than bitten into pieces.
+  ctx.globalAlpha = alpha;
+
+  // Grounding remains at the actual actor position, even as the membrane swells.
+  ctx.fillStyle = "rgba(1,8,13,.28)";
+  ctx.beginPath(); ctx.ellipse(x, y + 31, 37 * (motion?.shadowScale ?? 1), 9, 0, 0, Math.PI * 2); ctx.fill();
+  if (!options.reducedMotion && pose.ripple > 0) {
+    ctx.strokeStyle = hidden ? "#9aaead" : palette.rim;
+    ctx.lineWidth = 1.6;
+    ctx.globalAlpha = alpha * Math.sin(pose.ripple * Math.PI) * .48;
+    ctx.beginPath(); ctx.ellipse(x, y + 31, 30 + pose.ripple * 34, 9 + pose.ripple * 7, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = alpha;
+  }
+
+  // The whole victim, not a duplicate limb or jaw, folds into the killer's core.
   if (pose.victimAlpha > .01) {
     ctx.save();
-    ctx.translate(event.x + (x - event.x) * ease((pose.progress - .28) / .4), event.y + (y - event.y) * .5 + 24);
-    ctx.scale(pose.victimScale * (1 + pose.reach * .18), pose.victimScale * (1 - pose.reach * .2));
-    ctx.translate(0, -24);
-    ctx.globalAlpha *= pose.victimAlpha;
-    if (hidden) { slimeOutline(ctx); ctx.fillStyle = victimColor; ctx.fill(); }
+    ctx.translate(layout.victimX, layout.victimY + 31);
+    ctx.scale(pose.victimScale, pose.victimScale);
+    ctx.translate(0, -31);
+    ctx.globalAlpha = alpha * pose.victimAlpha;
+    if (hidden) anonymousSlime(ctx);
     else { ctx.drawImage(slimeSkin(victimColor, !options.muted), -48, -54, 96, 112); slimeEyes(ctx, false, options.muted); }
     ctx.restore();
   }
-  ctx.save();
-  ctx.translate(x, y + 31);
-  ctx.scale(pose.scaleX, pose.scaleY);
-  ctx.translate(0, -31);
-  if (hidden) { slimeOutline(ctx); ctx.fillStyle = killerColor; ctx.fill(); }
-  else ctx.drawImage(slimeSkin(killerColor, !options.muted), -48, -54, 96, 112);
-  // A translucent, continuous gel veil reaches around the victim.
-  if (pose.reach > .02) {
-    const dx = (event.x - x) / pose.scaleX;
-    const dy = (event.y - y) / pose.scaleY;
-    const stretch = pose.reach * 30;
-    ctx.globalAlpha *= pose.reach * .65;
+
+  // A short directional gel ribbon wraps around the victim. Its root stays
+  // planted; direction is determined by the two actors, not a fixed left/right.
+  if (pose.reach > .001) {
+    const dx = event.x - x, dy = event.y - y;
+    const distance = Math.hypot(dx, dy);
+    const angle = distance > .01 ? Math.atan2(dy, dx) : 0;
+    const length = Math.min(94, distance) * pose.reach;
+    const radius = 25 * pose.reach;
+    ctx.save(); ctx.translate(x, y + 12); ctx.rotate(angle);
+    ctx.globalAlpha = alpha * pose.reach * (hidden ? .55 : .68);
     ctx.fillStyle = killerColor;
     ctx.strokeStyle = hidden ? "#8c9e9c" : palette.rim;
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(-29, 17);
-    ctx.bezierCurveTo(-52 - stretch, -36, dx - 45, dy - 63, dx, dy - 46 - stretch * .25);
-    ctx.bezierCurveTo(dx + 48, dy - 48, 55 + stretch, 19, 30, 26);
-    ctx.quadraticCurveTo(0, 39, -29, 17); ctx.fill(); ctx.stroke();
-    ctx.globalAlpha = options.alpha ?? 1;
+    ctx.moveTo(9, -15);
+    ctx.bezierCurveTo(length * .4, -22 - radius, length + radius, -radius, length + radius, 0);
+    ctx.bezierCurveTo(length + radius, radius, length * .4, 22 + radius * .35, 9, 16);
+    ctx.quadraticCurveTo(-1, 0, 9, -15); ctx.fill(); ctx.stroke();
+    ctx.restore();
   }
-  // A last little orb sinks inside the killer's jelly, then dissolves.
-  if (pose.coreAlpha > .01) {
-    ctx.globalAlpha *= pose.coreAlpha * .7;
+
+  ctx.save();
+  ctx.translate(x, y + (motion?.offsetY ?? 0) + 31);
+  ctx.transform((motion?.scaleX ?? 1) * pose.scaleX, 0, motion?.shear ?? 0, (motion?.scaleY ?? 1) * pose.scaleY, 0, 0);
+  ctx.translate(0, -31);
+  if (hidden) anonymousSlime(ctx);
+  else ctx.drawImage(slimeSkin(killerColor, !options.muted), -48, -54, 96, 112);
+  if (pose.coreAlpha > .001) {
+    ctx.globalAlpha = alpha * pose.coreAlpha * .65;
     ctx.fillStyle = victimColor;
-    ctx.beginPath(); ctx.ellipse(2, 12, 13, 10, .15, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = hidden ? "#8a9b97" : palette.shine; ctx.lineWidth = 1; ctx.stroke();
-    ctx.globalAlpha = options.alpha ?? 1;
+    ctx.beginPath(); ctx.ellipse(0, 16 + (1 - pose.coreAlpha) * 6, 12, 9, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = alpha;
   }
   if (!hidden) {
-    slimeEyes(ctx, pose.progress > .64 && pose.progress < .84, options.muted, options.eyes);
-    ctx.save(); ctx.translate(0, -43); options.drawHat?.(ctx); ctx.restore();
+    ctx.save(); ctx.translate(motion?.gazeX ?? 0, motion?.gazeY ?? 0);
+    slimeEyes(ctx, pose.progress > .61 && pose.progress < .69, options.muted, options.eyes); ctx.restore();
+    ctx.save(); ctx.translate(0, -43); ctx.rotate(motion?.hatTilt ?? 0); options.drawHat?.(ctx); ctx.restore();
   }
   ctx.restore();
   ctx.restore();

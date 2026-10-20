@@ -8,7 +8,7 @@ export function sanctumPulse(now: number, completedAt?: number) {
   return { progress, radius: 16 + progress * 42, alpha: (1 - progress) * 0.8 };
 }
 
-type Sanctum = {
+export type Sanctum = {
   x: number;
   y: number;
   pulse: number;
@@ -22,8 +22,8 @@ type Sanctum = {
 /** Forest matter, carved moonstone, and local light; no screen-shaped station panels. */
 export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctum, time: number, locked: boolean, nearby: boolean) {
   const { completed } = station;
-  const closure = station.rootClosure ?? Number(locked);
-  const breath = completed ? 0.7 : 0.48 + Math.sin(time * 2.3 + station.pulse) * 0.15;
+  const closure = completed ? 1 : Math.max(0, Math.min(1, station.rootClosure ?? Number(locked)));
+  const breath = completed ? 0.9 : 0.57 + Math.sin(time * 2.3 + station.pulse) * 0.13;
   const brightness = locked ? 0.16 : breath;
   const completion = sanctumPulse(time, station.completedAt);
   ctx.save();
@@ -38,6 +38,52 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
   halo.addColorStop(1, "rgba(85,152,119,0)");
   ctx.fillStyle = halo;
   ctx.fillRect(-56, -55, 112, 112);
+
+  // A stepped moonstone plinth reads as a destination, rather than a loose rock.
+  const plinth = ctx.createLinearGradient(0, 12, 0, 32);
+  plinth.addColorStop(0, locked ? "#526169" : "#a4b4bc");
+  plinth.addColorStop(1, locked ? "#26343e" : "#4a6371");
+  ctx.fillStyle = plinth;
+  ctx.strokeStyle = "#263a46";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.ellipse(0, 24, 43, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = locked ? "#53656a" : "#91aab1";
+  ctx.beginPath();
+  ctx.ellipse(0, 18, 37, 10, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = completed ? "#e9dab1" : locked ? "#617477" : "#b5d3cc";
+  ctx.lineWidth = completed ? 2.6 : 1;
+  ctx.beginPath();
+  ctx.ellipse(0, 18, 34, 8, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Two carved boughs create a recognizable shrine silhouette from a distance.
+  for (const side of [-1, 1]) {
+    ctx.strokeStyle = locked ? "#3b4648" : "#687a80";
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(side * 31, 13);
+    ctx.bezierCurveTo(side * 38, -9, side * 30, -38, side * 14, -43);
+    ctx.stroke();
+    ctx.strokeStyle = locked ? "#67787a" : "#b4c6bf";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(side * 31, 10);
+    ctx.bezierCurveTo(side * 35, -9, side * 27, -35, side * 14, -40);
+    ctx.stroke();
+    ctx.fillStyle = locked ? "#3a4c45" : completed ? "#d6d2ab" : "#8fbaa0";
+    ctx.beginPath();
+    ctx.ellipse(side * 30, -21, 9, 3.5, side * 0.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.strokeStyle = completed ? "#e8dcba" : locked ? "#6f7f82" : "#c2ddce";
+  ctx.lineWidth = completed ? 3 : 2;
+  ctx.beginPath();
+  ctx.arc(0, -40, 8, -Math.PI * 0.65, Math.PI * 0.65);
+  ctx.stroke();
 
   // An irregular moss bed and small stones anchor the shrine in the ground.
   for (let i = 0; i < 7; i++) {
@@ -89,9 +135,9 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
   }
 
   const rock = ctx.createLinearGradient(-16, -26, 21, 24);
-  rock.addColorStop(0, locked ? "#82918a" : "#b8cbbb");
-  rock.addColorStop(0.4, locked ? "#485e55" : "#7e9c85");
-  rock.addColorStop(1, locked ? "#24392f" : "#4b7057");
+  rock.addColorStop(0, locked ? "#829198" : completed ? "#dedbc9" : "#c0d1ce");
+  rock.addColorStop(0.4, locked ? "#485a67" : completed ? "#9fa9b4" : "#829ca1");
+  rock.addColorStop(1, locked ? "#293b46" : "#496574");
   ctx.fillStyle = rock;
   ctx.strokeStyle = "rgba(13,26,20,.8)";
   ctx.lineWidth = 1.5;
@@ -116,14 +162,20 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
   ctx.lineTo(11, 7);
   ctx.lineTo(14, 19);
   ctx.stroke();
-  ctx.strokeStyle = `rgba(183,222,192,${brightness})`;
-  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = completed ? `rgba(255,238,185,${locked ? 0.45 : 0.95})` : `rgba(183,230,218,${brightness})`;
+  ctx.lineWidth = completed ? 2.8 : 1.8;
   ctx.beginPath();
   ctx.arc(0, -3, 12, -Math.PI * 0.7, Math.PI * (completed ? 1.3 : 0.7));
-  ctx.moveTo(-7, 2);
-  ctx.lineTo(0, -13);
-  ctx.lineTo(7, 2);
-  ctx.lineTo(completed ? -7 : 1, 2);
+  if (completed) {
+    ctx.moveTo(-6, -3);
+    ctx.lineTo(-1, 2);
+    ctx.lineTo(7, -9);
+  } else {
+    ctx.moveTo(-7, 2);
+    ctx.lineTo(0, -13);
+    ctx.lineTo(7, 2);
+    ctx.lineTo(1, 2);
+  }
   ctx.stroke();
 
   // Each station's plants hint at the equipment it supplies.
@@ -171,8 +223,8 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
   if (closure > 0.01) {
     ctx.save();
     ctx.globalAlpha *= closure;
-    ctx.strokeStyle = "#444935";
-    ctx.lineWidth = 4;
+    ctx.strokeStyle = completed ? "#756e52" : "#444935";
+    ctx.lineWidth = completed ? 5 : 4;
     for (const side of [-1, 1]) {
       ctx.beginPath();
       ctx.moveTo(side * 27, 23);
@@ -186,6 +238,32 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
     ctx.bezierCurveTo(-24, 6, -(23 - closure * 19), -6, -(24 - closure * 32), -24);
     ctx.stroke();
     ctx.restore();
+  }
+
+  if (completed) {
+    // A pale crossed binding and wax-like moon seal remain after the short bloom.
+    ctx.strokeStyle = locked ? "#a79d7c" : "#dfc996";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(-22, -16);
+    ctx.lineTo(18, 18);
+    ctx.moveTo(22, -16);
+    ctx.lineTo(-18, 18);
+    ctx.stroke();
+    ctx.fillStyle = locked ? "#a99b79" : "#e6d3a4";
+    ctx.strokeStyle = "#5e655c";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(0, -1, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "#445766";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-4, -1);
+    ctx.lineTo(-1, 2);
+    ctx.lineTo(4, -4);
+    ctx.stroke();
   }
 
   // Available shrines have a few slow fireflies; completed light is steady.
@@ -222,19 +300,94 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
     }
   }
 
+  if (nearby && !completed && !locked) {
+    // A small ground ring makes interaction range legible without adding vision.
+    ctx.strokeStyle = "rgba(202,230,211,.38)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(0, 24, 49, 16, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** Draw after actors, but before lighting and Rootwake masks: no hidden-cell leaks. */
+export function drawSanctumStatus(ctx: CanvasRenderingContext2D, station: Sanctum, time: number, locked: boolean, nearby: boolean) {
+  if (!station.completed && !nearby) return;
+  const sealed = station.completed;
+  const label = sealed ? "SEALED" : locked ? "LOCKED" : "TASK READY";
+  const width = sealed ? 85 : locked ? 85 : 111;
+  // The top-left ward meter overlays the upper arena. Put north-shrine
+  // badges on the approach side so the HUD cannot hide a completed state.
+  const northShrine = station.y < 160;
+  const y = northShrine ? 58 : -67;
+  ctx.save();
+  ctx.translate(station.x, station.y);
+  ctx.lineCap = "round";
+  // A tether keeps this floating status attached to its shrine.
+  ctx.strokeStyle = sealed ? "rgba(235,216,171,.58)" : "rgba(176,205,201,.4)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, northShrine ? y - 12 : y + 12);
+  ctx.lineTo(0, northShrine ? 30 : -48);
+  ctx.stroke();
+  ctx.fillStyle = sealed ? "#e8d9b6" : locked ? "#34434e" : "#233f46";
+  ctx.strokeStyle = sealed ? "#697888" : locked ? "#7f9197" : "#acd4c5";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-width / 2 + 8, y - 12);
+  ctx.lineTo(width / 2 - 8, y - 12);
+  ctx.quadraticCurveTo(width / 2, y - 12, width / 2, y - 4);
+  ctx.lineTo(width / 2, y + 4);
+  ctx.quadraticCurveTo(width / 2, y + 12, width / 2 - 8, y + 12);
+  ctx.lineTo(-width / 2 + 8, y + 12);
+  ctx.quadraticCurveTo(-width / 2, y + 12, -width / 2, y + 4);
+  ctx.lineTo(-width / 2, y - 4);
+  ctx.quadraticCurveTo(-width / 2, y - 12, -width / 2 + 8, y - 12);
+  ctx.fill();
+  ctx.stroke();
+  ctx.strokeStyle = sealed ? "#405568" : locked ? "#b3c0c3" : "#d1ebd7";
+  ctx.lineWidth = 2;
+  const iconX = -width / 2 + 14;
+  ctx.beginPath();
+  if (sealed) {
+    ctx.moveTo(iconX - 4, y);
+    ctx.lineTo(iconX - 1, y + 3);
+    ctx.lineTo(iconX + 5, y - 4);
+  } else if (locked) {
+    ctx.arc(iconX, y - 2, 3.5, Math.PI, Math.PI * 2);
+    ctx.moveTo(iconX - 4, y - 1);
+    ctx.lineTo(iconX + 4, y - 1);
+    ctx.lineTo(iconX + 4, y + 5);
+    ctx.lineTo(iconX - 4, y + 5);
+    ctx.closePath();
+  } else {
+    const pulse = 1 + Math.sin(time * 2.3 + station.pulse) * 0.15;
+    ctx.moveTo(iconX, y - 5 * pulse);
+    ctx.lineTo(iconX + 4 * pulse, y);
+    ctx.lineTo(iconX, y + 5 * pulse);
+    ctx.lineTo(iconX - 4 * pulse, y);
+    ctx.closePath();
+  }
+  ctx.stroke();
+  ctx.fillStyle = sealed ? "#34495c" : locked ? "#b3c0c3" : "#d7eee1";
+  ctx.textAlign = "center";
+  ctx.font = "800 11px ui-monospace, monospace";
+  ctx.fillText(label, 8, y + 3.5);
   if (nearby) {
-    const status = locked ? "ORDEAL LOCKED" : completed ? "WARD SEALED · NEXT ROUND" : "E · INTERACT";
-    ctx.textAlign = "center";
-    ctx.font = "700 10px ui-monospace, monospace";
     ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(4,15,12,.9)";
-    ctx.strokeText(station.label, 0, -44);
-    ctx.fillStyle = "#d4e3d2";
-    ctx.fillText(station.label, 0, -44);
+    ctx.strokeStyle = "rgba(10,20,29,.95)";
+    ctx.font = "700 10px ui-monospace, monospace";
+    const nameY = northShrine ? y + 29 : -88;
+    ctx.strokeText(station.label, 0, nameY);
+    ctx.fillStyle = "#e2e9e4";
+    ctx.fillText(station.label, 0, nameY);
+    const hint = sealed ? "REOPENS NEXT CALM" : locked ? "SHRINE RESTING" : "E · INTERACT";
     ctx.font = "700 8px ui-monospace, monospace";
-    ctx.strokeText(status, 0, 44);
-    ctx.fillStyle = locked ? "#89998d" : completed ? "#bbd9ad" : "#9cbfa8";
-    ctx.fillText(status, 0, 44);
+    const hintY = northShrine ? y + 42 : 48;
+    ctx.strokeText(hint, 0, hintY);
+    ctx.fillStyle = sealed ? "#eee0bc" : locked ? "#abb9b9" : "#d1e6d6";
+    ctx.fillText(hint, 0, hintY);
   }
   ctx.restore();
 }

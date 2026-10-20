@@ -26,29 +26,35 @@ export class SlimeAnimator {
       const reset = elapsed > .25 || distance > 80;
       const dt = Math.min(elapsed, .05);
       const targetSpeed = reset ? 0 : Math.min(300, distance / elapsed);
-      const blend = 1 - Math.exp(-dt * 14);
+      const blend = 1 - Math.exp(-dt * 12);
       if (reset) { motion.vx = 0; motion.vy = 0; }
       motion.vx += ((distance ? dx / distance * targetSpeed : 0) - motion.vx) * blend;
       motion.vy += ((distance ? dy / distance * targetSpeed : 0) - motion.vy) * blend;
       const speed = Math.hypot(motion.vx, motion.vy);
       const pace = Math.min(1, speed / 200);
-      const directionX = speed > .1 ? motion.vx / speed : 0;
-      const directionY = speed > .1 ? motion.vy / speed : 0;
-      motion.phase = (motion.phase + dt * (4.2 + speed * .052)) % (Math.PI * 2);
-      const wave = Math.sin(motion.phase);
-      const rise = Math.max(0, wave);
-      const land = Math.max(0, -wave);
-      const width = 1 + land * (.035 + pace * .095) - rise * (.025 + pace * .045);
+      // A rounded lift has zero velocity at contact and at the top of a hop.
+      // Unlike a clipped sine, it never changes direction abruptly at the feet.
+      motion.phase = (motion.phase + dt * (2.5 + pace * 9)) % (Math.PI * 2);
+      const contact = Math.cos(motion.phase);
+      const rise = Math.pow((1 - contact) * .5, 2);
+      const width = 1 + contact * (.018 + pace * .095) - rise * pace * .025;
+      const bodyBlend = 1 - Math.exp(-dt * 24);
+      const gazeBlend = 1 - Math.exp(-dt * 14);
+      const approach = (current: number, target: number, blend: number) => current + (target - current) * blend;
+      const travelX = Math.max(-1, Math.min(1, motion.vx / 200));
+      const travelY = Math.max(-1, Math.min(1, motion.vy / 200));
+      if (reset) motion.pose = restingPose();
+      const scaleX = approach(motion.pose.scaleX, width, bodyBlend);
       Object.assign(motion.pose, {
-        offsetY: -rise * (2.3 + pace * 6.2),
-        scaleX: width,
-        scaleY: 1 / width,
-        shear: directionX ? -directionX * pace * .14 : 0,
-        gazeX: directionX * pace * 1.5,
-        gazeY: directionY * pace * 1.2,
-        hatTilt: Math.sin(motion.phase - .45) * pace * .055 - directionX * pace * .025,
-        shadowScale: 1 - rise * (.035 + pace * .13),
-        shadowAlpha: 1 - rise * (.04 + pace * .18),
+        offsetY: approach(motion.pose.offsetY, -rise * (1.8 + pace * 5.8), bodyBlend),
+        scaleX,
+        scaleY: 1 / scaleX,
+        shear: reset ? 0 : approach(motion.pose.shear, -travelX * .10, gazeBlend),
+        gazeX: reset ? 0 : approach(motion.pose.gazeX, travelX * 1.5, gazeBlend),
+        gazeY: reset ? 0 : approach(motion.pose.gazeY, travelY * 1.2, gazeBlend),
+        hatTilt: approach(motion.pose.hatTilt, Math.sin(motion.phase - .5) * pace * .04 - travelX * .022, bodyBlend),
+        shadowScale: approach(motion.pose.shadowScale, 1 - rise * (.025 + pace * .11), bodyBlend),
+        shadowAlpha: approach(motion.pose.shadowAlpha, 1 - rise * (.035 + pace * .14), bodyBlend),
       });
       motion.x = player.x;
       motion.y = player.y;

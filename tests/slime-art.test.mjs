@@ -5,14 +5,14 @@ import { readFile } from "node:fs/promises";
 import { EYE_STYLES, normalizeEyeStyle } from "../server/appearance.ts";
 import { drawEyeShape, eyePath } from "../app/slime-eyes.ts";
 import { SlimeAnimator } from "../app/slime-motion.ts";
-import { DEVOUR_SECONDS, devourPose, drawSlimeConsumption } from "../app/slime-devour.ts";
+import { DEVOUR_SECONDS, consumptionLayout, devourPose, drawSlimeConsumption } from "../app/slime-devour.ts";
 
 test("consumption reaches, envelops, swallows, then returns to a neutral pose", () => {
   assert.equal(DEVOUR_SECONDS, 1.6);
   const start = devourPose(0), engulf = devourPose(.5), swallowed = devourPose(.8), end = devourPose(1);
   assert.equal(start.reach, 0);
   assert.equal(start.victimScale, 1);
-  assert.ok(engulf.reach > .9 && engulf.scaleX > 1.4);
+  assert.ok(engulf.reach > .9 && engulf.scaleX > 1.1 && engulf.scaleX < 1.2, "one controlled swell, not a stretched duplicate body");
   assert.ok(swallowed.victimAlpha < .01 && swallowed.victimScale < .05);
   assert.equal(end.reach, 0);
   assert.equal(end.scaleX, 1);
@@ -23,21 +23,66 @@ test("consumption reaches, envelops, swallows, then returns to a neutral pose", 
   assert.deepEqual(devourPose(2), end);
 });
 
+test("consumption stays rooted, keeps volume, and crosses stage boundaries continuously", () => {
+  const event = Object.freeze({ x: 420, y: 300, startX: 360, startY: 270, killerColor: "#20d8ed", victimColor: "#eaa058" });
+  const anchor = Object.freeze({ x: 365, y: 275 });
+  let previous = devourPose(0);
+  for (let frame = 0; frame <= 1000; frame++) {
+    const progress = frame / 1000;
+    const pose = devourPose(progress);
+    const layout = consumptionLayout(event, progress, anchor);
+    assert.equal(layout.x, anchor.x, "killer never performs a fake lunge or return");
+    assert.equal(layout.y, anchor.y);
+    assert.ok(layout.victimX >= anchor.x && layout.victimX <= event.x);
+    assert.ok(layout.victimY >= anchor.y && layout.victimY <= event.y);
+    assert.ok(Math.abs(pose.scaleX * pose.scaleY - 1) < 1e-10);
+    for (const key of Object.keys(pose)) assert.ok(Math.abs(pose[key] - previous[key]) < .02, `${key} stays continuous`);
+    previous = pose;
+  }
+  assert.deepEqual(consumptionLayout(event, 0, anchor), { x: 365, y: 275, victimX: 420, victimY: 300 });
+  assert.deepEqual(consumptionLayout(event, 1, anchor), { x: 365, y: 275, victimX: 365, victimY: 275 });
+
+  // The first and last body matrix match a living actor's gait exactly.
+  const motion = { offsetY: -3, scaleX: 1.03, scaleY: 1 / 1.03, shear: .04, gazeX: 1, gazeY: -.3, hatTilt: .02, shadowScale: .95, shadowAlpha: .9 };
+  for (const progress of [0, 1]) {
+    const transforms = [], translations = [];
+    const ctx = new Proxy({}, { get: (_, key) => key === "createLinearGradient" ? () => ({ addColorStop() {} }) : (...args) => {
+      if (key === "ellipse") assert.ok(args.length >= 7, "native Canvas ellipse requires rotation, start, and end angles");
+      if (key === "transform") transforms.push(args);
+      if (key === "translate") translations.push(args);
+    }, set: () => true });
+    drawSlimeConsumption(ctx, event, progress, { concealed: true, returnTo: anchor, motion });
+    assert.deepEqual(transforms, [[motion.scaleX, 0, motion.shear, motion.scaleY, 0, 0]]);
+    assert.ok(translations.some(([x, y]) => x === anchor.x && y === anchor.y + motion.offsetY + 31));
+  }
+});
+
 test("concealed consumption hides cosmetics, stays bounded, and never changes player physics", () => {
   const event = Object.freeze({x:420,y:300,startX:360,startY:300,killerColor:"#20d8ed",victimColor:"#eaa058"});
   const player = Object.freeze({x:365,y:305});
   let depth = 0, cosmetics = 0;
+  const materials = [];
   const ctx = new Proxy({}, {get: (_, key) => {
     if (key === "save") return () => depth++;
     if (key === "restore") return () => depth--;
     if (key === "drawImage") return () => cosmetics++;
-    return (...args) => { for (const arg of args) if (typeof arg === "number") assert.ok(Number.isFinite(arg)); };
+    if (key === "createLinearGradient") return () => {
+      const stops = [];
+      materials.push(stops);
+      return { addColorStop: (offset, color) => stops.push([offset, color]) };
+    };
+    return (...args) => {
+      if (key === "ellipse") assert.ok(args.length >= 7, "native Canvas ellipse requires rotation, start, and end angles");
+      for (const arg of args) if (typeof arg === "number") assert.ok(Number.isFinite(arg));
+    };
   }, set: () => true});
   for (const progress of [0,.2,.5,.7,1]) {
     drawSlimeConsumption(ctx,event,progress,{concealed:true,returnTo:player,drawHat:()=>cosmetics++});
     assert.equal(depth,0,"balanced Canvas state");
   }
   assert.equal(cosmetics,0);
+  assert.ok(materials.length > 0);
+  for (const stops of materials) assert.deepEqual(stops, [[0,"rgba(137,150,157,.94)"],[1,"rgba(63,75,84,.96)"]], "concealment retains the same living silhouette material");
   assert.equal(event.startX,360); assert.equal(player.x,365);
   const calm = devourPose(.5,true);
   assert.equal(calm.reach,0); assert.equal(calm.scaleX,1); assert.equal(calm.scaleY,1);
@@ -75,9 +120,9 @@ test("slimes idle gently, hop further while moving, and lean/gaze in their actua
   const up = animate(0, -200).poses;
   const down = animate(0, 200).poses;
   const lift = poses => Math.max(...poses.map(pose => -pose.offsetY));
-  assert.ok(lift(idle) > 2 && lift(idle) <= 2.3);
-  assert.ok(lift(right) > 8, "walking has clearly visible hops");
-  assert.ok(right.at(-1).shear < -.13 && left.at(-1).shear > .13);
+  assert.ok(lift(idle) > 1.7 && lift(idle) <= 1.8);
+  assert.ok(lift(right) > 6.8 && lift(right) <= 7.6, "walking has rounded, grounded hops");
+  assert.ok(right.at(-1).shear < -.095 && left.at(-1).shear > .095);
   assert.ok(right.at(-1).gazeX > 1.4 && left.at(-1).gazeX < -1.4);
   assert.ok(up.at(-1).gazeY < -1.1 && down.at(-1).gazeY > 1.1);
   for (const pose of right) {
@@ -85,7 +130,26 @@ test("slimes idle gently, hop further while moving, and lean/gaze in their actua
     assert.ok(pose.shadowScale >= .83 && pose.shadowScale <= 1);
     assert.ok(pose.shadowAlpha >= .77 && pose.shadowAlpha <= 1);
   }
-  assert.ok(Math.max(...right.map(pose => pose.scaleX)) > 1.12, "landings squash");
+  assert.ok(Math.max(...right.map(pose => pose.scaleX)) > 1.09, "landings squash without ballooning");
+});
+
+test("gait is fluid across contact, reversal, and different render frame rates", () => {
+  for (const fps of [30, 60, 144]) {
+    const { animator, player, poses } = animate(200, 0, fps);
+    for (let frame = 1; frame <= fps; frame++) {
+      player.x -= 200 / fps;
+      poses.push({ ...animator.sample(player, 2 + frame / fps) });
+    }
+    let previous = poses[0];
+    for (const pose of poses.slice(1)) {
+      assert.ok(Math.abs(pose.offsetY - previous.offsetY) < 70 / fps, "no clipped-sine contact snap");
+      assert.ok(Math.abs(pose.scaleX - previous.scaleX) < 1.5 / fps, "continuous squash/stretch");
+      assert.ok(Math.abs(pose.shear - previous.shear) < 1.05 / fps, "direction changes have follow-through");
+      assert.ok(Math.abs(pose.gazeX - previous.gazeX) < 15 / fps, "eyes do not flip instantly");
+      previous = pose;
+    }
+    assert.ok(poses.at(-1).shear > .095 && poses.at(-1).gazeX < -1.4);
+  }
 });
 
 test("motion eases to idle when blocked/stopped and resets safely after teleports or hidden gaps", () => {
@@ -107,7 +171,7 @@ test("motion eases to idle when blocked/stopped and resets safely after teleport
   assert.ok(Object.values(revealed).every(Number.isFinite));
   for (const fps of [30, 60, 144]) {
     const lift = Math.max(...animate(200, 0, fps).poses.map(pose => -pose.offsetY));
-    assert.ok(lift > 8.3 && lift <= 8.5, `bounded motion at ${fps}fps`);
+    assert.ok(lift > 6.8 && lift < 7.1, `bounded, consistent motion at ${fps}fps`);
   }
 });
 
