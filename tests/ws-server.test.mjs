@@ -4,6 +4,10 @@ import test from "node:test";
 import { WebSocket } from "ws";
 import { createRoomServer } from "../server/ws-service.ts";
 import { gameRegistry } from "../server/game-room.ts";
+import { STATIONS } from "../server/sanctuary-map.ts";
+import { GAME_WORLD_VERSION } from "../server/game-version.ts";
+import { MultiplayerClient } from "../app/network.ts";
+import { resolveObstaclePosition } from "../server/ordeal-rules.ts";
 
 const FRONTEND_ORIGINS = ["https://moonwarden-two.vercel.app", "https://moonwarden-pi.vercel.app", "https://moonwarden-christainj.vercel.app"];
 
@@ -24,6 +28,10 @@ async function fixture(t) {
     socket.messages = [];
     socket.on("message", data => socket.messages.push(JSON.parse(data.toString())));
     await once(socket, "open");
+    send(socket, { type: "CLIENT_HELLO", worldVersion: GAME_WORLD_VERSION });
+    const info = await waitFor(socket, "SERVER_INFO");
+    assert.equal(info.compatible, true);
+    assert.equal(info.worldVersion, GAME_WORLD_VERSION);
     return socket;
   }
   return { url, connect, wss };
@@ -47,13 +55,74 @@ function waitFor(socket, type) {
 
 function send(socket, message) { socket.send(JSON.stringify(message)); }
 
+test("a cached legacy WebSocket page is rejected before a room is created", async t => {
+  const { url } = await fixture(t);
+  const socket = new WebSocket(url.replace("http:", "ws:"), { origin: FRONTEND_ORIGINS[0] });
+  socket.messages = [];
+  socket.on("message", data => socket.messages.push(JSON.parse(data.toString())));
+  await once(socket, "open");
+  const rejected = waitFor(socket, "ERROR_ALERT");
+  send(socket, { type: "CREATE_ROOM", playerName: "Old page", color: "#20d8ed", hat: "hood" });
+  assert.match((await rejected).message, /different map versions/);
+  assert.equal(socket.messages.some(message => message.type === "ROOM_STATE"), false);
+  assert.equal(socket.messages.find(message => message.type === "SERVER_INFO").compatible, false);
+  socket.terminate();
+});
+
+test("matching browser clients negotiate the expanded WebSocket world before co-op movement", async t => {
+  const { url } = await fixture(t);
+  const previous = { window: globalThis.window, WebSocket: globalThis.WebSocket, wsUrl: process.env.NEXT_PUBLIC_WS_URL };
+  globalThis.window = { location: { protocol: "http:", hostname: "127.0.0.1", host: "127.0.0.1:3000" }, setTimeout, clearTimeout, setInterval, clearInterval };
+  globalThis.WebSocket = WebSocket;
+  process.env.NEXT_PUBLIC_WS_URL = `${url.replace("http:", "ws:")}/ws`;
+  const host = new MultiplayerClient(), guest = new MultiplayerClient();
+  t.after(() => {
+    host.disconnect(); guest.disconnect();
+    if (previous.window === undefined) delete globalThis.window;
+    else globalThis.window = previous.window;
+    globalThis.WebSocket = previous.WebSocket;
+    if (previous.wsUrl === undefined) delete process.env.NEXT_PUBLIC_WS_URL;
+    else process.env.NEXT_PUBLIC_WS_URL = previous.wsUrl;
+  });
+  const nextMessage = (client, type, predicate = () => true) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { off(); reject(new Error(`Missing ${type}`)); }, 3000);
+    const off = client.onMessage(message => { if (message.type === type && predicate(message)) { clearTimeout(timer); off(); resolve(message); } });
+  });
+  await Promise.all([host.connect(), guest.connect()]);
+  assert.equal(host.connected, true); assert.equal(guest.connected, true);
+  const created = nextMessage(host, "ROOM_STATE");
+  host.createRoom("Browser Host", "#20d8ed", "hood");
+  await created;
+  const joined = nextMessage(guest, "ROOM_STATE");
+  guest.joinRoom(host.roomCode, "Browser Guest", "#20d8ed", "hood");
+  await joined;
+  assert.equal(guest.players.length, 2);
+  const started = nextMessage(host, "MATCH_STARTED");
+  host.startMatch(true, 4);
+  await started;
+  const room = gameRegistry.getRoom(host.roomCode);
+  const player = room.players.get(host.playerId);
+  for (const [x, y] of [[1500, 800], [450, 225]]) {
+    const seq = host.sendInput(x, y, 0, 0, 0, false);
+    const pending = nextMessage(guest, "SYNC_MOVEMENT", message => message.players.some(entry => entry.id === host.playerId && entry.inputSeq === seq));
+    // Wait for the next server tick rather than inspecting input before the
+    // real socket has delivered its bytes to the authoritative room.
+    const movement = await pending;
+    const entry = movement.players.find(entry => entry.id === host.playerId);
+    assert.equal(entry.inputSeq, seq);
+    assert.deepEqual({ x: player.x, y: player.y }, resolveObstaclePosition(x, y));
+  }
+});
+
 test("room server health supports the configured frontend and rejects unrelated origins", async t => {
   const { url, connect, wss } = await fixture(t);
   for (const origin of FRONTEND_ORIGINS) {
     const health = await fetch(`${url}/health`, { headers: { Origin: origin } });
     assert.equal(health.status, 200);
     assert.equal(health.headers.get("access-control-allow-origin"), origin);
-    assert.equal((await health.json()).service, "moonwarden-ws");
+    const info = await health.json();
+    assert.equal(info.service, "moonwarden-ws");
+    assert.equal(info.worldVersion, GAME_WORLD_VERSION);
     await connect(origin);
   }
   assert.equal((await fetch(`${url}/health`, { headers: { Origin: "https://unrelated.example" } })).status, 403);
@@ -115,7 +184,8 @@ test("real sockets relay anonymous lures and enforce the shared special-action c
   send(crew, request);
   assert.equal((await waitFor(crew, "ABILITY_STATE")).accepted, false);
   send(impostor, request);
-  const accepted = await waitFor(impostor, "ABILITY_STATE");
+  let accepted;
+  do { accepted = await waitFor(impostor, "ABILITY_STATE"); } while (!accepted.used);
   assert.equal(accepted.accepted, true); assert.equal(accepted.used, true);
   const sound = await waitFor(crew, "SOUND_CUE");
   assert.deepEqual(Object.keys(sound.cue).sort(), ["expiresAt", "id", "x", "y"]);
@@ -125,4 +195,47 @@ test("real sockets relay anonymous lures and enforce the shared special-action c
   let reply;
   do { reply = await waitFor(impostor, "ABILITY_STATE"); } while (reply.accepted);
   assert.equal(reply.used, true);
+});
+
+test("real sockets keep personal gear rites available after a teammate seals the ward", async t => {
+  const { connect } = await fixture(t);
+  const sockets = await Promise.all([connect(), connect(), connect(), connect()]);
+  send(sockets[0], { type: "CREATE_ROOM", playerName: "Host", color: "#20d8ed", hat: "hood" });
+  const created = await waitFor(sockets[0], "ROOM_STATE");
+  for (let index = 1; index < sockets.length; index++) {
+    send(sockets[index], { type: "JOIN_ROOM", roomCode: created.roomCode, playerName: `P${index}`, color: "#20d8ed", hat: "hood" });
+    await waitFor(sockets[index], "ROOM_STATE");
+  }
+  const pending = sockets.map(socket => waitFor(socket, "MATCH_STARTED"));
+  send(sockets[0], { type: "START_MATCH", botFill: false, targetPlayers: 4 });
+  const matches = await Promise.all(pending);
+  const crewIndices = matches.flatMap((match, index) => match.role === "CREWMATE" ? [index] : []);
+  const [first, second] = crewIndices;
+  const room = gameRegistry.getRoom(created.roomCode);
+  const shrine = STATIONS[0];
+  for (const player of room.players.values()) { player.x = shrine.x; player.y = shrine.y + 60; }
+  const task = { type: "TASK_UPDATE", stationId: shrine.id, reward: shrine.reward, roundId: room.roundId };
+  send(sockets[first], task);
+  const firstGear = await waitFor(sockets[first], "GEAR_SYNC");
+  assert.equal(firstGear.accepted, true);
+  assert.equal(firstGear.wardProgressGain, 8);
+  assert.deepEqual(firstGear.completedStations, [shrine.id]);
+  send(sockets[second], task);
+  const secondGear = await waitFor(sockets[second], "GEAR_SYNC");
+  assert.equal(secondGear.accepted, true);
+  assert.equal(secondGear.wardProgressGain, 0);
+  assert.equal(secondGear.charges.FLASHLIGHT, 1);
+  assert.equal(room.taskProgress, 8);
+  const pulse = await waitFor(sockets[crewIndices[2]], "STATION_COMPLETED");
+  assert.deepEqual(Object.keys(pulse).sort(), ["roundId", "sequence", "stationId", "type"]);
+  assert.ok(!sockets[crewIndices[2]].messages.some(message => message.type === "GEAR_SYNC"));
+  sockets.forEach(socket => { socket.messages.length = 0; });
+  room.phase = "ORDEAL";
+  room.phaseTime = 0.01;
+  room.lastTick = Date.now() - 50;
+  room.tick();
+  const reset = await waitFor(sockets[first], "GEAR_SYNC");
+  assert.equal(reset.roundId, 2);
+  assert.deepEqual(reset.completedStations, []);
+  assert.equal(reset.charges.FLASHLIGHT, 1, "next Calm reopens tasks without taking earned gear away");
 });

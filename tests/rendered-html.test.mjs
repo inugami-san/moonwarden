@@ -2,17 +2,35 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-async function render() {
+async function render(path = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
 
   return worker.fetch(
-    new Request("http://localhost/", { headers: { accept: "text/html" } }),
+    new Request(new URL(path, "http://localhost/"), { headers: { accept: "text/html" } }),
     { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
     { waitUntil() {}, passThroughOnException() {} },
   );
 }
+
+test("privacy settings render without embedding or preloading a Google tag", async () => {
+  const html = await (await render()).text();
+  assert.match(html, /Privacy settings/);
+  assert.match(html, /<dialog[^>]*aria-labelledby="mw-privacy-title"/);
+  assert.doesNotMatch(html, /<script[^>]+src="[^"]*(?:googletagmanager|google-analytics)/);
+  assert.doesNotMatch(html, /<link[^>]+href="[^"]*(?:googletagmanager|google-analytics)/);
+});
+
+test("privacy disclosure is a working route with a settings entry point", async () => {
+  const response = await render("/privacy");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Privacy in the glade/);
+  assert.match(html, /Open privacy settings/);
+  assert.match(html, /180 days/);
+  assert.match(html, /cookie-based browser identifiers/);
+});
 
 test("server-renders the Moonwarden lobby", async () => {
   const response = await render();
@@ -124,7 +142,7 @@ test("includes the complete social-deduction simulation", async () => {
   assert.match(source, /ROOTWAKE/);
   assert.match(source, /PHANTOM PROCESSION/);
   assert.match(source, /FALSE ECHO/);
-  assert.match(source, /resolveRootPosition/);
+  assert.match(source, /keepInRootCell/);
   assert.match(source, /drawRootwakeOcclusion/);
   assert.match(source, /LOCAL WARD/);
   assert.match(source, /sharesRootCell/);
@@ -147,8 +165,8 @@ test("includes the complete social-deduction simulation", async () => {
   assert.match(source, /roleReveal/);
   assert.match(source, /WARDEN/);
   assert.match(source, /IMPOSTOR/);
-  assert.match(source, /ITEM ACQUIRED/);
-  assert.match(source, /WARD SEALED/);
+  assert.match(source, /YOUR RITUAL IS COMPLETE/);
+  assert.match(source, /YOUR RITE IS COMPLETE/);
   assert.match(source, /MOON SIGHT AWAKENED/);
   assert.match(source, /KILL_COOLDOWN_SECONDS/);
   assert.match(source, /killUsedThisOrdeal/);

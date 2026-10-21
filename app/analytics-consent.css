@@ -1,0 +1,39 @@
+.mw-privacy-controls { --privacy-ink: #38314e; --privacy-muted: #655e78; --privacy-border: #c5bad5; color: var(--privacy-ink); font: 13px/1.6 Arial, Helvetica, sans-serif; }
+.mw-privacy-launcher { position: fixed; z-index: 95; bottom: max(8px, env(safe-area-inset-bottom)); left: max(10px, env(safe-area-inset-left)); display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 11px; border: 1px solid #bcb0cd; border-radius: 999px; background: #f8f4fbeF; color: #554465; box-shadow: 0 2px 8px #241d3c16; font: 11px/1.4 Arial, Helvetica, sans-serif; cursor: pointer; }
+.mw-privacy-launcher span { color: #797098; font-size: 18px; }
+body:has(.game-shell) :is(.mw-privacy-launcher, .mw-consent-notice) { display: none; }
+.mw-privacy-game-button { flex-shrink: 0; min-height: 28px; padding: 4px 9px; border: 1px solid #647c85; border-radius: 999px; color: #c6d8db; background: transparent; font: 10px/1.4 Arial, Helvetica, sans-serif; cursor: pointer; }
+.mw-privacy-game-button:focus-visible { outline: 3px solid #d2b66e; outline-offset: 3px; }
+.mw-consent-notice { position: fixed; z-index: 95; left: max(10px, env(safe-area-inset-left)); bottom: max(54px, calc(env(safe-area-inset-bottom) + 46px)); width: min(385px, calc(100vw - 20px)); padding: 19px 20px 16px; border: 1px solid var(--privacy-border); border-radius: 18px; background: #fffcf6; box-shadow: 0 8px 34px #27213d26; }
+.mw-privacy-eyebrow { color: #766287; font: 700 10px/1.5 monospace; letter-spacing: .06em; text-transform: uppercase; }
+.mw-consent-notice h2 { color: var(--privacy-ink); font-size: 20px; letter-spacing: -.03em; line-height: 1.3; margin: 7px 0 8px; }
+.mw-consent-notice p { color: var(--privacy-muted); font-size: 12px; line-height: 1.6; margin: 0 0 13px; }
+.mw-consent-notice > a { display: inline-block; margin-top: 10px; color: #645078; font-size: 11px; text-underline-offset: 3px; }
+.mw-consent-actions { display: flex; gap: 9px; }
+.mw-consent-actions button { flex: 1; min-height: 44px; padding: 10px 12px; color: #493a5c; background: #eae2f0; border: 1px solid #bfb0d0; border-radius: 10px; font: 600 12px/1.3 Arial, Helvetica, sans-serif; cursor: pointer; }
+.mw-consent-actions button:hover { color: #33233f; background: #ded1e8; border-color: #9e87b7; }
+.mw-privacy-controls :is(button, a):focus-visible, .mw-privacy-page :is(button, a):focus-visible { outline: 3px solid #aa803c; outline-offset: 4px; }
+.mw-privacy-dialog { position: fixed; inset: 0; width: min(560px, calc(100vw - 28px)); max-height: calc(100svh - 32px); margin: auto; padding: 0; border: 1px solid var(--privacy-border); border-radius: 22px; color: var(--privacy-ink); background: #fffcf7; box-shadow: 0 30px 100px #160f3240; overflow: auto; }
+.mw-privacy-dialog::backdrop { background: #1b183b80; backdrop-filter: blur(5px); }
+.mw-privacy-dialog-content { padding: 24px 28px 28px; }
+.mw-privacy-dialog-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mw-privacy-close { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; padding: 0; border: 1px solid #d5c9df; border-radius: 50%; color: #5b486b; background: #f5edf8; font-size: 24px; cursor: pointer; }
+.mw-privacy-dialog h2 { color: var(--privacy-ink); font-size: 27px; line-height: 1.15; letter-spacing: -.04em; margin: 12px 0 16px; }
+.mw-privacy-dialog p { color: var(--privacy-muted); font-size: 13px; line-height: 1.7; margin: 13px 0; }
+.mw-privacy-status { display: flex; flex-direction: column; gap: 5px; padding: 14px 16px; margin: 18px 0; border: 1px solid #c5d5cf; border-radius: 12px; background: #eff4f0; }
+.mw-privacy-status strong { color: #3d5c52; font-size: 13px; }
+.mw-privacy-status span { color: #5d6b66; font-size: 12px; }
+.mw-privacy-dialog-links { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 4px 0 10px; }
+.mw-privacy-dialog a, .mw-privacy-page a { color: #645078; text-underline-offset: 3px; }
+.mw-privacy-done, .mw-privacy-inline-button { min-height: 44px; padding: 11px 17px; border: 1px solid #bca9cf; border-radius: 10px; background: #eae2f0; color: #493a5c; font: 600 13px/1.4 Arial, Helvetica, sans-serif; cursor: pointer; }
+.mw-privacy-page { min-height: 100svh; padding: 54px 22px 90px; color: #38314e; background: radial-gradient(ellipse at top right, #f3e5d8, transparent 48%), linear-gradient(145deg, #eeebf5, #dce4ed); }
+.mw-privacy-page article { max-width: 740px; margin: auto; padding: clamp(25px, 5vw, 52px); background: #fffdf7; border: 1px solid #d1c9df; border-radius: 24px; box-shadow: 0 15px 50px #55436912; }
+.mw-privacy-back { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-size: 12px; text-decoration: none; }
+.mw-privacy-page h1 { font-size: clamp(30px, 6vw, 44px); line-height: 1.1; letter-spacing: -.04em; margin: 26px 0 14px; }
+.mw-privacy-page h2 { font-size: 19px; line-height: 1.3; letter-spacing: -.025em; margin: 30px 0 10px; }
+.mw-privacy-page p, .mw-privacy-page li { color: #655e78; font-size: 14px; line-height: 1.8; }
+.mw-privacy-page ul { padding-left: 21px; }
+.mw-privacy-page li + li { margin-top: 7px; }
+.mw-privacy-page .mw-privacy-date { font-size: 11px; color: #82758f; }
+@media (max-width: 480px) { .mw-consent-notice { padding: 15px 16px 13px; } .mw-consent-notice h2 { font-size: 18px; } .mw-privacy-dialog-content { padding: 18px 20px 22px; } .mw-privacy-dialog h2 { font-size: 24px; } .mw-privacy-page { padding: 22px 14px 80px; } }
+@media (max-width: 900px) { .game-footer:has(.mw-privacy-game-button) { display: flex; justify-content: flex-end; height: 32px; min-height: 32px; flex-basis: 32px; } .game-footer:has(.mw-privacy-game-button) > span { display: none; } }

@@ -16,7 +16,7 @@ const javascript = ts.transpileModule(engineNode.getText(ast), { compilerOptions
 function fixture() {
   const cues = [], layers = [];
   const Engine = runInNewContext(`${javascript}\nOrdealEngine`, {
-    W: 1280, H: 768, SANCTUARY_OBSTACLES: [], HEARING_RANGE: 300, DEVOUR_SECONDS: 1.6,
+    W: 1920, H: 1140, CALM_SECONDS: 24, SANCTUARY_OBSTACLES: [], HEARING_RANGE: 300, DEVOUR_SECONDS: 1.6,
     TASK_PROGRESS_REWARD: 8, ORDEAL_TASK_PROGRESS_REWARD: 12,
     ITEM_LABELS: { FLASHLIGHT: "Glowing Mushroom", FLARE: "Moonblossom", SONAR: "Echo Bell" },
     dist: (a, b) => Math.hypot(a.x - b.x, a.y - b.y),
@@ -27,6 +27,7 @@ function fixture() {
   const engine = Object.assign(Object.create(Engine.prototype), {
     players: [{ id: "you", x: 640, y: 400, role: "CREWMATE", alive: true }],
     localPlayerId: "you", phase: "CALM", hazard: "BLACKOUT", phaseTime: 15, elapsed: 10,
+    viewWidth: 1280, viewHeight: 760, camera: { x: 0, y: 0 },
     stationRound: 1, stations: [], charges: { FLASHLIGHT: 0, FLARE: 0, SONAR: 0 },
     audio: { cue: cue => cues.push(cue) }, taskProgress: 0, multiplayerClient: null,
     emit() {}, onPuzzle() {}, checkWin() {}, onEnd() {},

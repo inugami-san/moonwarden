@@ -1,8 +1,10 @@
 import { gameRegistry, IWebSocketClient } from "./game-room";
 import type { C2SMessage, S2CMessage } from "./game-types";
+import { GAME_VERSION_MISMATCH, GAME_WORLD_VERSION } from "./game-version";
 
 export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?: string) {
   let currentRoomCode: string | null = null;
+  let compatible = false;
   const playerId: string =
     customPlayerId || `player-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
@@ -22,6 +24,7 @@ export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?
   };
 
   const onMessage = (dataString: string) => {
+    if (socket.readyState !== 1) return;
     let msg: C2SMessage;
     try {
       msg = JSON.parse(dataString);
@@ -29,6 +32,26 @@ export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?
       return;
     }
     if (!msg || typeof msg !== "object" || typeof msg.type !== "string") return;
+    if (msg.type === "CLIENT_HELLO") {
+      compatible = msg.worldVersion === GAME_WORLD_VERSION;
+      send({ type: "SERVER_INFO", worldVersion: GAME_WORLD_VERSION, compatible });
+      if (!compatible) {
+        leaveCurrentRoom();
+        send({ type: "ERROR_ALERT", message: GAME_VERSION_MISMATCH });
+        socket.close();
+      }
+      return;
+    }
+    if (msg.type === "PING") {
+      if (Number.isFinite(msg.sentAt)) send({ type: "PONG", sentAt: msg.sentAt });
+      return;
+    }
+    if (!compatible) {
+      send({ type: "SERVER_INFO", worldVersion: GAME_WORLD_VERSION, compatible: false });
+      send({ type: "ERROR_ALERT", message: GAME_VERSION_MISMATCH });
+      socket.close();
+      return;
+    }
     if ((msg.type === "CREATE_ROOM" || msg.type === "JOIN_ROOM" || msg.type === "UPDATE_PROFILE")
       && (typeof msg.playerName !== "string" || typeof msg.color !== "string" || typeof msg.hat !== "string")) return;
     if (msg.type === "JOIN_ROOM" && typeof msg.roomCode !== "string") return;
@@ -40,11 +63,6 @@ export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?
     if (msg.type === "USE_ABILITY" && (!["MOON_SIGHT", "ECHO_LURE"].includes(msg.ability)
       || ![msg.x, msg.y].every(Number.isFinite) || !Number.isSafeInteger(msg.roundId))) return;
     if (msg.type === "TASK_UPDATE" && msg.roundId !== undefined && (!Number.isSafeInteger(msg.roundId) || msg.roundId < 1)) return;
-
-    if (msg.type === "PING") {
-      if (Number.isFinite(msg.sentAt)) send({ type: "PONG", sentAt: msg.sentAt });
-      return;
-    }
 
     if (msg.type === "LIST_ROOMS") {
       send({ type: "ROOMS_LIST", rooms: gameRegistry.listOpenRooms() });

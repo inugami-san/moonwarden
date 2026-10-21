@@ -12,7 +12,10 @@ export type Sanctum = {
   x: number;
   y: number;
   pulse: number;
+  /** The local warden has claimed this round's personal ritual reward. */
   completed: boolean;
+  /** Shared ward restoration does not close someone else's personal ritual. */
+  teamRestored?: boolean;
   completedAt?: number;
   rootClosure?: number;
   label: string;
@@ -22,6 +25,7 @@ export type Sanctum = {
 /** Forest matter, carved moonstone, and local light; no screen-shaped station panels. */
 export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctum, time: number, locked: boolean, nearby: boolean) {
   const { completed } = station;
+  const restored = station.teamRestored === true || completed;
   const closure = completed ? 1 : Math.max(0, Math.min(1, station.rootClosure ?? Number(locked)));
   const breath = completed ? 0.9 : 0.57 + Math.sin(time * 2.3 + station.pulse) * 0.13;
   const brightness = locked ? 0.16 : breath;
@@ -54,8 +58,8 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
   ctx.beginPath();
   ctx.ellipse(0, 18, 37, 10, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = completed ? "#e9dab1" : locked ? "#617477" : "#b5d3cc";
-  ctx.lineWidth = completed ? 2.6 : 1;
+  ctx.strokeStyle = locked ? "#617477" : restored ? "#e9dab1" : "#b5d3cc";
+  ctx.lineWidth = restored ? 2.6 : 1;
   ctx.beginPath();
   ctx.ellipse(0, 18, 34, 8, 0, 0, Math.PI * 2);
   ctx.stroke();
@@ -74,16 +78,25 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
     ctx.moveTo(side * 31, 10);
     ctx.bezierCurveTo(side * 35, -9, side * 27, -35, side * 14, -40);
     ctx.stroke();
-    ctx.fillStyle = locked ? "#3a4c45" : completed ? "#d6d2ab" : "#8fbaa0";
+    ctx.fillStyle = locked ? "#3a4c45" : restored ? "#d6d2ab" : "#8fbaa0";
     ctx.beginPath();
     ctx.ellipse(side * 30, -21, 9, 3.5, side * 0.8, 0, Math.PI * 2);
     ctx.fill();
   }
-  ctx.strokeStyle = completed ? "#e8dcba" : locked ? "#6f7f82" : "#c2ddce";
-  ctx.lineWidth = completed ? 3 : 2;
+  // This steady crown rune records shared restoration, not personal ownership.
+  ctx.strokeStyle = locked ? "#6f7f82" : restored ? "#e8dcba" : "#c2ddce";
+  ctx.lineWidth = restored ? 3 : 2;
   ctx.beginPath();
   ctx.arc(0, -40, 8, -Math.PI * 0.65, Math.PI * 0.65);
   ctx.stroke();
+  if (restored) {
+    ctx.fillStyle = locked ? "#78817a" : "#e8dcba";
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(side * 13, -40, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
 
   // An irregular moss bed and small stones anchor the shrine in the ground.
   for (let i = 0; i < 7; i++) {
@@ -127,7 +140,7 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
     for (let i = 0; i < 3; i++) {
       const x = side * (28 + i * 7);
       const y = 10 + i * 4;
-      ctx.fillStyle = locked ? "#293c2d" : completed ? "#8caa70" : "#6d945d";
+      ctx.fillStyle = locked ? "#293c2d" : restored ? "#8caa70" : "#6d945d";
       ctx.beginPath();
       ctx.ellipse(x, y - 3, 7, 2.6, side * -0.7, 0, Math.PI * 2);
       ctx.fill();
@@ -200,13 +213,13 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
       ctx.ellipse(x, y - 12, 7, 1.5, 0, 0, Math.PI * 2);
       ctx.stroke();
     } else {
-      const bloom = completed ? 1 + (completion ? Math.sin(completion.progress * Math.PI) * 0.4 : 0) : 0.42;
+      const bloom = restored ? 1 + (completion ? Math.sin(completion.progress * Math.PI) * 0.4 : 0) : 0.42;
       ctx.save();
       ctx.translate(x, y - 2);
       ctx.scale(bloom, bloom);
       for (let petal = 0; petal < 5; petal++) {
         const angle = petal / 5 * Math.PI * 2;
-        ctx.fillStyle = locked ? "#465448" : completed ? "#c5cfa2" : "#6c8b70";
+        ctx.fillStyle = locked ? "#465448" : restored ? "#c5cfa2" : "#6c8b70";
         ctx.beginPath();
         ctx.ellipse(Math.cos(angle) * 4, Math.sin(angle) * 4, 4, 2, angle, 0, Math.PI * 2);
         ctx.fill();
@@ -216,6 +229,24 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
       ctx.arc(0, 0, 1.8, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
+    }
+  }
+
+  if (restored) {
+    // Three quiet flowers persist on the plinth, including mushroom shrines.
+    // They never close the roots or cover an unclaimed interaction rune.
+    for (const x of [-15, 0, 15]) {
+      ctx.fillStyle = locked ? "#637367" : "#d3d4ae";
+      for (let petal = 0; petal < 4; petal++) {
+        const angle = petal * Math.PI / 2;
+        ctx.beginPath();
+        ctx.ellipse(x + Math.cos(angle) * 2.5, 28 + Math.sin(angle) * 1.8, 2.8, 1.2, angle, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = locked ? "#7e8565" : "#b1bc86";
+      ctx.beginPath();
+      ctx.arc(x, 28, 1.1, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
@@ -315,7 +346,8 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
 export function drawSanctumStatus(ctx: CanvasRenderingContext2D, station: Sanctum, time: number, locked: boolean, nearby: boolean) {
   if (!station.completed && !nearby) return;
   const sealed = station.completed;
-  const label = sealed ? "SEALED" : locked ? "LOCKED" : "TASK READY";
+  const personalRite = station.teamRestored === true && !sealed;
+  const label = sealed ? "SEALED" : locked ? "LOCKED" : personalRite ? "GEAR READY" : "TASK READY";
   const width = sealed ? 85 : locked ? 85 : 111;
   // The top-left ward meter overlays the upper arena. Put north-shrine
   // badges on the approach side so the HUD cannot hide a completed state.
@@ -382,7 +414,7 @@ export function drawSanctumStatus(ctx: CanvasRenderingContext2D, station: Sanctu
     ctx.strokeText(station.label, 0, nameY);
     ctx.fillStyle = "#e2e9e4";
     ctx.fillText(station.label, 0, nameY);
-    const hint = sealed ? "REOPENS NEXT CALM" : locked ? "SHRINE RESTING" : "E · INTERACT";
+    const hint = sealed ? "REOPENS NEXT CALM" : locked ? "SHRINE RESTING" : personalRite ? "E · PERSONAL RITE" : "E · INTERACT";
     ctx.font = "700 8px ui-monospace, monospace";
     const hintY = northShrine ? y + 42 : 48;
     ctx.strokeText(hint, 0, hintY);

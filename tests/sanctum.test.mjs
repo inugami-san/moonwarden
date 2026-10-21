@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { GameServerRegistry } from "../server/game-room.ts";
 import { drawForestSanctum, drawSanctumStatus, sanctumPulse } from "../app/sanctum-art.ts";
+import { CALM_SECONDS, STATIONS } from "../server/sanctuary-map.ts";
 
 function canvasRecorder() {
   const calls = [], stack = [];
@@ -118,6 +119,7 @@ function match(t) {
   }
   room.handleMessage("p0", { type: "START_MATCH", botFill: false, targetPlayers: 4 });
   for (const p of room.players.values()) p.role = p.id === "p3" ? "IMPOSTOR" : "CREWMATE";
+  for (const p of room.players.values()) { p.x = STATIONS[0].x; p.y = STATIONS[0].y + 60; }
   clients.forEach((client) => { client.sent.length = 0; });
   t.after(() => room.destroy());
   return { room, clients };
@@ -175,10 +177,15 @@ test("a delayed task from an older round cannot claim a fresh reward or create a
 test("meeting resolution starts a fresh shrine round and clears fake-task locks too", (t) => {
   const { room } = match(t);
   room.handleMessage("p0", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT", roundId: 1 });
+  room.players.get("p3").x = STATIONS[1].x;
+  room.players.get("p3").y = STATIONS[1].y + 60;
   room.handleMessage("p3", { type: "TASK_UPDATE", stationId: "STAR ALTAR", reward: "SONAR", roundId: 1 });
   assert.equal(room.completedStations.get("p3").size, 1);
+  const previousHazard = room.hazard;
   room.phase = "DISCUSSION";
   room.resolveMeeting();
+  assert.equal(room.phaseTime, CALM_SECONDS);
+  assert.notEqual(room.hazard, previousHazard, "meeting return also advertises the next ordeal immediately");
   assert.equal(room.roundId, 2);
   assert.equal(room.sealedStations.size, 0);
   assert.equal(room.completedStations.get("p3").size, 0);

@@ -25,6 +25,7 @@ import {
   nextHazard,
   ordealDuration,
   phantomPaths,
+  resolveObstacleMovement,
   resolveObstaclePosition,
   sanctuaryZoneName,
   type SanctuaryObstacle,
@@ -35,6 +36,15 @@ import { fittedCanvasBounds } from "./canvas-bounds";
 import { HomeAtmosphere, HomeFieldGuide, HomeGrove } from "./home-field-guide";
 import { DEVOUR_SECONDS, drawSlimeConsumption, type DevourVisual } from "./slime-devour";
 import { ConsumptionPortrait } from "./consumption-portrait";
+import { trackGameEvent } from "./analytics";
+import { GameAnalyticsLifecycle } from "./analytics-game";
+import { AnalyticsSettingsButton } from "./analytics-consent";
+import { NavigationMap } from "./navigation-map";
+import { WORLD_WIDTH, WORLD_HEIGHT, VIEW_WIDTH, VIEW_HEIGHT, ROOM, PLAYER_BOUNDS, CENTER, CALM_SECONDS, ROOT_BARRIERS, STATIONS, getRootCell, sharesRootCell, clampWorldPoint, keepInRootCell } from "../server/sanctuary-map";
+import { planRoute } from "../server/sanctuary-paths";
+import { cameraViewport, cameraTarget, followCamera, viewportToWorld } from "./world-camera";
+import { ORDEAL_PREPARATION, preparationStation, restorationMilestone } from "./warden-objectives";
+import "./warden-exploration.css";
 
 type Role = "CREWMATE" | "IMPOSTOR";
 type RoleChoice = Role | "RANDOM";
@@ -78,6 +88,8 @@ type Station = {
   pulse: number;
   cooldown: number;
   completed: boolean;
+  teamRestored?: boolean;
+  pending?: boolean;
   completedAt?: number;
   rootClosure?: number;
   reward: ItemKind;
@@ -106,8 +118,9 @@ type Snapshot = {
   canReport: boolean;
   taskPrompt: boolean;
   taskMode: "PUZZLE" | "HOLD" | null;
-  stationStatus: { label: string; completed: boolean; reward: ItemKind } | null;
-  rewardNotice: { item: ItemKind; station: string } | null;
+  stationStatus: { label: string; completed: boolean; reward: ItemKind; teamRestored?: boolean; pending?: boolean } | null;
+  rewardNotice: { item: ItemKind; station: string; progress?: number } | null;
+  navigation: { x: number; y: number; personalCompleted: string[]; teamRestored: string[]; destinationId: string | null };
   humanAlive: boolean;
   message: string;
   localPlayerId: string;
@@ -174,17 +187,8 @@ type Meeting = {
 };
 
 type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; color: string };
-type RootBarrier = { x: number; y: number; w: number; h: number };
-type RootCell = { x: number; y: number; w: number; h: number; column: number; row: number; index: number };
-
-const W = 1280;
-const H = 760;
-const ROOM = { left: 76, top: 72, right: 1204, bottom: 690 };
-const ROOT_BARRIERS: RootBarrier[] = [
-  { x: 432, y: ROOM.top, w: 36, h: ROOM.bottom - ROOM.top },
-  { x: 812, y: ROOM.top, w: 36, h: ROOM.bottom - ROOM.top },
-  { x: ROOM.left, y: 362, w: ROOM.right - ROOM.left, h: 36 },
-];
+const W = WORLD_WIDTH;
+const H = WORLD_HEIGHT;
 const NAMES = ["Bubbles", "Mochi", "Gloop", "Pebble", "Nori", "Fizz", "Wobble", "Pip"];
 const WARDEN_ALIBIS = ["Cute hat. Very convincing alibi.", "My alibi? Excellent moon-gazing.", "I swear the fog followed me here."];
 const HATS: Hat[] = ["antlers", "hood", "moth", "mooncap"];
@@ -215,61 +219,10 @@ function rootwakeStrength(phase: Phase, hazard: Hazard, phaseTime: number) {
   return Math.min(risen, receding);
 }
 
-function resolveRootPosition(x: number, y: number, radius = 30) {
-  let resolvedX = x;
-  let resolvedY = y;
-  for (const barrier of ROOT_BARRIERS) {
-    const left = barrier.x - radius;
-    const right = barrier.x + barrier.w + radius;
-    const top = barrier.y - radius;
-    const bottom = barrier.y + barrier.h + radius;
-    if (resolvedX <= left || resolvedX >= right || resolvedY <= top || resolvedY >= bottom) continue;
-    const exits = [
-      { distance: resolvedX - left, axis: "x" as const, value: left },
-      { distance: right - resolvedX, axis: "x" as const, value: right },
-      { distance: resolvedY - top, axis: "y" as const, value: top },
-      { distance: bottom - resolvedY, axis: "y" as const, value: bottom },
-    ].sort((a, b) => a.distance - b.distance);
-    if (exits[0].axis === "x") resolvedX = exits[0].value;
-    else resolvedY = exits[0].value;
-  }
-  return { x: resolvedX, y: resolvedY };
-}
-
-function getRootCell(x: number, y: number): RootCell {
-  const [leftRoot, rightRoot, middleRoot] = ROOT_BARRIERS;
-  const column = x < leftRoot.x + leftRoot.w / 2 ? 0 : x < rightRoot.x + rightRoot.w / 2 ? 1 : 2;
-  const row = y < middleRoot.y + middleRoot.h / 2 ? 0 : 1;
-  const columnBounds = [
-    [ROOM.left, leftRoot.x],
-    [leftRoot.x + leftRoot.w, rightRoot.x],
-    [rightRoot.x + rightRoot.w, ROOM.right],
-  ];
-  const rowBounds = [
-    [ROOM.top, middleRoot.y],
-    [middleRoot.y + middleRoot.h, ROOM.bottom],
-  ];
-  const [cellLeft, cellRight] = columnBounds[column];
-  const [cellTop, cellBottom] = rowBounds[row];
-  return {
-    x: cellLeft,
-    y: cellTop,
-    w: cellRight - cellLeft,
-    h: cellBottom - cellTop,
-    column,
-    row,
-    index: row * 3 + column,
-  };
-}
-
-function sharesRootCell(a: { x: number; y: number }, b: { x: number; y: number }) {
-  return getRootCell(a.x, a.y).index === getRootCell(b.x, b.y).index;
-}
-
 function initialSnapshot(role: Role = "CREWMATE"): Snapshot {
   return {
     phase: "CALM",
-    time: 15,
+    time: CALM_SECONDS,
     hazard: "BLACKOUT",
     taskProgress: 0,
     selectedItem: "FLASHLIGHT",
@@ -288,6 +241,7 @@ function initialSnapshot(role: Role = "CREWMATE"): Snapshot {
     taskMode: null,
     stationStatus: null,
     rewardNotice: null,
+    navigation: { x: CENTER.x, y: CENTER.y, personalCompleted: [], teamRestored: [], destinationId: null },
     humanAlive: true,
     message: "",
     localPlayerId: "you",
@@ -341,8 +295,15 @@ function snapshotsEqual(a: Snapshot, b: Snapshot): boolean {
     && a.stationStatus?.label === b.stationStatus?.label
     && a.stationStatus?.completed === b.stationStatus?.completed
     && a.stationStatus?.reward === b.stationStatus?.reward
+    && a.stationStatus?.teamRestored === b.stationStatus?.teamRestored
+    && a.stationStatus?.pending === b.stationStatus?.pending
     && a.rewardNotice?.item === b.rewardNotice?.item
     && a.rewardNotice?.station === b.rewardNotice?.station
+    && a.rewardNotice?.progress === b.rewardNotice?.progress
+    && a.navigation.x === b.navigation.x && a.navigation.y === b.navigation.y
+    && a.navigation.destinationId === b.navigation.destinationId
+    && a.navigation.personalCompleted.join() === b.navigation.personalCompleted.join()
+    && a.navigation.teamRestored.join() === b.navigation.teamRestored.join()
   );
 }
 
@@ -368,7 +329,7 @@ class OrdealEngine {
   touchKeys = new Set<string>();
   mouse = { x: W * 0.72, y: H * 0.45 };
   phase: Phase = "CALM";
-  phaseTime = 15;
+  phaseTime = CALM_SECONDS;
   hazard: Hazard = "BLACKOUT";
   taskProgress = 0;
   selectedItem: ItemKind = "FLASHLIGHT";
@@ -396,8 +357,17 @@ class OrdealEngine {
   private motionPreference: MediaQueryList | null = null;
   private reducedMotion = false;
   private onMotionPreferenceChange = (event: MediaQueryListEvent) => { this.reducedMotion = event.matches; };
-  rewardNotice: { item: ItemKind; station: string } | null = null;
+  rewardNotice: { item: ItemKind; station: string; progress?: number } | null = null;
   rewardNoticeUntil = 0;
+  viewWidth = VIEW_WIDTH;
+  viewHeight = VIEW_HEIGHT;
+  camera = { x: 0, y: 0 };
+  private pointerViewport = { x: VIEW_WIDTH * 0.72, y: VIEW_HEIGHT * 0.45 };
+  navigationOpen = false;
+  private destinationId: string | null = null;
+  private botRites = new Map<string, Set<string>>();
+  private botWork = new Map<string, { station: string; duration: number }>();
+  private botRoutes = new Map<string, { targetX: number; targetY: number; root: boolean; points: { x: number; y: number }[] }>();
 
   burst(x: number, y: number, color: string, count = 20) {
     for (let i = 0; i < count; i += 1) {
@@ -513,8 +483,8 @@ class OrdealEngine {
     if (!context) throw new Error("Canvas is not supported in this browser.");
     this.ctx = context;
     this.mask = document.createElement("canvas");
-    this.mask.width = W;
-    this.mask.height = H;
+    this.mask.width = VIEW_WIDTH;
+    this.mask.height = VIEW_HEIGHT;
     const maskContext = this.mask.getContext("2d");
     if (!maskContext) throw new Error("Offscreen canvas is not supported.");
     this.maskCtx = maskContext;
@@ -540,6 +510,7 @@ class OrdealEngine {
       this.unsubscribeNet = this.multiplayerClient.onMessage((msg) => this.handleNetworkMessage(msg));
     } else {
       this.makePlayers(count, roleChoice, soloProfile);
+      this.hazard = nextHazard(this.hazard);
     }
     this.resize();
     window.addEventListener("resize", this.resize);
@@ -614,14 +585,28 @@ class OrdealEngine {
         if (msg.roundId !== undefined && msg.roundId < this.stationRound) break;
         if (msg.roundId !== undefined && msg.roundId > this.stationRound) this.resetStations(msg.roundId);
         this.charges = { ...msg.charges };
+        if (msg.completedStations) {
+          const personal = new Set(msg.completedStations);
+          for (const station of this.stations) station.completed = personal.has(station.label);
+        }
         if (msg.stationId) {
           const station = this.stations.find((s) => s.label === msg.stationId);
-          if (station) station.completed = Boolean(msg.stationCompleted);
+          if (station) {
+            station.pending = false;
+            station.completed = Boolean(msg.stationCompleted);
+            if (msg.accepted) {
+              this.selectedItem = station.reward;
+              this.rewardNotice = { item: station.reward, station: station.label, progress: msg.wardProgressGain ?? 0 };
+              this.rewardNoticeUntil = this.elapsed + 5.5;
+              station.completedAt = this.elapsed;
+              this.flashMessage(msg.wardProgressGain ? `Your ritual restored +${msg.wardProgressGain}% wards. ${ITEM_LABELS[station.reward]} is ready.` : `Your personal ritual is complete. ${ITEM_LABELS[station.reward]} is ready.`);
+            }
+          }
         }
         if (!msg.accepted) {
           if (msg.item === this.selectedItem) this.itemActiveUntil = 0;
           this.rewardNotice = null;
-          this.flashMessage(msg.stationId ? "That shrine was already sealed or the trial ended. No item was awarded." : "That gear charge is no longer available.");
+          this.flashMessage(msg.stationId ? "Your rite is already complete, out of reach, or the round ended. No item was awarded." : "That gear charge is no longer available.");
           this.audio.cue("task-error");
         } else if (msg.stationId) {
           this.audio.cue("task-complete");
@@ -718,6 +703,7 @@ class OrdealEngine {
       case "SYNC_WORLD": {
         if (msg.roundId !== undefined && msg.roundId < this.stationRound) break;
         const previousPhase = this.phase;
+        const previousHazard = this.hazard;
         const stationResetNow = msg.roundId !== undefined
           ? msg.roundId > this.stationRound
           : previousPhase !== "CALM" && msg.phase === "CALM";
@@ -740,15 +726,11 @@ class OrdealEngine {
         if (msg.completedStations) {
           const sealedSet = new Set(msg.completedStations);
           for (const station of this.stations) {
-            if (sealedSet.has(station.label) && !station.completed) {
-              station.completed = true;
-              station.cooldown = 0;
+            if (sealedSet.has(station.label) && !station.teamRestored) {
+              station.teamRestored = true;
               stationSealedNow = true;
               // A fallback for a client that missed the completion event.
               station.completedAt ??= this.elapsed;
-              if (this.activePuzzle && this.stations[this.activePuzzle.stationIndex]?.label === station.label) {
-                this.cancelPuzzle(`${station.label} was just sealed by another Warden!`);
-              }
             }
           }
         }
@@ -768,7 +750,7 @@ class OrdealEngine {
         }
         if (this.phase === "CALM" && previousPhase !== "CALM") this.audio.cue("calm");
         if (this.phase !== "ORDEAL") this.moonSightUntil = 0;
-        this.emit(stationSealedNow || stationResetNow);
+        this.emit(stationSealedNow || stationResetNow || previousPhase !== this.phase || previousHazard !== this.hazard);
         break;
       }
 
@@ -896,24 +878,22 @@ class OrdealEngine {
   }
 
   makeStations() {
-    this.stations = [
-      { x: 250, y: 104, side: "top", label: "FROST FONT", pulse: 0, cooldown: 0, completed: false, reward: "FLASHLIGHT", puzzle: "MATH" },
-      { x: 640, y: 104, side: "top", label: "STAR ALTAR", pulse: 1.2, cooldown: 0, completed: false, reward: "SONAR", puzzle: "LINK" },
-      { x: 1038, y: 104, side: "top", label: "OWL TOTEM", pulse: 2.4, cooldown: 0, completed: false, reward: "FLARE", puzzle: "LINK" },
-      { x: 1164, y: 390, side: "right", label: "EAST WARD", pulse: 3.1, cooldown: 0, completed: false, reward: "FLASHLIGHT", puzzle: "MATH" },
-      { x: 844, y: 658, side: "bottom", label: "MOONWELL", pulse: 4.2, cooldown: 0, completed: false, reward: "FLARE" },
-      { x: 116, y: 402, side: "left", label: "ROOT SEAL", pulse: 5.1, cooldown: 0, completed: false, reward: "SONAR", puzzle: "LINK" },
-    ];
+    this.stations = STATIONS.map(station => ({ ...station, cooldown: 0, completed: false, teamRestored: false, pending: false }));
   }
 
   resetStations(roundId = this.stationRound + 1) {
     this.stationRound = roundId;
     this.cancelPuzzle("");
     this.taskHold = 0;
+    this.botRites?.clear();
+    this.botWork?.clear();
+    this.botRoutes?.clear();
     for (const station of this.stations) {
       station.completed = false;
       station.completedAt = undefined;
       station.cooldown = 0;
+      station.teamRestored = false;
+      station.pending = false;
     }
   }
 
@@ -931,8 +911,8 @@ class OrdealEngine {
         id: i === 0 ? "you" : `bot-${i}`,
         name: i === 0 ? `${callsign} (YOU)` : callsign,
         role: i === impostorIndex ? "IMPOSTOR" : "CREWMATE",
-        x: 640 + Math.cos(angle) * 170,
-        y: 384 + Math.sin(angle) * 116,
+        x: CENTER.x + Math.cos(angle) * 170,
+        y: CENTER.y + Math.sin(angle) * 116,
         vx: 0,
         vy: 0,
         color: colors[i % colors.length],
@@ -941,8 +921,8 @@ class OrdealEngine {
         eyeStyle: i === 0 && profile ? profile.eyeStyle : EYE_STYLES[i % EYE_STYLES.length],
         alive: true,
         ai: i !== 0,
-        targetX: 640,
-        targetY: 380,
+        targetX: CENTER.x,
+        targetY: CENTER.y,
         thinkAt: 0,
         atStation: i % this.stations.length,
         flashlight: false,
@@ -953,14 +933,20 @@ class OrdealEngine {
   }
 
   updateRect = () => {
-    const bounds = fittedCanvasBounds(this.canvas.getBoundingClientRect());
+    const bounds = fittedCanvasBounds(this.canvas.getBoundingClientRect(), this.viewWidth, this.viewHeight);
     this.canvasRect = new DOMRect(bounds.left, bounds.top, bounds.width, bounds.height);
   };
 
   resize = () => {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.canvas.width = Math.round(W * dpr);
-    this.canvas.height = Math.round(H * dpr);
+    const viewport = cameraViewport(this.canvas.clientWidth, this.canvas.clientHeight);
+    this.viewWidth = viewport.width;
+    this.viewHeight = viewport.height;
+    this.canvas.width = Math.round(this.viewWidth * dpr);
+    this.canvas.height = Math.round(this.viewHeight * dpr);
+    this.mask.width = Math.ceil(this.viewWidth);
+    this.mask.height = Math.ceil(this.viewHeight);
+    this.camera = cameraTarget(this.human, viewport);
     this.updateRect();
   };
 
@@ -981,7 +967,7 @@ class OrdealEngine {
       if (!event.repeat && event.code === "Escape") this.cancelPuzzle();
       return;
     }
-    if (event.repeat || this.paused || this.roleRevealActive) return;
+    if (event.repeat || this.paused || this.roleRevealActive || this.navigationOpen) return;
     if (event.code === "KeyE") this.tryOpenPuzzle();
     if (event.code === "KeyF") this.useItem();
     if (event.code === "KeyR") this.report();
@@ -1003,9 +989,21 @@ class OrdealEngine {
     const rect = this.canvasRect;
     if (!rect) return;
     if (rect.width <= 0 || rect.height <= 0) return;
-    this.mouse.x = clamp(((event.clientX - rect.left) / rect.width) * W, 0, W);
-    this.mouse.y = clamp(((event.clientY - rect.top) / rect.height) * H, 0, H);
+    this.pointerViewport = { x: clamp(((event.clientX - rect.left) / rect.width) * this.viewWidth, 0, this.viewWidth), y: clamp(((event.clientY - rect.top) / rect.height) * this.viewHeight, 0, this.viewHeight) };
+    this.mouse = viewportToWorld(this.pointerViewport, this.camera, { width: this.viewWidth, height: this.viewHeight });
   };
+
+  setNavigationDestination(id: string) {
+    if (!this.stations.some(station => station.label === id && !station.completed)) return;
+    this.destinationId = id;
+    this.emit(true);
+  }
+
+  setNavigationOpen(open: boolean) {
+    this.navigationOpen = open;
+    this.keys.clear(); this.touchKeys.clear();
+    if (this.human) { this.human.vx = 0; this.human.vy = 0; this.human.working = false; }
+  }
 
   contextMenu = (event: MouseEvent) => {
     event.preventDefault();
@@ -1044,7 +1042,7 @@ class OrdealEngine {
 
   tryOpenPuzzle() {
     if (this.phase === "DISCUSSION" || !this.human.alive || this.paused || this.activePuzzle) return;
-    const stationIndex = this.stations.findIndex((station) => dist(station, this.human) < 84 && !station.completed && station.cooldown <= 0 && station.puzzle);
+    const stationIndex = this.stations.findIndex((station) => dist(station, this.human) < 84 && !station.completed && !station.pending && station.cooldown <= 0 && station.puzzle);
     if (stationIndex < 0) return;
     const station = this.stations[stationIndex];
     const puzzle = station.puzzle === "MATH" ? this.createMathPuzzle(station, stationIndex) : this.createLinkPuzzle(station, stationIndex);
@@ -1123,28 +1121,32 @@ class OrdealEngine {
   }
 
   completeStation(station: Station, wasFake: boolean) {
-    if (station.completed) return;
-    station.completed = true;
+    if (station.completed || station.pending) return;
     station.cooldown = 0;
     this.human.working = false;
     const reward = station.reward;
-    this.charges[reward] = Math.min(3, this.charges[reward] + 1);
-    this.selectedItem = reward;
-    this.rewardNotice = { item: reward, station: station.label };
-    this.rewardNoticeUntil = this.elapsed + 5.5;
     const progressGain = this.phase === "ORDEAL" ? ORDEAL_TASK_PROGRESS_REWARD : TASK_PROGRESS_REWARD;
     if (this.multiplayerClient) {
+      station.pending = true;
       this.multiplayerClient.sendTask(station.label, reward, this.stationRound);
-    } else if (!wasFake) {
+      this.flashMessage("Attuning your ritual — waiting for the sanctuary.");
+      return;
+    }
+    station.completed = true;
+    this.charges[reward] = Math.min(3, this.charges[reward] + 1);
+    this.selectedItem = reward;
+    const earnedProgress = !wasFake && !station.teamRestored ? progressGain : 0;
+    if (earnedProgress) {
+      station.teamRestored = true;
       this.taskProgress = Math.min(100, this.taskProgress + progressGain);
     }
-    const prefix = wasFake ? "Counterfeit rite accepted" : `${station.label} sealed (+${progressGain}% wards)`;
+    this.rewardNotice = { item: reward, station: station.label, progress: earnedProgress };
+    this.rewardNoticeUntil = this.elapsed + 5.5;
+    const prefix = wasFake ? "Counterfeit rite accepted" : earnedProgress ? `Your ritual restored +${earnedProgress}% wards` : "Your personal ritual is complete";
     this.flashMessage(`${prefix}. ${ITEM_LABELS[reward]} acquired for the next Ordeal.`);
-    if (!this.multiplayerClient) {
-      station.completedAt = this.elapsed;
-      this.audio.cue("task-complete");
-    }
-    if (!wasFake && !this.multiplayerClient) this.checkWin();
+    station.completedAt = this.elapsed;
+    this.audio.cue("task-complete");
+    if (!wasFake) this.checkWin();
   }
 
   cancelPuzzle(message = "Shrine trial paused. Return when ready.") {
@@ -1201,7 +1203,7 @@ class OrdealEngine {
       if (ability === "MOON_SIGHT") this.moonSightUntil = this.elapsed + Math.min(MOON_SIGHT_SECONDS, this.phaseTime);
       else {
         const scale = Math.min(1, ECHO_RANGE / Math.max(1, dist(this.mouse, this.human)));
-        let point = { x: clamp(this.human.x + (this.mouse.x - this.human.x) * scale, 112, 1168), y: clamp(this.human.y + (this.mouse.y - this.human.y) * scale, 120, 658) };
+        let point = clampWorldPoint(this.human.x + (this.mouse.x - this.human.x) * scale, this.human.y + (this.mouse.y - this.human.y) * scale);
         if (this.hazard === "ROOTWAKE") {
           const cell = getRootCell(this.human.x, this.human.y);
           point = { x: clamp(point.x, cell.x + 30, cell.x + cell.w - 30), y: clamp(point.y, cell.y + 30, cell.y + cell.h - 30) };
@@ -1225,7 +1227,7 @@ class OrdealEngine {
   report() {
     if (!this.human.alive || this.paused) return;
     const nearby = this.bodies.find((body) => dist(this.human, body) < 96);
-    const atEmergency = dist(this.human, { x: 640, y: 382 }) < 92 && this.phase === "CALM";
+    const atEmergency = dist(this.human, CENTER) < 92 && this.phase === "CALM";
     if (this.multiplayerClient) {
       if (nearby || atEmergency) {
         this.multiplayerClient.sendReport(nearby?.id);
@@ -1521,7 +1523,8 @@ class OrdealEngine {
     this.paused = false;
     if (!this.checkWin()) {
       this.phase = "CALM";
-      this.phaseTime = 15;
+      this.phaseTime = CALM_SECONDS;
+      this.hazard = nextHazard(this.hazard);
       this.resetStations();
       this.killCooldownUntil = 0;
       this.moonSightUntil = 0;
@@ -1572,7 +1575,7 @@ class OrdealEngine {
 
   snapshot(): Snapshot {
     const nearbyBody = this.bodies.some((body) => dist(body, this.human) < 96);
-    const nearButton = this.phase === "CALM" && dist(this.human, { x: 640, y: 382 }) < 92;
+    const nearButton = this.phase === "CALM" && dist(this.human, CENTER) < 92;
     const nearestStation = this.stations.find((station) => dist(station, this.human) < 84);
     const victimNear = this.players.some(
       (player) =>
@@ -1601,13 +1604,22 @@ class OrdealEngine {
       moonSightActive,
       soundCaption: this.phase === "ORDEAL" && this.elapsed < this.captionUntil ? this.caption : "",
       canReport: this.human.alive && (nearbyBody || nearButton),
-      taskPrompt: Boolean(nearestStation && !nearestStation.completed && nearestStation.cooldown <= 0) && this.phase !== "DISCUSSION" && this.human.alive,
+      taskPrompt: Boolean(nearestStation && !nearestStation.completed && !nearestStation.pending && nearestStation.cooldown <= 0) && this.phase !== "DISCUSSION" && this.human.alive,
       taskMode: nearestStation && !nearestStation.completed ? (nearestStation.puzzle ? "PUZZLE" : "HOLD") : null,
-      stationStatus: nearestStation ? { label: nearestStation.label, completed: nearestStation.completed, reward: nearestStation.reward } : null,
+      stationStatus: nearestStation ? { label: nearestStation.label, completed: nearestStation.completed, reward: nearestStation.reward, teamRestored: nearestStation.teamRestored, pending: nearestStation.pending } : null,
       rewardNotice: this.rewardNotice && this.elapsed < this.rewardNoticeUntil ? this.rewardNotice : null,
       humanAlive: this.human.alive,
       message: this.elapsed < this.messageUntil ? this.message : "",
       localPlayerId: this.human.id,
+      navigation: {
+        x: Math.round(this.human.x / 12) * 12,
+        y: Math.round(this.human.y / 12) * 12,
+        personalCompleted: this.stations.filter(station => station.completed).map(station => station.label),
+        teamRestored: this.stations.filter(station => station.teamRestored).map(station => station.label),
+        destinationId: this.destinationId && this.stations.some(station => station.label === this.destinationId && !station.completed)
+          ? this.destinationId
+          : preparationStation(this.hazard, this.human, this.stations.filter(station => station.completed).map(station => station.label)),
+      },
     };
   }
 
@@ -1638,6 +1650,9 @@ class OrdealEngine {
       }
       this.particles = this.particles.filter((p) => p.life > 0);
     }
+    const viewport = { width: this.viewWidth, height: this.viewHeight };
+    this.camera = followCamera(this.camera, this.human, viewport, dt, this.reducedMotion);
+    this.mouse = viewportToWorld(this.pointerViewport, this.camera, viewport);
     this.draw();
     this.emit();
     this.frame = requestAnimationFrame(this.loop);
@@ -1665,7 +1680,6 @@ class OrdealEngine {
         if (this.phase === "CALM") {
           this.phase = "COUNTDOWN";
           this.phaseTime = 3;
-          this.hazard = nextHazard(this.hazard);
           this.phantomRoutes = phantomPaths(Math.floor(Math.random() * 4294967296));
           this.flashMessage(`${HAZARD_LABELS[this.hazard]} INCOMING — prepare your gear and position.`);
         } else if (this.phase === "COUNTDOWN") {
@@ -1694,7 +1708,8 @@ class OrdealEngine {
         } else if (this.phase === "ORDEAL") {
           this.audio.cue("calm");
           this.phase = "CALM";
-          this.phaseTime = 15;
+          this.phaseTime = CALM_SECONDS;
+          this.hazard = nextHazard(this.hazard);
           this.resetStations();
           this.itemActiveUntil = 0;
           this.moonSightUntil = 0;
@@ -1744,16 +1759,16 @@ class OrdealEngine {
     }
 
     if (this.multiplayerClient) {
-      const rootLocked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72;
       for (const p of this.players) {
         if (p.id === this.localPlayerId) continue;
         const sample = this.movementBuffer.sample(p.id, performance.now());
         if (sample) {
           const predX = clamp(sample.x, ROOM.left + 36, ROOM.right - 36);
           const predY = clamp(sample.y, ROOM.top + 48, ROOM.bottom - 32);
-          const resolved = rootLocked ? resolveRootPosition(predX, predY) : { x: predX, y: predY };
-          p.targetX = resolved.x;
-          p.targetY = resolved.y;
+          // Remote roles stay private. Render the authoritative movement rather
+          // than incorrectly applying Warden walls to an allowed Rootwalk.
+          p.targetX = predX;
+          p.targetY = predY;
           p.x = p.targetX;
           p.y = p.targetY;
           p.vx = sample.vx;
@@ -1802,6 +1817,7 @@ class OrdealEngine {
       return;
     }
     if (this.multiplayerClient && !this.multiplayerClient.connected) { player.vx = 0; player.vy = 0; player.working = false; return; }
+    if (this.navigationOpen) { player.vx = 0; player.vy = 0; player.working = false; return; }
     player.flashlight = this.phase === "ORDEAL" && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil;
     if (this.activePuzzle) {
       player.vx = 0;
@@ -1821,19 +1837,25 @@ class OrdealEngine {
     player.vy += (dy * speed - player.vy) * Math.min(1, dt * 12);
     if (!dx) player.vx *= Math.pow(0.004, dt);
     if (!dy) player.vy *= Math.pow(0.004, dt);
-    const nextX = clamp(player.x + player.vx * dt, ROOM.left + 36, ROOM.right - 36);
-    const nextY = clamp(player.y + player.vy * dt, ROOM.top + 48, ROOM.bottom - 32);
+    const intendedX = player.x + player.vx * dt;
+    const intendedY = player.y + player.vy * dt;
+    const nextX = clamp(intendedX, PLAYER_BOUNDS.left, PLAYER_BOUNDS.right);
+    const nextY = clamp(intendedY, PLAYER_BOUNDS.top, PLAYER_BOUNDS.bottom);
     const impostorPhasing = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && player.role === "IMPOSTOR";
     const rootChecked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && !impostorPhasing
-      ? resolveRootPosition(nextX, nextY)
+      ? keepInRootCell(player, { x: nextX, y: nextY })
       : { x: nextX, y: nextY };
-    const next = impostorPhasing ? rootChecked : resolveObstaclePosition(rootChecked.x, rootChecked.y);
-    if (next.x !== nextX) player.vx *= 0.08;
-    if (next.y !== nextY) player.vy *= 0.08;
+    const vx = rootChecked.x !== intendedX ? 0 : player.vx;
+    const vy = rootChecked.y !== intendedY ? 0 : player.vy;
+    const next = impostorPhasing
+      ? { ...rootChecked, vx, vy }
+      : resolveObstacleMovement(rootChecked.x, rootChecked.y, vx, vy);
+    player.vx = next.vx;
+    player.vy = next.vy;
     player.x = next.x;
     player.y = next.y;
 
-    const station = this.stations.find((entry) => dist(entry, player) < 84 && !entry.completed && entry.cooldown <= 0);
+    const station = this.stations.find((entry) => dist(entry, player) < 84 && !entry.completed && !entry.pending && entry.cooldown <= 0);
     if (station && !station.puzzle && pressed("KeyE") && this.phase !== "DISCUSSION") {
       this.taskHold += dt;
       if (this.taskHold >= 1.8) {
@@ -1852,6 +1874,8 @@ class OrdealEngine {
   updateBots(dt: number) {
     for (const player of this.players) {
       if (!player.ai || !player.alive) continue;
+      let personalRites = this.botRites.get(player.id);
+      if (!personalRites) { personalRites = new Set(); this.botRites.set(player.id, personalRites); }
       const discoveredBody = this.bodies.find((body) => dist(player, body) < 72);
       if (discoveredBody && Math.random() < dt * (player.role === "IMPOSTOR" ? 0.18 : 0.7)) {
         this.startMeeting(`${discoveredBody.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, player.name.toUpperCase());
@@ -1860,11 +1884,15 @@ class OrdealEngine {
       if (this.elapsed > player.thinkAt || dist(player, { x: player.targetX, y: player.targetY }) < 22) {
         player.thinkAt = this.elapsed + 1.2 + Math.random() * 2.2;
         if (this.phase === "CALM" || this.phase === "COUNTDOWN" || (this.phase === "ORDEAL" && player.role === "CREWMATE" && Math.random() < 0.65)) {
+          if (personalRites.has(this.stations[player.atStation % this.stations.length].label)) {
+            const nextAvailable = this.stations.findIndex(station => !personalRites!.has(station.label));
+            if (nextAvailable >= 0) player.atStation = nextAvailable;
+          }
           const station = this.stations[player.atStation % this.stations.length];
-          player.targetX = station.x + (Math.random() - 0.5) * 28;
-          player.targetY = station.y + (station.side === "top" ? 66 : station.side === "bottom" ? -62 : 0) + (Math.random() - 0.5) * 24;
-          if (station.side === "left") player.targetX += 66;
-          if (station.side === "right") player.targetX -= 66;
+          player.targetX = station.x;
+          player.targetY = station.y + (station.side === "top" ? 48 : station.side === "bottom" ? -48 : 0);
+          if (station.side === "left") player.targetX += 48;
+          if (station.side === "right") player.targetX -= 48;
         } else if (player.role === "IMPOSTOR" && !this.killUsedThisOrdeal && this.elapsed >= this.killCooldownUntil) {
           const victims = this.players.filter((entry) =>
             entry.alive
@@ -1881,17 +1909,33 @@ class OrdealEngine {
         }
       }
 
-      const dx = player.targetX - player.x;
-      const dy = player.targetY - player.y;
+      const rootLocked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && player.role !== "IMPOSTOR";
+      let route = this.botRoutes.get(player.id);
+      if (!route || route.targetX !== player.targetX || route.targetY !== player.targetY || route.root !== rootLocked) {
+        route = { targetX: player.targetX, targetY: player.targetY, root: rootLocked, points: planRoute(player, { x: player.targetX, y: player.targetY }, rootLocked) };
+        this.botRoutes.set(player.id, route);
+      }
+      while (route.points.length > 1 && dist(player, route.points[0]) < 20) route.points.shift();
+      const waypoint = route.points[0] ?? player;
+      const dx = waypoint.x - player.x;
+      const dy = waypoint.y - player.y;
       const length = Math.hypot(dx, dy) || 1;
       const speed = player.role === "IMPOSTOR" && this.phase === "ORDEAL" ? 148 : 122;
-      player.vx += ((dx / length) * speed - player.vx) * Math.min(1, dt * 5);
-      player.vy += ((dy / length) * speed - player.vy) * Math.min(1, dt * 5);
+      const riteStation = this.stations[player.atStation % this.stations.length];
+      const holdingRite = this.phase !== "DISCUSSION" && player.role === "CREWMATE"
+        && !personalRites.has(riteStation.label) && dist(player, riteStation) < 84;
+      if (holdingRite) {
+        player.vx = 0;
+        player.vy = 0;
+      } else {
+        player.vx += ((dx / length) * speed - player.vx) * Math.min(1, dt * 5);
+        player.vy += ((dy / length) * speed - player.vy) * Math.min(1, dt * 5);
+      }
       const nextX = clamp(player.x + player.vx * dt, ROOM.left + 36, ROOM.right - 36);
       const nextY = clamp(player.y + player.vy * dt, ROOM.top + 48, ROOM.bottom - 32);
       const impostorPhasing = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && player.role === "IMPOSTOR";
       const rootChecked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && !impostorPhasing
-        ? resolveRootPosition(nextX, nextY)
+        ? keepInRootCell(player, { x: nextX, y: nextY })
         : { x: nextX, y: nextY };
       const next = impostorPhasing ? rootChecked : resolveObstaclePosition(rootChecked.x, rootChecked.y);
       if (next.x !== nextX) player.vx *= -0.18;
@@ -1902,16 +1946,28 @@ class OrdealEngine {
       player.working = false;
       if (this.phase !== "DISCUSSION" && player.role === "CREWMATE") {
         const station = this.stations[player.atStation % this.stations.length];
-        if (station.completed) {
+        if (personalRites.has(station.label)) {
           player.atStation = (player.atStation + 1) % this.stations.length;
-        } else if (dist(player, station) < 78 && station.cooldown <= 0) {
+          this.botWork.delete(player.id);
+        } else if (dist(player, station) < 84) {
           player.working = true;
-          this.taskProgress = Math.min(100, this.taskProgress + dt * (this.phase === "ORDEAL" ? 0.5 : 0.34));
-          if (Math.random() < dt * 0.2) {
-            station.cooldown = 3;
+          const work = this.botWork.get(player.id);
+          const duration = work?.station === station.label ? work.duration + dt : dt;
+          this.botWork.set(player.id, { station: station.label, duration });
+          if (duration >= 2.6) {
+            personalRites.add(station.label);
+            this.botWork.delete(player.id);
             player.gearCharges[station.reward] = Math.min(3, player.gearCharges[station.reward] + 1);
+            station.completedAt = this.elapsed;
+            if (!station.teamRestored) {
+              station.teamRestored = true;
+              this.taskProgress = Math.min(100, this.taskProgress + (this.phase === "ORDEAL" ? ORDEAL_TASK_PROGRESS_REWARD : TASK_PROGRESS_REWARD));
+            }
             player.atStation = (player.atStation + 1 + Math.floor(Math.random() * 3)) % this.stations.length;
+            player.thinkAt = 0;
           }
+        } else {
+          this.botWork.delete(player.id);
         }
       }
 
@@ -1974,11 +2030,12 @@ class OrdealEngine {
   }
 
   draw() {
-    const dpr = this.canvas.width / W;
+    const dpr = this.canvas.width / this.viewWidth;
     const ctx = this.ctx;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, W, H);
+    ctx.clearRect(0, 0, this.viewWidth, this.viewHeight);
     ctx.save();
+    ctx.translate(-this.camera.x, -this.camera.y);
     if (!this.reducedMotion && this.elapsed < this.devourShakeUntil) {
       const decay = clamp((this.devourShakeUntil - this.elapsed) / 0.88, 0, 1);
       const shakeX = Math.sin(this.elapsed * 68) * this.devourShakePower * decay;
@@ -2010,7 +2067,7 @@ class OrdealEngine {
       const { player } = entry;
       if (entry.phantom) {
         this.drawSlime(ctx, player, true, false, false, moonSightActive ? 0.25 : 0.78);
-        if (sonarActive || moonSightActive) this.drawPhantomMarker(ctx, player);
+        if (moonSightActive || (sonarActive && dist(this.human, player) <= HEARING_RANGE)) this.drawPhantomMarker(ctx, player);
         continue;
       }
       const isLocal = player.id === this.localPlayerId;
@@ -2046,6 +2103,7 @@ class OrdealEngine {
     }
     if (!moonGlareActive) this.drawLighting(ctx);
     this.drawParticles(ctx);
+    this.drawSonarEchoes(ctx);
     if (rootwakeActive) {
       this.drawRootwakeOcclusion(ctx);
       this.drawRootwake(ctx);
@@ -2058,7 +2116,32 @@ class OrdealEngine {
       for (const wall of ROOT_BARRIERS) ctx.strokeRect(wall.x, wall.y, wall.w, wall.h);
       ctx.restore();
     }
+    ctx.restore();
     this.drawCanvasLabels(ctx);
+  }
+
+  drawSonarEchoes(ctx: CanvasRenderingContext2D) {
+    if (this.phase !== "ORDEAL" || !this.human.alive || this.selectedItem !== "SONAR" || this.elapsed >= this.itemActiveUntil) return;
+    const sweep = (this.elapsed * 1.4) % 1;
+    // Brief neutral movement contacts, never another player's identity or a
+    // body. The navigation map deliberately never receives these contacts.
+    if (sweep > 0.65) return;
+    const contacts = this.hazard === "PHANTOMS" ? [...this.players, ...this.getPhantoms()] : this.players;
+    ctx.save();
+    ctx.strokeStyle = "#d9ecff";
+    ctx.fillStyle = "#d9ecff";
+    ctx.globalAlpha = (1 - sweep / 0.65) * 0.8;
+    ctx.lineWidth = 2;
+    for (const contact of contacts) {
+      if (!contact.alive || contact.id === this.localPlayerId || Math.hypot(contact.vx, contact.vy) < 8 || dist(this.human, contact) > HEARING_RANGE) continue;
+      if (this.hazard === "ROOTWAKE" && !sharesRootCell(this.human, contact)) continue;
+      ctx.beginPath();
+      ctx.arc(contact.x, contact.y + 5, 15 + sweep * 18, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(contact.x, contact.y + 5, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -2240,6 +2323,7 @@ class OrdealEngine {
   drawRoom(ctx: CanvasRenderingContext2D) {
     // 1. Blit the pre-rendered static mountain sanctuary in 0.05ms
     ctx.drawImage(this.bgCanvas, 0, 0);
+    this.drawRestoration(ctx);
 
     // 2. Dynamic twinkling stars (batched into 3 alpha buckets for 24x fewer draw calls)
     for (let bucket = 0; bucket < 3; bucket += 1) {
@@ -2277,9 +2361,28 @@ class OrdealEngine {
     drawForestSanctum(ctx, station, this.elapsed, this.phase === "DISCUSSION", dist(station, this.human) < 128);
   }
 
+  drawRestoration(ctx: CanvasRenderingContext2D) {
+    const milestone = Math.min(4, Math.floor(this.taskProgress / 25));
+    ctx.save();
+    for (let i = 0; i < 4; i++) {
+      const angle = Math.PI / 4 + i * Math.PI / 2;
+      const x = CENTER.x + Math.cos(angle) * 115, y = CENTER.y + Math.sin(angle) * 78;
+      const lit = i < milestone;
+      ctx.fillStyle = lit ? "#cfe9b7" : "#4f6766";
+      ctx.strokeStyle = lit ? "#e8e1ae" : "#82988a";
+      ctx.lineWidth = lit ? 3 : 1;
+      ctx.beginPath(); ctx.ellipse(x, y, 12, 8, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      if (lit) {
+        ctx.fillStyle = "#c3e9ac24";
+        ctx.beginPath(); ctx.ellipse(x, y, 35, 24, 0, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
   drawEmergency(ctx: CanvasRenderingContext2D) {
-    ctx.save(); ctx.translate(640, 382);
-    const nearby = dist(this.human, { x: 640, y: 382 }) < 92 && this.phase === "CALM";
+    ctx.save(); ctx.translate(CENTER.x, CENTER.y);
+    const nearby = dist(this.human, CENTER) < 92 && this.phase === "CALM";
     // A carved crescent and a small hanging chime, not a screen-shaped machine.
     ctx.fillStyle = "rgba(24,53,40,.24)"; ctx.beginPath(); ctx.ellipse(0, 26, 46, 12, 0, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = "#817c59"; ctx.lineWidth = 6; ctx.lineCap = "round";
@@ -2797,14 +2900,16 @@ class OrdealEngine {
     if (this.hazard !== "BLACKOUT" && this.hazard !== "FOG") return;
     const mask = this.maskCtx;
     const moonSightActive = this.human.role === "IMPOSTOR" && this.elapsed < this.moonSightUntil;
-    mask.clearRect(0, 0, W, H);
+    mask.setTransform(1, 0, 0, 1, 0, 0);
+    mask.clearRect(0, 0, this.viewWidth, this.viewHeight);
+    mask.setTransform(1, 0, 0, 1, -this.camera.x, -this.camera.y);
     mask.globalCompositeOperation = "source-over";
     mask.fillStyle = moonSightActive
       ? "rgba(28,4,42,.44)"
       : this.hazard === "BLACKOUT"
         ? "rgba(1,3,9,.992)"
         : "rgba(177,202,209,.82)";
-    mask.fillRect(0, 0, W, H);
+    mask.fillRect(this.camera.x, this.camera.y, this.viewWidth, this.viewHeight);
     if (!moonSightActive) {
       mask.globalCompositeOperation = "destination-out";
       this.cutRadial(mask, this.human.x, this.human.y, this.hazard === "BLACKOUT" ? 76 : 108);
@@ -2844,7 +2949,7 @@ class OrdealEngine {
       this.cutRadial(mask, this.human.x, this.human.y, 178);
     }
     mask.globalCompositeOperation = "source-over";
-    ctx.drawImage(this.mask, 0, 0);
+    ctx.drawImage(this.mask, this.camera.x, this.camera.y);
 
     // Subtle cyan wash over blinking crystals during Blackout
     if (this.hazard === "BLACKOUT") {
@@ -3421,12 +3526,12 @@ class OrdealEngine {
     ctx.strokeStyle = "rgba(158, 222, 196, 0.38)";
     ctx.lineWidth = 1.2;
     ctx.beginPath();
-    ctx.roundRect(88, 82, zoneWidth, 22, 6);
+    ctx.roundRect(this.viewWidth / 2 - zoneWidth / 2, this.viewHeight - 35, zoneWidth, 22, 6);
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = "rgba(218, 242, 226, 0.9)";
     ctx.textAlign = "left";
-    ctx.fillText(zoneText, 97, 96);
+    ctx.fillText(zoneText, this.viewWidth / 2 - zoneWidth / 2 + 9, this.viewHeight - 20);
     ctx.restore();
 
     if (this.phase === "COUNTDOWN") {
@@ -3434,13 +3539,13 @@ class OrdealEngine {
       ctx.fillStyle = "#e4edc7";
       ctx.font = "700 13px ui-monospace, monospace";
       ctx.textAlign = "center";
-      ctx.fillText("MEMORIZE NEARBY WARDENS • PREPARE YOUR GEAR", W / 2, H - 20);
+      ctx.fillText("MEMORIZE NEARBY WARDENS • PREPARE YOUR GEAR", this.viewWidth / 2, this.viewHeight - 48);
     }
     if (this.phase === "CALM" && this.human.trueColor && this.human.color !== this.human.trueColor) {
       ctx.fillStyle = "rgba(139,233,253,.95)";
       ctx.font = "900 12px ui-monospace, monospace";
       ctx.textAlign = "center";
-      ctx.fillText("MIRROR GLAMOUR ACTIVE • YOUR SWAPPED COLOR PERSISTS UNTIL MEETING", W / 2, 53);
+      ctx.fillText("MIRROR GLAMOUR • SWAPPED COLOR PERSISTS UNTIL MEETING", this.viewWidth / 2, this.viewHeight - 49);
     }
     if (this.phase === "ORDEAL") {
       const moonSightActive = this.human.role === "IMPOSTOR" && this.elapsed < this.moonSightUntil;
@@ -3469,7 +3574,7 @@ class OrdealEngine {
       ctx.fillStyle = labelColor;
       ctx.font = "900 13px ui-monospace, monospace";
       ctx.textAlign = "center";
-      ctx.fillText(label, W / 2, 53);
+      ctx.fillText(label, this.viewWidth / 2, this.viewHeight - 49);
     }
   }
 }
@@ -3800,6 +3905,7 @@ function Lobby({
   const [roomsChecked, setRoomsChecked] = useState(false);
   const [mpError, setMpError] = useState("");
   const lobbyConsoleRef = useRef<HTMLDivElement>(null);
+  const roomAttemptRef = useRef<{ entry: "create" | "join" } | null>(null);
 
   const inRoom = Boolean(mpState?.roomCode);
   const activeTargetPlayers = inRoom && mpState ? mpState.targetPlayers : targetPlayers;
@@ -3835,7 +3941,25 @@ function Lobby({
     });
     const unsubscribeRooms = multiplayerClient.onMessage((message) => {
       if (message.type === "ROOMS_LIST") setRoomsChecked(true);
-      if (message.type === "ROOM_STATE") setRoomsChecked(false);
+      if (message.type === "ROOM_STATE") {
+        setRoomsChecked(false);
+        const attempt = roomAttemptRef.current;
+        if (attempt && message.roomCode) {
+          roomAttemptRef.current = null;
+          trackGameEvent("room_entered", {
+            mode: "multiplayer",
+            entry: attempt.entry,
+            player_count: message.players.length,
+          });
+        }
+      }
+      if (message.type === "ERROR_ALERT" && roomAttemptRef.current) {
+        const attempt = roomAttemptRef.current;
+        roomAttemptRef.current = null;
+        if (attempt.entry === "join") {
+          trackGameEvent("room_join_failed", { mode: "multiplayer", reason: "rejected" });
+        }
+      }
     });
     return () => { unsubscribe(); unsubscribeRooms(); };
   }, [multiplayerClient]);
@@ -3950,6 +4074,9 @@ function Lobby({
 
   const handleCreateRoom = async () => {
     if (!multiplayerClient) return;
+    const attempt = { entry: "create" as const };
+    roomAttemptRef.current = attempt;
+    trackGameEvent("room_create_attempt", { mode: "multiplayer" });
     setMpError("");
     multiplayerClient.clearError();
     setIsConnecting(true);
@@ -3959,6 +4086,9 @@ function Lobby({
       setNickname(callsign);
       multiplayerClient.createRoom(callsign, selectedColor, selectedHat, selectedEyes);
     } catch (error) {
+      if (roomAttemptRef.current === attempt) {
+        roomAttemptRef.current = null;
+      }
       setMpError(error instanceof Error ? error.message : "Failed to connect to game server. Please retry.");
     } finally {
       setIsConnecting(false);
@@ -3968,6 +4098,9 @@ function Lobby({
   const handleJoinRoom = async (codeOverride?: string) => {
     const codeToJoin = (codeOverride ?? joinCode).trim().toUpperCase();
     if (!multiplayerClient || !codeToJoin) return;
+    const attempt = { entry: "join" as const };
+    roomAttemptRef.current = attempt;
+    trackGameEvent("room_join_attempt", { mode: "multiplayer", method: codeOverride ? "list" : "code" });
     setMpError("");
     multiplayerClient.clearError();
     setIsConnecting(true);
@@ -3977,6 +4110,10 @@ function Lobby({
       setNickname(callsign);
       multiplayerClient.joinRoom(codeToJoin, callsign, selectedColor, selectedHat, selectedEyes);
     } catch (error) {
+      if (roomAttemptRef.current === attempt) {
+        roomAttemptRef.current = null;
+        trackGameEvent("room_join_failed", { mode: "multiplayer", reason: "connection" });
+      }
       setMpError(error instanceof Error ? error.message : "Failed to connect to room. Verify code and server connection.");
     } finally {
       setIsConnecting(false);
@@ -4897,6 +5034,7 @@ function Game({
   initialPlayers,
   assignedRole,
   onExit,
+  onMatchComplete,
 }: {
   count: number;
   roleChoice: RoleChoice;
@@ -4905,6 +5043,7 @@ function Game({
   initialPlayers?: NetPlayer[];
   assignedRole?: Role;
   onExit: () => void;
+  onMatchComplete: (result: string) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<OrdealEngine | null>(null);
@@ -4959,7 +5098,10 @@ function Game({
       setPuzzle,
       setKillNotice,
       setDeathReveal,
-      setResult,
+      (nextResult) => {
+        onMatchComplete(nextResult);
+        setResult(nextResult);
+      },
       multiplayerClient,
       initialPlayers,
       assignedRole,
@@ -4997,7 +5139,7 @@ function Game({
       if (unsubChat) unsubChat();
       engine.destroy();
     };
-  }, [count, roleChoice, multiplayerClient, initialPlayers, assignedRole, soloProfile]);
+  }, [count, roleChoice, multiplayerClient, initialPlayers, assignedRole, soloProfile, onMatchComplete]);
 
   useEffect(() => {
     const normalMusic = new Audio("/audio/moonlit-deduction.mp3");
@@ -5200,6 +5342,8 @@ function Game({
   const handleTouch = useCallback((code: string, down: boolean) => {
     engineRef.current?.setTouch(code, down);
   }, []);
+  const handleDestinationChange = useCallback((id: string) => engineRef.current?.setNavigationDestination(id), []);
+  const handleNavigationExpanded = useCallback((open: boolean) => engineRef.current?.setNavigationOpen(open), []);
   const toggleBackgroundMusic = () => {
     if (musicEnabled) {
       setMusicEnabled(false);
@@ -5231,6 +5375,16 @@ function Game({
 
       <section className="game-stage">
         <canvas ref={canvasRef} aria-label="Top-down view of the Moonwarden mountain sanctuary" />
+        <NavigationMap
+          position={snapshot.navigation}
+          phase={snapshot.phase}
+          hazard={snapshot.hazard}
+          stations={STATIONS.map(station => ({ ...station, personalCompleted: snapshot.navigation.personalCompleted.includes(station.id), teamRestored: snapshot.navigation.teamRestored.includes(station.id) }))}
+          destinationId={snapshot.navigation.destinationId}
+          onDestinationChange={handleDestinationChange}
+          onExpandedChange={handleNavigationExpanded}
+          enabled={!meeting && !puzzle && !roleReveal && !deathReveal && !result && (!networkState || networkState.connected)}
+        />
         {networkState && !networkState.connected && (
           <div className="connection-lost" role="alert">
             <b>CONNECTION LOST</b>
@@ -5240,9 +5394,21 @@ function Game({
         )}
 
         <div className="task-hud">
-          <div className="task-label"><span>MOON WARDS</span><b>{Math.floor(snapshot.taskProgress)}%</b></div>
+          <div className="task-label"><span>RESTORE THE WARDS TO WIN</span><b>{Math.floor(snapshot.taskProgress)}%</b></div>
           <div className="task-track"><i style={{ width: `${snapshot.taskProgress}%` }} /></div>
+          <div className="ward-milestones" aria-label="Forest restoration milestones">{[25, 50, 75, 100].map(value => <span key={value} className={snapshot.taskProgress >= value ? "is-restored" : ""}>{snapshot.taskProgress >= value ? "✦" : "◇"}<small>{value}%</small></span>)}</div>
+          <div className="ward-restoration-caption">{restorationMilestone(snapshot.taskProgress)}</div>
         </div>
+
+        {snapshot.phase === "CALM" && snapshot.humanAlive && snapshot.role === "CREWMATE" ? (
+          <aside className={`warden-preparation${snapshot.stationStatus ? " is-at-shrine" : ""}`} aria-label="Prepare for the next Ordeal">
+            <small>NEXT · {HAZARD_LABELS[snapshot.hazard]}</small>
+            <b>{ORDEAL_PREPARATION[snapshot.hazard].title}</b>
+            <p>{ORDEAL_PREPARATION[snapshot.hazard].reason}</p>
+            <span>{snapshot.navigation.destinationId ? `Head to ${snapshot.navigation.destinationId.toLowerCase()}` : "Your ritual kit is complete for this round"}</span>
+            <em>YOUR RITES {snapshot.navigation.personalCompleted.length}/6 · M FOR MAP</em>
+          </aside>
+        ) : null}
 
         <div className="crew-count"><span className="crew-dot" />{snapshot.living}<small> / {snapshot.total} ALIVE</small></div>
 
@@ -5258,7 +5424,7 @@ function Game({
         {snapshot.rewardNotice && (
           <aside className="reward-toast" aria-live="polite">
             <span className="reward-icon"><ItemIcon item={snapshot.rewardNotice.item} /></span>
-            <div><small>ITEM ACQUIRED • {snapshot.rewardNotice.station}</small><b>{ITEM_LABELS[snapshot.rewardNotice.item]}</b><p>{ITEM_DESCRIPTIONS[snapshot.rewardNotice.item]}.</p></div>
+            <div><small>{snapshot.rewardNotice.progress ? `YOU RESTORED +${snapshot.rewardNotice.progress}% WARDS` : "YOUR RITUAL IS COMPLETE"} • {snapshot.rewardNotice.station}</small><b>{ITEM_LABELS[snapshot.rewardNotice.item]} ready</b><p>{snapshot.rewardNotice.progress ? "One step closer to restoring the forest. " : snapshot.role === "IMPOSTOR" ? "Counterfeit ritual complete; gear earned without restoring a ward. " : "Personal gear earned; this ward’s team progress was already claimed. "}{ITEM_DESCRIPTIONS[snapshot.rewardNotice.item]}.</p></div>
           </aside>
         )}
 
@@ -5298,13 +5464,13 @@ function Game({
             onPointerLeave={() => engineRef.current?.setTouch("KeyE", false)}
           >
             <kbd>E</kbd>
-            <span>{snapshot.taskMode === "PUZZLE" ? (snapshot.role === "IMPOSTOR" ? "OPEN FAKE PUZZLE" : "OPEN QUICK PUZZLE") : (snapshot.role === "IMPOSTOR" ? "HOLD FAKE CALIBRATION" : "HOLD TO CALIBRATE")} • EARNS {snapshot.stationStatus ? ITEM_LABELS[snapshot.stationStatus.reward].toUpperCase() : "GEAR"}</span>
+            <span>{snapshot.taskMode === "PUZZLE" ? (snapshot.role === "IMPOSTOR" ? "OPEN FAKE PUZZLE" : "OPEN QUICK PUZZLE") : (snapshot.role === "IMPOSTOR" ? "HOLD FAKE CALIBRATION" : "HOLD TO CALIBRATE")} • {snapshot.stationStatus?.teamRestored ? "PERSONAL GEAR RITE" : "RESTORE WARD + EARN GEAR"}</span>
           </button>
         )}
 
         {snapshot.stationStatus?.completed && snapshot.phase !== "DISCUSSION" && (
           <div className="station-sealed-prompt" role="status">
-            <span>✓</span><div><b>WARD SEALED</b><small>{snapshot.stationStatus.label} reopens next round • choose another sanctum</small></div>
+            <span>✓</span><div><b>YOUR RITE IS COMPLETE</b><small>{snapshot.stationStatus.label} reopens next round • your earned gear stays with you</small></div>
           </div>
         )}
 
@@ -5317,6 +5483,7 @@ function Game({
       </section>
 
       <footer className="game-footer">
+        <AnalyticsSettingsButton compact />
         <span>MOVE <kbd>WASD</kbd></span>
         <span>AIM <kbd>MOUSE</kbd></span>
         <span>TASK <kbd>E / HOLD E</kbd></span>
@@ -5532,7 +5699,9 @@ export default function Home() {
   >(null);
 
   const [client] = useState(() => new MultiplayerClient());
+  const [gameAnalytics] = useState(() => new GameAnalyticsLifecycle());
   const [mpState, setMpState] = useState<MultiplayerState | null>(null);
+  const handleMatchComplete = useCallback((result: string) => gameAnalytics.complete(result), [gameAnalytics]);
 
   useEffect(() => {
     const unsubState = client.onStateChange((next) => {
@@ -5541,6 +5710,7 @@ export default function Home() {
 
     const unsubMsg = client.onMessage((msg) => {
       if (msg.type === "MATCH_STARTED") {
+        gameAnalytics.start("multiplayer", msg.players.length);
         setMatch({
           mode: "MULTI",
           client,
@@ -5555,9 +5725,10 @@ export default function Home() {
       unsubMsg();
       client.disconnect();
     };
-  }, [client]);
+  }, [client, gameAnalytics]);
 
   const handleExit = () => {
+    gameAnalytics.leave();
     if (match?.mode === "MULTI") {
       match.client.leaveRoom();
     }
@@ -5573,10 +5744,14 @@ export default function Home() {
       initialPlayers={match.mode === "MULTI" ? match.initialPlayers : undefined}
       assignedRole={match.mode === "MULTI" ? match.assignedRole : undefined}
       onExit={handleExit}
+      onMatchComplete={handleMatchComplete}
     />
   ) : (
     <Lobby
-      onLaunch={(count, role, profile) => setMatch({ mode: "SOLO", count, role, profile })}
+      onLaunch={(count, role, profile) => {
+        gameAnalytics.start("solo", count);
+        setMatch({ mode: "SOLO", count, role, profile });
+      }}
       multiplayerClient={client}
       mpState={mpState}
     />

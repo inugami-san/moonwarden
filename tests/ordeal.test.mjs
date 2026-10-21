@@ -5,6 +5,7 @@ import { phantomPaths, nextHazard, ordealDuration, TASK_PROGRESS_REWARD, ORDEAL_
 import { soundDirection, ForestAudio } from "../app/forest-audio.ts";
 import { drawMoonGlade } from "../app/moon-glade.ts";
 import { fittedCanvasBounds } from "../app/canvas-bounds.ts";
+import { CENTER, ROOM, STATIONS } from "../server/sanctuary-map.ts";
 
 function match(t) {
   const room = new GameServerRegistry().createRoom();
@@ -69,10 +70,10 @@ test("Echo is range-limited, audible nearby, anonymous, and gone after its short
 test("Rootwake keeps lures in their caster's chamber and clips sound at the roots", t => {
   const { room, clients } = match(t);
   room.hazard = "ROOTWAKE";
-  room.players.get("p0").x = 790;
-  room.players.get("p1").x = 850;
-  room.handleMessage("p0", special("ECHO_LURE", { x: 1000 }));
-  assert.ok(room.echoes[0].x <= 782);
+  room.players.get("p0").x = 1190;
+  room.players.get("p1").x = 1270;
+  room.handleMessage("p0", special("ECHO_LURE", { x: 1500 }));
+  assert.ok(room.echoes[0].x <= 1188);
   room.lastTick = Date.now() - 60; room.tick();
   assert.ok(!clients[1].sent.some(msg => msg.type === "SOUND_CUE"));
 });
@@ -91,8 +92,8 @@ test("countdown announces the same hazard/seed that begins the ordeal, with a fr
 test("phantoms vary by seed, stay in the arena, and do not repeat the previous hazard", () => {
   assert.deepEqual(phantomPaths(42), phantomPaths(42)); assert.notDeepEqual(phantomPaths(42), phantomPaths(43));
   for (let seed = 0; seed < 30; seed++) for (const path of phantomPaths(seed)) {
-    assert.ok(path.x - path.rx > 76 && path.x + path.rx < 1204);
-    assert.ok(path.y - path.ry > 72 && path.y + path.ry < 690);
+    assert.ok(path.x - path.rx > ROOM.left && path.x + path.rx < ROOM.right);
+    assert.ok(path.y - path.ry > ROOM.top && path.y + path.ry < ROOM.bottom);
   }
   for (const hazard of ["BLACKOUT", "FOG", "MOONGLARE", "ROOTWAKE", "PHANTOMS", "MIRROR_POOL"]) assert.notEqual(nextHazard(hazard), hazard);
   assert.equal(ordealDuration("MIRROR_POOL"), 25);
@@ -138,7 +139,7 @@ test("Mirror Pool lasts 25s, swaps colors on bump, persists into Calm, and rever
   assert.equal(p1.color, orig0);
 
   // Calling an emergency meeting restores everyone's true colors
-  p0.x = 640; p0.y = 382;
+  p0.x = CENTER.x; p0.y = CENTER.y;
   room.handleMessage("p0", { type: "TRIGGER_REPORT" });
   assert.equal(room.phase, "DISCUSSION");
   assert.equal(p0.color, orig0);
@@ -150,8 +151,8 @@ test("shrines stay open during Ordeals, sync working status, and grant +12% Moon
   const p1 = room.players.get("p1");
   room.handleMessage("p1", {
     type: "PLAYER_INPUT",
-    x: 246,
-    y: 230,
+    x: STATIONS[0].x,
+    y: STATIONS[0].y + 60,
     vx: 0,
     vy: 0,
     angle: 0,

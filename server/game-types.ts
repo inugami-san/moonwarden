@@ -78,6 +78,7 @@ export type NetChatMessage = {
 };
 
 export type C2SMessage =
+  | { type: "CLIENT_HELLO"; worldVersion: string }
   | { type: "PING"; sentAt: number }
   | { type: "CREATE_ROOM"; playerName: string; color: string; hat: Hat; eyeStyle?: EyeStyle }
   | { type: "JOIN_ROOM"; roomCode: string; playerName: string; color: string; hat: Hat; eyeStyle?: EyeStyle }
@@ -98,11 +99,12 @@ export type C2SMessage =
   | { type: "LEAVE_ROOM" };
 
 export type S2CMessage =
+  | { type: "SERVER_INFO"; worldVersion: string; compatible: boolean }
   | { type: "PONG"; sentAt: number }
   | { type: "ABILITY_STATE"; accepted: boolean; used: boolean; sightRemainingMs: number; roundId: number }
   | { type: "SOUND_CUE"; cue: SoundCue }
   | { type: "KILL_RESULT"; accepted: boolean; spent: boolean }
-  | { type: "GEAR_SYNC"; charges: Record<ItemKind, number>; accepted: boolean; item?: ItemKind; stationId?: string; stationCompleted?: boolean; roundId?: number }
+  | { type: "GEAR_SYNC"; charges: Record<ItemKind, number>; accepted: boolean; item?: ItemKind; stationId?: string; stationCompleted?: boolean; completedStations?: string[]; wardProgressGain?: number; roundId?: number }
   | { type: "STATION_COMPLETED"; stationId: string; roundId: number; sequence: number }
   | {
       type: "ROOM_STATE";

@@ -1,5 +1,5 @@
-/* The welcome glade is isolated from live rooms and the gameplay HUD. */
-.studio-at-home { --home-ink: #302e50; --home-muted: #696681; --home-line: #c8c3de; position: relative; isolation: isolate; padding: 0; background: #e9e6f3; color: var(--home-ink); }
+/* Home and the waiting room share one twilight palette; gameplay stays separate. */
+.moon-studio { --home-ink: #302e50; --home-muted: #696681; --home-line: #c8c3de; --home-paper: #fffef8; --home-soft: #f6f1fa; --home-lavender: #e8e3f0; --home-accent: #716089; --home-gold: #e9cea5; --home-gold-line: #ceb089; --home-gold-ink: #48374d; --home-ready: #52678b; --studio-ink: var(--home-ink); --studio-muted: var(--home-muted); --studio-line: var(--home-line); position: relative; isolation: isolate; padding: 0; background: #e9e6f3; color: var(--home-ink); }
 .studio-at-home .studio-frame { position: relative; z-index: 1; max-width: 1600px; min-height: 100svh; border: 0; border-radius: 0; background: transparent; box-shadow: none; grid-template-rows: 84px auto auto; }
 .home-atmosphere { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; background: radial-gradient(ellipse at 78% 8%, #ead9d3 0, transparent 35%), radial-gradient(ellipse at 5% 27%, #e8def3 0, transparent 45%), linear-gradient(#e5e4f3, #d8dded 58%, #c6cce1); }
 .home-atmosphere::after { content: ""; position: absolute; inset: 0; background: linear-gradient(#eeebf455, transparent 25%, #e5e3f033 75%); }
@@ -174,6 +174,80 @@
 .home-game-loop p { margin: 0; color: #5c6377; font-size: 12px; line-height: 1.7; }
 .studio-at-home .lobby-footer { margin-top: 30px; padding: 20px; background: #dde5ed; color: #515972; font-size: 10px; border-top: 1px solid #c6d1de; }
 .studio-at-home :is(button, input, summary):focus-visible { outline: 3px solid #b78a39; outline-offset: 4px; }
+
+/* Entering a room must not return to the legacy green inspector theme. These
+   rules style interface surfaces only: palette swatches and slime SVG fills
+   continue using the server-assigned player color. */
+.studio-in-room { background: radial-gradient(ellipse at 78% 8%, #ead9d3 0, transparent 35%), radial-gradient(ellipse at 5% 27%, #e8def3 0, transparent 45%), linear-gradient(#e5e4f3, #d8dded 58%, #c6cce1); }
+.studio-in-room .studio-frame { max-width: 1600px; min-height: 100svh; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.studio-in-room .lobby-grid { max-width: 1420px; padding: 24px 4% 28px; }
+.studio-in-room .lobby-nav { margin: 0 4%; padding: 0; border-bottom: 1px solid var(--home-line); gap: 16px; }
+.studio-in-room .brand, .studio-in-room .brand b { color: #494365; }
+.studio-in-room .brand-mark { border-color: #bbb1d8; background: linear-gradient(145deg, #faf3df, #b3a6d9); box-shadow: inset 4px 5px 8px #ffffff88, 0 3px 8px #52446b22; }
+.studio-in-room .brand-mark::after { background: #4f486d; box-shadow: 8px 0 #4f486d; }
+.studio-in-room .nav-status { color: #6d6682; }
+.studio-in-room .nav-status > span { background: #9681b3; box-shadow: 0 0 0 3px #9681b31a; }
+.studio-in-room .studio-guide h1 { color: var(--home-ink); }
+.studio-in-room .studio-guide h1 em { color: #817198; }
+.studio-in-room .eyebrow > span { color: #523c63; background: #dbe1eb; border-color: #bdc6d9; }
+.studio-in-room .eyebrow > small { color: #666174; }
+.studio-in-room .lobby-mode-switch { background: #dee3eb; border-color: #ced6e0; }
+.studio-in-room .lobby-mode-switch button { color: #59566e; }
+.studio-in-room .lobby-mode-switch button.active { color: #3c264e; background: var(--home-paper); border-color: var(--home-line); }
+.studio-in-room .lobby-mode-switch button:hover:not(:disabled) { color: #49365e; background: var(--home-soft); }
+.studio-in-room .live-pill { color: var(--home-accent); background: var(--home-lavender); }
+.studio-in-room .lobby-console { background: var(--home-paper); border-color: #c9ccdc; box-shadow: 0 12px 35px #36304b10; }
+.studio-in-room .console-head { color: #5d5970; background: #fffef8f2; border-color: #dce2ea; }
+.studio-in-room .console-head > span { color: var(--home-muted); }
+.studio-in-room :is(.room-code-banner, .inroom-profile-bar, .inroom-wardrobe-drawer, .lobby-comms-box, .host-panel) { background: var(--home-soft); border-color: var(--home-line); color: var(--home-ink); box-shadow: 0 4px 12px #52446b08; }
+.studio-in-room .room-code-banner { background: linear-gradient(125deg, #f0eaf7, #e5eaf4); }
+.studio-in-room .room-code-display small { color: var(--home-muted); }
+.studio-in-room .room-code-row strong { color: #59446f; text-shadow: none; }
+.studio-in-room .room-ping-pill { color: var(--home-ready); background: #e5eaf4; border-color: #c2ccdf; }
+.studio-in-room .room-ping-pill i { background: #8191b3; box-shadow: 0 0 8px #8191b344; }
+.studio-in-room :is(.copy-code-btn, .wardrobe-toggle-btn, .ghost-code-btn, .mp-random-btn, .quick-comms-chips button) { color: #65537f; background: #f3edf8; border-color: #cec3de; box-shadow: none; }
+.studio-in-room :is(.copy-code-btn, .wardrobe-toggle-btn, .ghost-code-btn, .mp-random-btn, .quick-comms-chips button):hover:not(:disabled) { color: #49365e; background: #e8dff1; border-color: #ac99c3; }
+.studio-in-room .wardrobe-toggle-btn.active { color: #49365e; background: var(--home-lavender); border-color: #ac99c3; }
+.studio-in-room .ready-toggle-btn { color: #74572d; background: #f4ead6; border-color: #d5bc8d; }
+.studio-in-room .ready-toggle-btn.is-ready { color: var(--home-ready); background: #e3eaf5; border-color: #a5b7d5; box-shadow: 0 0 0 1px #c9d3e744; }
+.studio-in-room .inroom-profile-summary strong { color: var(--home-ink); }
+.studio-in-room .inroom-profile-summary small, .studio-in-room .inroom-profile-summary span { color: var(--home-muted); }
+.studio-in-room .mp-field, .studio-in-room .inroom-wardrobe-drawer .mp-field { color: #49415f; background: #fff; border-color: #ccc4dd; }
+.studio-in-room .mp-field::placeholder { color: #82788f; }
+.studio-in-room .mp-field:focus { border-color: #a899bc; box-shadow: 0 0 0 3px #a899bc20; }
+.studio-in-room .field-label, .studio-in-room .field-label > span { color: #766988; }
+.studio-in-room .mp-color-btn.active { border-color: #fff; box-shadow: 0 0 0 2.5px var(--home-accent), 0 4px 8px #52446b26; }
+.studio-in-room .mp-hat-btn, .studio-in-room .eye-style-options button:not([aria-pressed="true"]) { color: #756186; background: var(--home-soft); border-color: #d8cce4; }
+.studio-in-room .mp-hat-btn.active, .studio-in-room .eye-style-options button[aria-pressed="true"] { color: #fff8ea; background: var(--home-accent); border-color: var(--home-accent); box-shadow: 0 0 0 2px #e0d1ed; }
+.studio-in-room .mp-hat-btn:hover:not(:disabled) { color: #49365e; background: #e8dff1; border-color: #ac99c3; }
+.studio-in-room .eye-customizer legend, .studio-in-room .eye-customizer legend span, .studio-in-room .eye-customizer p { color: #79678b; }
+.studio-in-room .warden-slot-card { color: var(--home-ink); background: #f7f5fc; border-color: #d5cede; }
+.studio-in-room .warden-slot-card.is-you { background: #ece5f5; border-color: #aa98c3; box-shadow: inset 0 0 18px #b8a2cd14; }
+.studio-in-room .warden-slot-card.bot-slot, .studio-in-room .warden-slot-card.empty-slot { background: #edf0f7; border-color: #c7cfdf; }
+.studio-in-room .slot-card-meta .roster-name { color: var(--home-ink); }
+.studio-in-room .slot-card-meta small { color: var(--home-muted); }
+.studio-in-room .roster-badge.host { color: #7d5c26; background: #f6e9d0; border-color: #ddc7a1; }
+.studio-in-room .roster-badge.you { color: #65537f; background: #e9dff3; border-color: #cbb8de; }
+.studio-in-room .roster-badge.bot, .studio-in-room .roster-badge.empty { color: #67738c; background: #e6eaf2; border-color: #cbd2df; }
+.studio-in-room .slot-ready-pill.ready { color: var(--home-ready); background: #e3eaf5; }
+.studio-in-room .slot-ready-pill.waiting { color: #7d5c26; background: #f6e9d0; }
+.studio-in-room .slot-ready-pill.bot, .studio-in-room .slot-empty-sigil { color: #67738c; border-color: #b8c3d7; }
+.studio-in-room .lobby-comms-head { color: var(--home-muted); background: transparent; border-color: var(--home-line); }
+.studio-in-room .lobby-comms-head > span, .studio-in-room .lobby-comms-empty, .studio-in-room .lobby-comms-line.system { color: var(--home-muted); }
+.studio-in-room .lobby-comms-line { color: #49415f; }
+.studio-in-room .lobby-comms-form button { color: #fff8ea; background: var(--home-accent); border-color: var(--home-accent); }
+.studio-in-room .slot-Count-pills button { color: #65537f; background: var(--home-soft); border-color: #d8cce4; }
+.studio-in-room .slot-Count-pills button.active { color: #fff8ea; background: var(--home-accent); border-color: var(--home-accent); }
+.studio-in-room .player-range, .studio-in-room .bot-checkbox-row input { accent-color: var(--home-accent); }
+.studio-in-room .waiting-status, .studio-in-room .bot-checkbox-row { color: var(--home-muted); animation: none; }
+.studio-in-room .mp-btn-primary, .studio-in-room .launch-button { color: var(--home-gold-ink); background: var(--home-gold); border-color: var(--home-gold-line); box-shadow: 0 4px 0 #b69b7c; border-radius: 10px; }
+.studio-in-room .mp-btn-primary:hover:not(:disabled), .studio-in-room .launch-button:hover:not(:disabled) { background: #f2dbb8; box-shadow: 0 6px 14px #57447620; }
+.studio-in-room .launch-button kbd { color: var(--home-gold-ink); border-color: var(--home-gold-line); background: #fff8ea66; }
+.studio-in-room .mp-btn-secondary { color: #3b3254; background: var(--home-lavender); border-color: #b8aacb; }
+.studio-in-room .mp-btn-secondary:hover:not(:disabled) { color: #49365e; background: #ded4ea; border-color: #ac99c3; }
+.studio-in-room .mp-btn-secondary:disabled { color: #82788f; background: var(--home-lavender); border-color: #d3c9df; }
+.studio-in-room .lobby-footer { color: #515972; background: #dde5ed; border-top: 1px solid #c6d1de; }
+.studio-in-room :is(button, input, summary):focus-visible { outline: 3px solid #b78a39; outline-offset: 4px; }
 @keyframes home-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
 @keyframes grove-moon { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
 @keyframes grove-glow { from { opacity: .65; } to { opacity: 1; } }

@@ -1,4 +1,7 @@
 import type { Hazard } from "./game-types";
+import { CENTER, SANCTUARY_OBSTACLES } from "./sanctuary-map";
+export { SANCTUARY_OBSTACLES, sanctuaryZoneName } from "./sanctuary-map";
+export type { SanctuaryObstacle, ObstacleKind } from "./sanctuary-map";
 
 export const TASK_PROGRESS_REWARD = 8;
 export const ORDEAL_TASK_PROGRESS_REWARD = 12;
@@ -29,38 +32,14 @@ export function phantomPaths(seed: number) {
     return state / 4294967296;
   };
   return Array.from({ length: 5 }, (_, i) => ({
-    x: 280 + i * 170 + (random() - 0.5) * 90,
-    y: 240 + random() * 270,
+    x: 420 + i * 255 + (random() - 0.5) * 135,
+    y: 360 + random() * 405,
     rx: 65 + random() * 85,
     ry: 40 + random() * 70,
     speed: 0.5 + random() * 0.65,
     phase: random() * Math.PI * 2,
   }));
 }
-
-export type ObstacleKind = "CRYSTAL_SPIRE" | "RUNED_MONOLITH" | "ANCIENT_TREE" | "WEEPING_WILLOW" | "MOSS_PILLAR";
-
-export interface SanctuaryObstacle {
-  id: string;
-  kind: ObstacleKind;
-  x: number;
-  y: number;
-  r: number;
-  canopyRadius: number;
-  canopyHeight: number;
-  label: string;
-}
-
-export const SANCTUARY_OBSTACLES: readonly SanctuaryObstacle[] = [
-  { id: "frost-spire", kind: "CRYSTAL_SPIRE", x: 215, y: 295, r: 22, canopyRadius: 48, canopyHeight: 86, label: "Frost Spire" },
-  { id: "nw-monolith", kind: "RUNED_MONOLITH", x: 450, y: 225, r: 20, canopyRadius: 42, canopyHeight: 82, label: "West Ward Gate" },
-  { id: "ne-monolith", kind: "RUNED_MONOLITH", x: 830, y: 225, r: 20, canopyRadius: 42, canopyHeight: 82, label: "East Ward Gate" },
-  { id: "owl-hollow-tree", kind: "ANCIENT_TREE", x: 1045, y: 275, r: 24, canopyRadius: 68, canopyHeight: 104, label: "Owl Hollow Tree" },
-  { id: "grotto-elder-tree", kind: "ANCIENT_TREE", x: 285, y: 535, r: 26, canopyRadius: 72, canopyHeight: 108, label: "Grotto Elder Tree" },
-  { id: "sw-ruin-pillar", kind: "MOSS_PILLAR", x: 450, y: 545, r: 20, canopyRadius: 42, canopyHeight: 78, label: "Root Arch Pillar" },
-  { id: "moonwell-willow", kind: "WEEPING_WILLOW", x: 685, y: 575, r: 23, canopyRadius: 66, canopyHeight: 98, label: "Moonwell Willow" },
-  { id: "cloister-pillar", kind: "MOSS_PILLAR", x: 1020, y: 535, r: 22, canopyRadius: 44, canopyHeight: 80, label: "Cloister Column" },
-] as const;
 
 /** Smoothly pushes a moving circle (player) out of any overlapping sanctuary obstacle trunks/bases. */
 export function resolveObstaclePosition(x: number, y: number, playerRadius = 22) {
@@ -84,6 +63,40 @@ export function resolveObstaclePosition(x: number, y: number, playerRadius = 22)
   return { x: rx, y: ry };
 }
 
+/** Resolve visible trunk contacts without killing movement along their edge.
+ * Both prediction and room authority use this so glancing contacts do not
+ * alternate between free movement and a full stop on every network update.
+ */
+export function resolveObstacleMovement(x: number, y: number, vx: number, vy: number, playerRadius = 22) {
+  let rx = Number.isFinite(x) ? x : CENTER.x;
+  let ry = Number.isFinite(y) ? y : CENTER.y;
+  let rvx = Number.isFinite(vx) ? vx : 0;
+  let rvy = Number.isFinite(vy) ? vy : 0;
+  const radius = Number.isFinite(playerRadius) && playerRadius >= 0 ? playerRadius : 22;
+  const speed = Math.hypot(rvx, rvy);
+  if (speed > 184) { rvx = rvx / speed * 184; rvy = rvy / speed * 184; }
+  for (const obstacle of SANCTUARY_OBSTACLES) {
+    const dx = rx - obstacle.x, dy = ry - obstacle.y;
+    const distance = Math.hypot(dx, dy);
+    const contactDistance = obstacle.r + radius;
+    if (distance > contactDistance + 0.001) continue;
+    // Match the deterministic east-side exit of resolveObstaclePosition when
+    // a stale position lands exactly in the middle of a trunk.
+    const nx = distance < 0.001 ? 1 : dx / distance;
+    const ny = distance < 0.001 ? 0 : dy / distance;
+    if (distance < contactDistance) {
+      rx = obstacle.x + nx * contactDistance;
+      ry = obstacle.y + ny * contactDistance;
+    }
+    const inwardSpeed = rvx * nx + rvy * ny;
+    if (inwardSpeed < 0) {
+      rvx -= inwardSpeed * nx;
+      rvy -= inwardSpeed * ny;
+    }
+  }
+  return { x: rx, y: ry, vx: rvx, vy: rvy };
+}
+
 /** Returns true if the line-of-sight segment between `a` and `b` is blocked by a sanctuary obstacle trunk/pillar. */
 export function isOccludedByObstacle(a: { x: number; y: number }, b: { x: number; y: number }) {
   const abx = b.x - a.x;
@@ -102,16 +115,4 @@ export function isOccludedByObstacle(a: { x: number; y: number }, b: { x: number
     }
   }
   return false;
-}
-
-export function sanctuaryZoneName(x: number, y: number): string {
-  if (Math.hypot(x - 640, y - 382) < 135) return "WARDEN COURTYARD";
-  if (y < 362) {
-    if (x < 450) return "FROST HOLLOW";
-    if (x < 830) return "STARLIGHT ARCHIVE";
-    return "OWL WATCH";
-  }
-  if (x < 450) return "DEEP ROOT GROTTO";
-  if (x < 920) return "MOONWELL SPRINGS";
-  return "SUNKEN CLOISTER";
 }

@@ -4,6 +4,7 @@ import "./lobby-studio.css";
 import "./play-menu.css";
 import "./home-welcome.css";
 import "./consumption.css";
+import AnalyticsConsentControls from "./analytics-consent";
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
@@ -30,7 +31,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <AnalyticsConsentControls />
+      </body>
     </html>
   );
 }

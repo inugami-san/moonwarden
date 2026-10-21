@@ -25,8 +25,19 @@ import {
   TASK_PROGRESS_REWARD,
   nextHazard,
   ordealDuration,
+  resolveObstacleMovement,
   resolveObstaclePosition,
 } from "./ordeal-rules";
+import {
+  CALM_SECONDS,
+  CENTER,
+  STATIONS,
+  clampWorldPoint,
+  keepInRootCell,
+  sharesRootCell,
+  type WorldPoint,
+} from "./sanctuary-map";
+import { planRoute } from "./sanctuary-paths";
 
 export interface IWebSocketClient {
   send(data: string): void;
@@ -35,22 +46,11 @@ export interface IWebSocketClient {
   bufferedAmount?: number;
 }
 
-const ROOM = { left: 76, top: 72, right: 1204, bottom: 690 };
-const ROOT_BARRIERS = [
-  { x: 432, y: ROOM.top, w: 36, h: ROOM.bottom - ROOM.top },
-  { x: 812, y: ROOM.top, w: 36, h: ROOM.bottom - ROOM.top },
-  { x: ROOM.left, y: 362, w: ROOM.right - ROOM.left, h: 36 },
-] as const;
 const BOT_NAMES = ["Mochi", "Bubbles", "Gloop", "Pebble", "Nori", "Fizz", "Pip", "Wobble"];
 const HATS: readonly Hat[] = ["antlers", "hood", "moth", "mooncap"];
-const STATION_REWARDS = new Map<string, ItemKind>([
-  ["FROST FONT", "FLASHLIGHT"],
-  ["STAR ALTAR", "SONAR"],
-  ["OWL TOTEM", "FLARE"],
-  ["EAST WARD", "FLASHLIGHT"],
-  ["MOONWELL", "FLARE"],
-  ["ROOT SEAL", "SONAR"],
-]);
+const STATION_BY_ID = new Map(STATIONS.map(station => [station.id, station]));
+const STATION_INTERACTION_RANGE = 104;
+const BOT_RITUAL_SECONDS = 2.6;
 const KILL_COOLDOWN_MS = 1500;
 
 function dist(a: { x: number; y: number }, b: { x: number; y: number }) {
@@ -68,50 +68,6 @@ function rootwakeStrength(phase: Phase, hazard: Hazard, phaseTime: number) {
   return Math.min(risen, receding);
 }
 
-function resolveRootPosition(x: number, y: number, radius = 30) {
-  let resolvedX = x;
-  let resolvedY = y;
-  for (const barrier of ROOT_BARRIERS) {
-    const left = barrier.x - radius;
-    const right = barrier.x + barrier.w + radius;
-    const top = barrier.y - radius;
-    const bottom = barrier.y + barrier.h + radius;
-    if (resolvedX <= left || resolvedX >= right || resolvedY <= top || resolvedY >= bottom) continue;
-    const exits = [
-      { distance: resolvedX - left, axis: "x" as const, value: left },
-      { distance: right - resolvedX, axis: "x" as const, value: right },
-      { distance: resolvedY - top, axis: "y" as const, value: top },
-      { distance: bottom - resolvedY, axis: "y" as const, value: bottom },
-    ].sort((a, b) => a.distance - b.distance);
-    if (exits[0].axis === "x") resolvedX = exits[0].value;
-    else resolvedY = exits[0].value;
-  }
-  return { x: resolvedX, y: resolvedY };
-}
-
-function rootCellIndex(position: { x: number; y: number }) {
-  const [leftRoot, rightRoot, middleRoot] = ROOT_BARRIERS;
-  const column = position.x < leftRoot.x + leftRoot.w / 2 ? 0 : position.x < rightRoot.x + rightRoot.w / 2 ? 1 : 2;
-  const row = position.y < middleRoot.y + middleRoot.h / 2 ? 0 : 1;
-  return row * 3 + column;
-}
-
-function sharesRootCell(a: { x: number; y: number }, b: { x: number; y: number }) {
-  return rootCellIndex(a) === rootCellIndex(b);
-}
-
-function keepInRootCell(previous: { x: number; y: number }, next: { x: number; y: number }) {
-  const origin = resolveRootPosition(previous.x, previous.y);
-  const column = rootCellIndex(origin) % 3;
-  const row = Math.floor(rootCellIndex(origin) / 3);
-  const [first, second, middle] = ROOT_BARRIERS;
-  const left = column === 0 ? ROOM.left + 36 : (column === 1 ? first.x + first.w : second.x + second.w) + 30;
-  const right = column === 2 ? ROOM.right - 36 : (column === 0 ? first.x : second.x) - 30;
-  const top = row === 0 ? ROOM.top + 48 : middle.y + middle.h + 30;
-  const bottom = row === 1 ? ROOM.bottom - 32 : middle.y - 30;
-  return { x: Math.max(left, Math.min(right, next.x)), y: Math.max(top, Math.min(bottom, next.y)) };
-}
-
 export class GameRoom {
   code: string;
   hostId: string = "";
@@ -122,7 +78,7 @@ export class GameRoom {
   players = new Map<string, NetPlayer>();
 
   phase: Phase = "CALM";
-  phaseTime: number = 15;
+  phaseTime: number = CALM_SECONDS;
   hazard: Hazard = "BLACKOUT";
   taskProgress: number = 0;
   bodies: NetBody[] = [];
@@ -142,6 +98,8 @@ export class GameRoom {
   itemCharges = new Map<string, Record<ItemKind, number>>();
   trueColors = new Map<string, string>();
   private mirrorBumpCooldowns = new Map<string, number>();
+  private botRituals = new Map<string, { stationId: string; route: WorldPoint[]; dwell: number }>();
+  private botLightUntil = new Map<string, number>();
 
   meetingReason: string = "";
   meetingReporter: string = "";
@@ -175,8 +133,8 @@ export class GameRoom {
       hat: HATS.includes(hat) ? hat : choose(HATS),
       eyeStyle: normalizeEyeStyle(eyeStyle),
       alive: true,
-      x: 640 + (Math.random() - 0.5) * 160,
-      y: 380 + (Math.random() - 0.5) * 100,
+      x: CENTER.x + (Math.random() - 0.5) * 240,
+      y: CENTER.y + (Math.random() - 0.5) * 150,
       vx: 0,
       vy: 0,
       angle: 0,
@@ -218,6 +176,8 @@ export class GameRoom {
     this.trueColors.delete(playerId);
     this.completedStations.delete(playerId);
     this.itemCharges.delete(playerId);
+    this.botRituals.delete(playerId);
+    this.botLightUntil.delete(playerId);
     this.footsteps.delete(playerId);
     this.abilityUsed.delete(playerId);
     this.sightUntil.delete(playerId);
@@ -321,17 +281,22 @@ export class GameRoom {
         if (this.state === "PLAYING" && player.alive && this.phase !== "DISCUSSION") {
           if (![msg.x, msg.y, msg.vx, msg.vy, msg.angle].every(Number.isFinite)) break;
           if (msg.seq !== undefined && (!Number.isSafeInteger(msg.seq) || msg.seq <= (player.inputSeq ?? -1))) break;
-          const nextX = Math.max(ROOM.left + 36, Math.min(ROOM.right - 36, msg.x));
-          const nextY = Math.max(ROOM.top + 48, Math.min(ROOM.bottom - 32, msg.y));
+          const { x: nextX, y: nextY } = clampWorldPoint(msg.x, msg.y);
           const impostorPhasing = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && player.role === "IMPOSTOR";
           const rootChecked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && !impostorPhasing
             ? keepInRootCell(player, { x: nextX, y: nextY })
             : { x: nextX, y: nextY };
-          const next = impostorPhasing ? rootChecked : resolveObstaclePosition(rootChecked.x, rootChecked.y);
+          const velocityX = rootChecked.x !== nextX || nextX !== msg.x ? 0 : msg.vx;
+          const velocityY = rootChecked.y !== nextY || nextY !== msg.y ? 0 : msg.vy;
+          const inputSpeed = Math.hypot(velocityX, velocityY);
+          const speedScale = inputSpeed > 184 ? 184 / inputSpeed : 1;
+          const next = impostorPhasing
+            ? { ...rootChecked, vx: velocityX * speedScale, vy: velocityY * speedScale }
+            : resolveObstacleMovement(rootChecked.x, rootChecked.y, velocityX, velocityY);
           player.x = next.x;
           player.y = next.y;
-          player.vx = next.x !== nextX ? 0 : Math.max(-184, Math.min(184, msg.vx));
-          player.vy = next.y !== nextY ? 0 : Math.max(-184, Math.min(184, msg.vy));
+          player.vx = next.vx;
+          player.vy = next.vy;
           player.inputSeq = msg.seq;
           player.angle = msg.angle;
           player.flashlight = msg.flashlight;
@@ -369,7 +334,7 @@ export class GameRoom {
           else {
             const distance = Math.max(1, dist(player, msg));
             const scale = Math.min(1, ECHO_RANGE / distance);
-            let point = { x: Math.max(112, Math.min(1168, player.x + (msg.x - player.x) * scale)), y: Math.max(120, Math.min(658, player.y + (msg.y - player.y) * scale)) };
+            let point = clampWorldPoint(player.x + (msg.x - player.x) * scale, player.y + (msg.y - player.y) * scale);
             if (this.hazard === "ROOTWAKE") point = keepInRootCell(player, point);
             this.echoes.push({ ...point, until: Date.now() + ECHO_SECONDS * 1000, nextAt: 0 });
           }
@@ -399,7 +364,7 @@ export class GameRoom {
       case "TRIGGER_REPORT":
         if (this.state === "PLAYING" && player.alive && this.phase !== "DISCUSSION") {
           const nearbyBody = this.bodies.find((b) => dist(player, b) < 96);
-          const atBell = dist(player, { x: 640, y: 382 }) < 92 && this.phase === "CALM";
+          const atBell = dist(player, CENTER) < 92 && this.phase === "CALM";
           if (nearbyBody) {
             this.startMeeting(`${nearbyBody.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, player.name);
           } else if (atBell) {
@@ -409,38 +374,7 @@ export class GameRoom {
         break;
 
       case "TASK_UPDATE":
-        if (this.state === "PLAYING" && player.alive && this.phase !== "DISCUSSION") {
-          player.working = false;
-          const expectedReward = STATION_REWARDS.get(msg.stationId);
-          const completed = this.completedStations.get(player.id);
-          const charges = this.itemCharges.get(player.id);
-          if (
-            !expectedReward
-            || expectedReward !== msg.reward
-            || !completed
-            || !charges
-            || completed.has(msg.stationId)
-            || this.sealedStations.has(msg.stationId)
-            || (msg.roundId !== undefined && msg.roundId !== this.roundId)
-          ) {
-            this.syncGear(playerId, false, { stationId: msg.stationId });
-            break;
-          }
-          completed.add(msg.stationId);
-          charges[msg.reward] = Math.min(3, charges[msg.reward] + 1);
-          this.syncGear(playerId, true, { stationId: msg.stationId });
-          // No role, reward, or fake-task flag: a completion cue must not expose the Impostor.
-          this.broadcast({ type: "STATION_COMPLETED", stationId: msg.stationId, roundId: this.roundId, sequence: ++this.stationCompletionSequence });
-          if (player.role === "CREWMATE") {
-            this.sealedStations.add(msg.stationId);
-            const progressGain = this.phase === "ORDEAL" ? ORDEAL_TASK_PROGRESS_REWARD : TASK_PROGRESS_REWARD;
-            this.taskProgress = Math.min(100, this.taskProgress + progressGain);
-            this.broadcastWorld();
-            if (this.taskProgress >= 100) {
-              this.endMatch("CREW VICTORY — ALL MOON WARDS RESTORED");
-            }
-          }
-        } else this.syncGear(playerId, false, { stationId: msg.stationId });
+        this.completeRitual(player, msg.stationId, msg.reward, msg.roundId);
         break;
 
       case "SEND_CHAT":
@@ -479,13 +413,45 @@ export class GameRoom {
     }
   }
 
-  private syncGear(playerId: string, accepted: boolean, detail: { item?: ItemKind; stationId?: string }) {
+  private completeRitual(player: NetPlayer, stationId: string, reward: ItemKind, roundId = this.roundId) {
+    player.working = false;
+    const station = STATION_BY_ID.get(stationId);
+    const completed = this.completedStations.get(player.id);
+    const charges = this.itemCharges.get(player.id);
+    if (this.state !== "PLAYING" || !player.alive || this.phase === "DISCUSSION" || roundId !== this.roundId
+      || !station || station.reward !== reward || dist(player, station) > STATION_INTERACTION_RANGE
+      || !completed || !charges || completed.has(stationId)) {
+      this.syncGear(player.id, false, { stationId });
+      return false;
+    }
+
+    completed.add(stationId);
+    charges[reward] = Math.min(3, charges[reward] + 1);
+    // A shared seal advances the ward only once, but never takes another player's personal rite away.
+    const progressGain = player.role === "CREWMATE" && !this.sealedStations.has(stationId)
+      ? (this.phase === "ORDEAL" ? ORDEAL_TASK_PROGRESS_REWARD : TASK_PROGRESS_REWARD) : 0;
+    if (progressGain) {
+      this.sealedStations.add(stationId);
+      this.taskProgress = Math.min(100, this.taskProgress + progressGain);
+    }
+    this.syncGear(player.id, true, { stationId, wardProgressGain: progressGain });
+    // No player identity, role, reward, or fake-task flag in the public completion cue.
+    this.broadcast({ type: "STATION_COMPLETED", stationId, roundId: this.roundId, sequence: ++this.stationCompletionSequence });
+    if (progressGain) {
+      this.broadcastWorld();
+      if (this.taskProgress >= 100) this.endMatch("CREW VICTORY — ALL MOON WARDS RESTORED");
+    }
+    return true;
+  }
+
+  private syncGear(playerId: string, accepted: boolean, detail: { item?: ItemKind; stationId?: string; wardProgressGain?: number }) {
     const charges = this.itemCharges.get(playerId);
     const client = this.clients.get(playerId);
     if (!charges || !client) return;
     this.sendTo(client, {
       type: "GEAR_SYNC", charges: { ...charges }, accepted, roundId: this.roundId, ...detail,
-      stationCompleted: detail.stationId ? this.sealedStations.has(detail.stationId) || this.completedStations.get(playerId)?.has(detail.stationId) : undefined,
+      completedStations: Array.from(this.completedStations.get(playerId) ?? []),
+      stationCompleted: detail.stationId ? this.completedStations.get(playerId)?.has(detail.stationId) : undefined,
     });
   }
 
@@ -515,7 +481,8 @@ export class GameRoom {
   private startMatch(botFill: boolean, targetCount: number) {
     this.state = "PLAYING";
     this.phase = "CALM";
-    this.phaseTime = 15;
+    this.phaseTime = CALM_SECONDS;
+    this.announceNextOrdeal();
     this.taskProgress = 0;
     this.bodies = [];
     this.flares = [];
@@ -530,6 +497,8 @@ export class GameRoom {
     this.sealedStations.clear();
     this.completedStations.clear();
     this.itemCharges.clear();
+    this.botRituals.clear();
+    this.botLightUntil.clear();
     this.syncTimer = 0;
     this.worldSyncTimer = 0;
     for (const player of this.players.values()) {
@@ -550,8 +519,8 @@ export class GameRoom {
           hat: HATS[botIndex % HATS.length],
           eyeStyle: EYE_STYLES[botIndex % EYE_STYLES.length],
           alive: true,
-          x: 640 + Math.cos(angle) * 160,
-          y: 384 + Math.sin(angle) * 100,
+          x: CENTER.x + Math.cos(angle) * 240,
+          y: CENTER.y + Math.sin(angle) * 150,
           vx: 0,
           vy: 0,
           angle: 0,
@@ -590,6 +559,7 @@ export class GameRoom {
     }
 
     this.lastTick = Date.now();
+    this.broadcastWorld();
     this.loopTimer = setInterval(() => this.tick(), 50); // 20Hz server tick
     this.loopTimer.unref?.();
   }
@@ -644,7 +614,14 @@ export class GameRoom {
     this.roundId += 1;
     this.sealedStations.clear();
     for (const completed of this.completedStations.values()) completed.clear();
+    this.botRituals.clear();
+    for (const id of this.clients.keys()) this.syncGear(id, true, {});
     // Earned gear and team progress carry forward; only the shrine locks reset.
+  }
+
+  private announceNextOrdeal() {
+    this.hazard = nextHazard(this.hazard);
+    this.ordealSeed = Math.floor(Math.random() * 4294967296);
   }
 
   private executeKill(victim: NetPlayer, killer: NetPlayer) {
@@ -811,7 +788,8 @@ export class GameRoom {
 
     if (!this.checkWinConditions()) {
       this.phase = "CALM";
-      this.phaseTime = 15;
+      this.phaseTime = CALM_SECONDS;
+      this.announceNextOrdeal();
       this.killCooldownUntil = 0;
       this.resetStationsForRound();
       this.broadcastWorld();
@@ -882,8 +860,6 @@ export class GameRoom {
         if (this.phase === "CALM") {
           this.phase = "COUNTDOWN";
           this.phaseTime += 3;
-          this.hazard = nextHazard(this.hazard);
-          this.ordealSeed = Math.floor(Math.random() * 4294967296);
         } else if (this.phase === "COUNTDOWN") {
           this.restoreTrueColors();
           this.phase = "ORDEAL";
@@ -895,7 +871,8 @@ export class GameRoom {
           this.killUsedThisOrdeal = false;
         } else if (this.phase === "ORDEAL") {
           this.phase = "CALM";
-          this.phaseTime += 15;
+          this.phaseTime += CALM_SECONDS;
+          this.announceNextOrdeal();
           this.resetStationsForRound();
         }
       }
@@ -944,15 +921,22 @@ export class GameRoom {
   private tickBots(dt: number) {
     for (const bot of this.players.values()) {
       if (!bot.isAi || !bot.alive) continue;
-      // Basic smooth wander
-      if (Math.random() < dt * 0.4) {
+      // Calm is useful preparation: travel to a real shrine, stop, and finish a visible rite.
+      const preparing = this.phase === "CALM" || this.phase === "COUNTDOWN";
+      const doingRitual = preparing && this.tickBotRitual(bot, dt);
+      if (this.state !== "PLAYING") return;
+      if (!preparing) {
+        bot.working = false;
+        const ritual = this.botRituals.get(bot.id);
+        if (ritual) ritual.dwell = 0;
+      }
+      if (!doingRitual && (Math.hypot(bot.vx, bot.vy) < 1 || Math.random() < dt * 0.4)) {
         const angle = Math.random() * Math.PI * 2;
         const speed = this.phase === "ORDEAL" ? 140 : 100;
         bot.vx = Math.cos(angle) * speed;
         bot.vy = Math.sin(angle) * speed;
       }
-      const nextX = Math.max(ROOM.left + 36, Math.min(ROOM.right - 36, bot.x + bot.vx * dt));
-      const nextY = Math.max(ROOM.top + 48, Math.min(ROOM.bottom - 32, bot.y + bot.vy * dt));
+      const { x: nextX, y: nextY } = clampWorldPoint(bot.x + bot.vx * dt, bot.y + bot.vy * dt);
       const impostorPhasing = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && bot.role === "IMPOSTOR";
       const rootChecked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && !impostorPhasing
         ? keepInRootCell(bot, { x: nextX, y: nextY })
@@ -962,13 +946,9 @@ export class GameRoom {
       if (next.y !== nextY) bot.vy *= -0.2;
       bot.x = next.x;
       bot.y = next.y;
+      if (Math.hypot(bot.vx, bot.vy) > 1) bot.angle = Math.atan2(bot.vy, bot.vx);
       this.maybeFootstep(bot);
-
-      // Bot auto-repairs in Calm
-      if (this.phase === "CALM" && bot.role === "CREWMATE" && Math.random() < dt * 0.08) {
-        this.taskProgress = Math.min(100, this.taskProgress + 1.2);
-        this.checkWinConditions();
-      }
+      this.tickBotGear(bot);
 
       // Bot Impostor hunting
       if (this.phase === "ORDEAL" && bot.role === "IMPOSTOR" && !this.killUsedThisOrdeal && Date.now() >= this.killCooldownUntil && this.phaseTime < ordealDuration(this.hazard) - 1.5) {
@@ -981,6 +961,65 @@ export class GameRoom {
           this.executeKill(victim, bot);
         }
       }
+    }
+  }
+
+  private tickBotRitual(bot: NetPlayer, dt: number) {
+    const completed = this.completedStations.get(bot.id);
+    if (!completed) return false;
+    let ritual = this.botRituals.get(bot.id);
+    if (!ritual || completed.has(ritual.stationId)) {
+      const target = STATIONS.filter(station => !completed.has(station.id)).sort((a, b) =>
+        Number(this.sealedStations.has(a.id)) - Number(this.sealedStations.has(b.id)) || dist(bot, a) - dist(bot, b))[0];
+      if (!target) { bot.working = false; return false; }
+      ritual = { stationId: target.id, route: planRoute(bot, target), dwell: 0 };
+      this.botRituals.set(bot.id, ritual);
+    }
+    const station = STATION_BY_ID.get(ritual.stationId)!;
+    if (dist(bot, station) <= 82) {
+      bot.vx = 0;
+      bot.vy = 0;
+      bot.working = true;
+      ritual.dwell += Math.min(dt, 0.1);
+      if (ritual.dwell >= BOT_RITUAL_SECONDS) {
+        this.completeRitual(bot, station.id, station.reward);
+        this.botRituals.delete(bot.id);
+      }
+      return true;
+    }
+    ritual.dwell = 0;
+    bot.working = false;
+    while (ritual.route.length > 1 && dist(bot, ritual.route[0]) < 12) ritual.route.shift();
+    const next = ritual.route[0];
+    if (!next) { bot.vx = 0; bot.vy = 0; return true; }
+    const distance = Math.max(1, dist(bot, next));
+    const speed = Math.min(130, distance / Math.max(dt, 0.001));
+    bot.vx = (next.x - bot.x) / distance * speed;
+    bot.vy = (next.y - bot.y) / distance * speed;
+    return true;
+  }
+
+  private tickBotGear(bot: NetPlayer) {
+    const now = Date.now();
+    if (this.phase !== "ORDEAL") {
+      bot.flashlight = false;
+      this.botLightUntil.delete(bot.id);
+      return;
+    }
+    const charges = this.itemCharges.get(bot.id);
+    const usedLight = this.botLightUntil.has(bot.id);
+    bot.flashlight = now < (this.botLightUntil.get(bot.id) ?? 0);
+    if (!charges || usedLight || this.phaseTime > ordealDuration(this.hazard) - 1.5) return;
+    if ((this.hazard === "BLACKOUT" || this.hazard === "FOG") && charges.FLASHLIGHT > 0) {
+      charges.FLASHLIGHT -= 1;
+      bot.flashlight = true;
+      this.botLightUntil.set(bot.id, now + 4000);
+    } else if (charges.FLARE > 0 && (this.hazard === "BLACKOUT" || this.hazard === "FOG" || this.hazard === "MOONGLARE")) {
+      charges.FLARE -= 1;
+      this.botLightUntil.set(bot.id, now);
+      const flare = { x: bot.x, y: bot.y, life: 5, owner: bot.id };
+      this.flares.push(flare);
+      this.broadcast({ type: "FLARE_SPAWNED", flare });
     }
   }
 

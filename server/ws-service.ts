@@ -1,6 +1,7 @@
 import http from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import { handleSocketConnection } from "./ws-handler";
+import { GAME_WORLD_VERSION } from "./game-version";
 
 /** One process owns every room. Do not horizontally scale without shared state. */
 export function createRoomServer(options: { allowedOrigins?: string[]; heartbeatMs?: number } = {}) {
@@ -16,7 +17,7 @@ export function createRoomServer(options: { allowedOrigins?: string[]; heartbeat
     res.setHeader("Cache-Control", "no-store");
     if (req.method === "GET" && req.url?.split("?")[0] === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", service: "moonwarden-ws" }));
+      res.end(JSON.stringify({ status: "ok", service: "moonwarden-ws", worldVersion: GAME_WORLD_VERSION }));
       return;
     }
     res.writeHead(404).end();

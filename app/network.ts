@@ -1,4 +1,5 @@
 import type { EyeStyle } from "../server/appearance";
+import { GAME_VERSION_MISMATCH, GAME_WORLD_VERSION, isCompatibleServerInfo } from "../server/game-version";
 import type {
   C2SMessage,
   Hat,
@@ -10,6 +11,10 @@ import type {
 } from "../server/game-types";
 
 export type ConnectionState = "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "ERROR";
+
+class GameVersionMismatch extends Error {
+  constructor() { super(GAME_VERSION_MISMATCH); }
+}
 
 export interface MultiplayerState {
   roomCode: string;
@@ -139,8 +144,12 @@ export class MultiplayerClient {
       const response = await fetch(url.href, { signal: abort.signal, cache: "no-store", credentials: "omit" });
       if (!response.ok) throw new Error("Realtime server not ready");
       if (generation !== this.generation) throw new Error("Connection cancelled");
-    } catch {
+      const info = await response.json() as { worldVersion?: unknown } | null;
       if (generation !== this.generation) throw new Error("Connection cancelled");
+      if (info?.worldVersion !== GAME_WORLD_VERSION) throw new GameVersionMismatch();
+    } catch (error) {
+      if (generation !== this.generation) throw new Error("Connection cancelled");
+      if (error instanceof GameVersionMismatch) throw error;
       throw new Error("The realtime server is waking up or unavailable. Please retry in a moment.");
     } finally {
       window.clearTimeout(timeout);
@@ -157,7 +166,7 @@ export class MultiplayerClient {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sessionId: this.httpSessionId || undefined,
-        messages: [],
+        messages: [{ type: "CLIENT_HELLO", worldVersion: GAME_WORLD_VERSION }],
       }),
       signal: AbortSignal.timeout(8000),
       cache: "no-store",
@@ -173,6 +182,15 @@ export class MultiplayerClient {
     if (generation !== this.generation) throw new Error("Connection cancelled");
     if (data.ok !== true || typeof data.sessionId !== "string" || !data.sessionId || !Array.isArray(data.messages)) {
       throw new Error("The game server returned an invalid session. Please reconnect.");
+    }
+    const serverInfo = data.messages.filter(message => message?.type === "SERVER_INFO");
+    if (serverInfo.length === 0 || !serverInfo.every(isCompatibleServerInfo)) {
+      this.lastError = GAME_VERSION_MISMATCH;
+      this.notifyState();
+      // The old relay might have allocated an empty session before proving its
+      // revision. Close it without ever sending a create/join/gameplay action.
+      void fetch("/api/mp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: data.sessionId, disconnect: true }), keepalive: true }).catch(() => undefined);
+      throw new GameVersionMismatch();
     }
     this.ping = Math.max(1, Math.round(performance.now() - t0));
     if (data.sessionId) {
@@ -330,10 +348,31 @@ export class MultiplayerClient {
           this.ws = socket;
 
           let failed = false;
+          let opened = false;
+          let serverAccepted = false;
+          let handshakeTimeout: number | null = null;
+          const clearConnectionTimers = () => {
+            window.clearTimeout(connectTimeout);
+            if (handshakeTimeout !== null) window.clearTimeout(handshakeTimeout);
+            handshakeTimeout = null;
+          };
+          const rejectIncompatible = () => {
+            if (failed || generation !== this.generation || this.ws !== socket) return;
+            failed = true;
+            hasResolved = true;
+            clearConnectionTimers();
+            socket.onopen = socket.onclose = socket.onerror = socket.onmessage = null;
+            socket.close();
+            this.ws = null;
+            this.transport = "NONE";
+            this.markDisconnected(GAME_VERSION_MISMATCH);
+            reject(new GameVersionMismatch());
+          };
           const fail = () => {
             if (failed || hasResolved || generation !== this.generation) return;
+            if (opened) { rejectIncompatible(); return; }
             failed = true;
-            window.clearTimeout(connectTimeout);
+            clearConnectionTimers();
             socket.onopen = socket.onclose = socket.onerror = socket.onmessage = null;
             socket.close();
             if (customWsUrl) {
@@ -352,6 +391,17 @@ export class MultiplayerClient {
           socket.onopen = () => {
             if (generation !== this.generation) { socket.close(); reject(new Error("Connection cancelled")); return; }
             window.clearTimeout(connectTimeout);
+            opened = true;
+            // An open socket is not proof that the server uses this map. Old
+            // containers can listen on the fallback port and silently clamp
+            // players against geometry that this client cannot see.
+            handshakeTimeout = window.setTimeout(rejectIncompatible, 4000);
+            socket.send(JSON.stringify({ type: "CLIENT_HELLO", worldVersion: GAME_WORLD_VERSION }));
+          };
+
+          const acceptServer = () => {
+            serverAccepted = true;
+            clearConnectionTimers();
             this.transport = "WS";
             this.connected = true;
             this.lastError = "";
@@ -379,6 +429,13 @@ export class MultiplayerClient {
             this.lastReceivedAt = Date.now();
             try {
               const msg: S2CMessage = JSON.parse(event.data);
+              if (!serverAccepted) {
+                if (!isCompatibleServerInfo(msg)) { rejectIncompatible(); return; }
+                acceptServer();
+                return;
+              }
+              if (!this.connected) return;
+              if (msg.type === "SERVER_INFO" && !isCompatibleServerInfo(msg)) { rejectIncompatible(); return; }
               this.handleIncoming(msg);
             } catch (err) {
               console.error("[MP Client] Failed to parse message:", err);
@@ -386,7 +443,7 @@ export class MultiplayerClient {
           };
 
           socket.onclose = () => {
-            window.clearTimeout(connectTimeout);
+            clearConnectionTimers();
             if (generation !== this.generation || this.ws !== socket) return;
             if (this.transport === "WS") {
               this.markDisconnected("Connection to the game room was lost. Return to the lobby to reconnect.");
@@ -420,7 +477,14 @@ export class MultiplayerClient {
   }
 
   private handleIncoming(msg: S2CMessage) {
+    if (!this.connected) return;
     switch (msg.type) {
+      case "SERVER_INFO":
+        if (!isCompatibleServerInfo(msg)) {
+          this.markDisconnected(GAME_VERSION_MISMATCH);
+          this.ws?.close();
+        }
+        return;
       case "PONG":
         this.ping = Math.max(1, Math.round(performance.now() - msg.sentAt));
         this.notifyState();
@@ -670,6 +734,9 @@ export class MultiplayerClient {
       } catch {}
     }
     if (this.ws) {
+      // A close event can arrive after this client/component has been disposed.
+      // Do not let stale handlers touch browser timers or revive room state.
+      this.ws.onopen = this.ws.onclose = this.ws.onerror = this.ws.onmessage = null;
       this.ws.close();
       this.ws = null;
     }
