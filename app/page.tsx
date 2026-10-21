@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MultiplayerClient, type MultiplayerState } from "./network";
 import type { NetMovement, NetPlayer, S2CMessage } from "../server/game-types";
+import { ROLE_LABELS, ejectionVerdict, matchResultLabel, meetingVerdictLabel } from "../server/role-presentation";
 import { MovementBuffer } from "./movement";
 import { slimeEyes, slimeOutline, slimeSkin } from "./slime-art";
 import { SlimePortrait } from "./slime-portrait";
@@ -1211,7 +1212,7 @@ class OrdealEngine {
         this.echoes.push({ ...point, until: this.elapsed + 2, nextAt: 0 });
       }
     }
-    this.flashMessage(ability === "MOON_SIGHT" ? "MOON SIGHT AWAKENED — all crewmate positions and colors revealed!" : "ECHO LURE — a false rustle follows your aim. Special action spent.");
+    this.flashMessage(ability === "MOON_SIGHT" ? "MOON SIGHT AWAKENED — all Warden positions and colors revealed!" : "ECHO LURE — a false rustle follows your aim. Special action spent.");
     this.emit(true);
   }
 
@@ -1257,7 +1258,7 @@ class OrdealEngine {
       );
       const victim = victims.sort((a, b) => dist(a, this.human) - dist(b, this.human))[0];
       if (!victim) {
-        this.flashMessage("No crewmate in melee range.");
+        this.flashMessage("No Warden in melee range.");
         return;
       }
       this.pendingDevourVictimId = victim.id;
@@ -1274,7 +1275,7 @@ class OrdealEngine {
     );
     const victim = victims.sort((a, b) => dist(a, this.human) - dist(b, this.human))[0];
     if (!victim) {
-      this.flashMessage("No crewmate in melee range.");
+      this.flashMessage("No Warden in melee range.");
       return;
     }
     this.eliminate(victim, this.human);
@@ -1488,7 +1489,7 @@ class OrdealEngine {
           tally: voteTally,
           ejectedId,
           tied: false,
-          verdict: `${ejected.name} was ejected — ${ejected.role === "IMPOSTOR" ? "THE IMPOSTOR" : "CREWMATE"}`,
+          verdict: ejectionVerdict(ejected.name, ejected.role),
         };
       }
     } else {
@@ -2211,7 +2212,7 @@ class OrdealEngine {
       ctx.fillStyle = `rgba(205,255,222,${strength * 0.9})`;
       ctx.font = "900 11px ui-monospace, monospace";
       ctx.textAlign = "left";
-      ctx.fillText(`CELL ${cell.index + 1}  •  IMPOSTOR ROOTWALK (FULL MAP VISION • PASS THROUGH ROOTS)`, ROOM.left + 16, ROOM.top + 24);
+      ctx.fillText(`CELL ${cell.index + 1}  •  THE HOLLOW ROOTWALK (FULL MAP VISION • PASS THROUGH ROOTS)`, ROOM.left + 16, ROOM.top + 24);
     }
     ctx.restore();
   }
@@ -3727,7 +3728,7 @@ const CIRCLE_WARDEN_QUIPS: readonly (readonly string[])[] = [
   [
     "Who turned off the moon?!",
     "I dropped my Moonblossom and ran for my life!",
-    "Wait—can impostors squeeze through root cages?!",
+    "Wait—can The Hollow squeeze through root cages?!",
     "If the blue crystal blinks, stand inside its light!",
   ],
   [
@@ -4193,7 +4194,7 @@ function Lobby({
         <aside className="studio-guide" aria-label="Moonwarden game guide">
           <div className="eyebrow"><span>☽ SILVERPINE SUMMIT</span><small>A SOCIAL DEDUCTION ADVENTURE</small></div>
           <h1>Little slimes.<br /><em>Big suspicions.</em></h1>
-          <p className="lede">Your friends. A magical forest.<br className="home-copy-break" /> One very convincing impostor.</p>
+          <p className="lede">Your friends. A magical forest.<br className="home-copy-break" /> One friend is secretly The Hollow.</p>
           {!inRoom && tab === "MULTI" && <div className="home-play-shortcuts"><button type="button" onClick={handleCreateRoom} disabled={isConnecting || !multiplayerClient}>{isConnecting ? "Connecting…" : "Create a room"}<span aria-hidden="true">↗</span></button><a href="#home-room-code">Join with a code <span aria-hidden="true">↓</span></a></div>}
           <div className="home-hero-tags"><span>✦ 4–8 wardens</span><span>No download</span><span>Free to play</span></div>
           <div className="lobby-mode-switch" role="tablist" aria-label="Game Mode">
@@ -4208,10 +4209,10 @@ function Lobby({
             <summary>How to Play</summary>
             <div><span>01</span><p><b>Gather your circle</b><small>Create a room. Share your ward code.</small></p></div>
             <div><span>02</span><p><b>Brave the Ordeals</b><small>Restore shrines. Earn gear. Stay close.</small></p></div>
-            <div><span>03</span><p><b>Discuss. Vote. Repeat.</b><small>One of you has a very bad alibi.</small></p></div>
+            <div><span>03</span><p><b>Discuss. Vote. Repeat.</b><small>Uncover The Hollow hiding in your circle.</small></p></div>
           </details>
           <div className="home-game-tags" aria-label="About the game">
-            <span>4–8 wardens</span><span>One hidden impostor</span><span>Play in your browser</span>
+            <span>4–8 wardens</span><span>One hidden Hollow</span><span>Play in your browser</span>
           </div>
           <div className="studio-guide-note"><span aria-hidden="true">☽</span><p>Trust the light.<br /><b>Question everyone else.</b></p></div>
         </aside>
@@ -4451,7 +4452,7 @@ function Lobby({
                 <div className="field-label role-label">TEST IDENTITY <span>PRIVATE TO THIS CLIENT</span></div>
                 <div className="role-switch" role="group" aria-label="Choose test role">
                   {(["RANDOM", "CREWMATE", "IMPOSTOR"] as RoleChoice[]).map((value) => (
-                    <button key={value} className={role === value ? "active" : ""} onClick={() => { playLobbySfx("switch", 1); setRole(value); }}>{value === "RANDOM" ? "AUTO" : value}</button>
+                    <button key={value} className={role === value ? "active" : ""} onClick={() => { playLobbySfx("switch", 1); setRole(value); }}>{value === "RANDOM" ? "AUTO" : ROLE_LABELS[value].toUpperCase()}</button>
                   ))}
                 </div>
                 <p className="role-note">Your role stays private. Eyes and headdresses are cosmetic; your role never changes your appearance or movement.</p>
@@ -5413,7 +5414,7 @@ function Game({
         <div className="crew-count"><span className="crew-dot" />{snapshot.living}<small> / {snapshot.total} ALIVE</small></div>
 
         {snapshot.role === "IMPOSTOR" && (
-          <div className="private-role"><small>PRIVATE ROLE</small><b>IMPOSTOR</b><span>Sight V OR Echo C • one special action</span><span>one strike per Ordeal</span></div>
+          <div className="private-role"><small>PRIVATE ROLE</small><b>{ROLE_LABELS.IMPOSTOR.toUpperCase()}</b><span>Sight V OR Echo C • one special action</span><span>one strike per Ordeal</span></div>
         )}
 
         {snapshot.message && <div className="toast-message">{snapshot.message}</div>}
@@ -5507,8 +5508,8 @@ function Game({
           </div>
           <div className="reveal-copy">
             <small>{roleReveal === "IMPOSTOR" ? "PRIVATE IDENTITY // DECRYPTING" : "CIRCLE IDENTITY // ATTUNING"}</small>
-            <p className="reveal-lead">YOU ARE {roleReveal === "IMPOSTOR" ? "THE" : "A"}</p>
-            <h2 id="role-reveal-title">{roleReveal === "IMPOSTOR" ? "IMPOSTOR" : "WARDEN"}</h2>
+            <p className="reveal-lead">YOU ARE{roleReveal === "CREWMATE" ? " A" : ""}</p>
+            <h2 id="role-reveal-title">{ROLE_LABELS[roleReveal].toUpperCase()}</h2>
             <p className="reveal-order">{roleReveal === "IMPOSTOR" ? "One strike. One trick: choose Moon Sight or Echo Lure each Ordeal." : "Restore the moon wards. Keep your circle alive."}</p>
             <div className="reveal-progress" aria-hidden="true"><i /><i /><i /><i /><i /></div>
             <button onClick={dismissRoleReveal}>ENTER THE SANCTUARY</button>
@@ -5535,7 +5536,7 @@ function Game({
             <div className="killer-label">KILLED BY</div>
             <ConsumptionPortrait killerColor={deathReveal.killerColor} victimColor={deathReveal.victimColor || "#63e6be"} />
             <strong>{deathReveal.killerName}</strong>
-            <p>You now know the Impostor—but the living crew cannot hear you.</p>
+            <p>You now know The Hollow—but the living Wardens cannot hear you.</p>
             <button onClick={dismissDeathReveal}>CONTINUE AS SPECTATOR</button>
           </div>
         </div>
@@ -5597,7 +5598,7 @@ function Game({
                 <div className="vote-tally-screen">
                   <div className={`vote-verdict ${meeting.ejectedId ? "ejected" : "no-ejection"}`}>
                     <small>FINAL VERDICT</small>
-                    <h3>{meeting.verdict}</h3>
+                    <h3>{meeting.verdict && meetingVerdictLabel(meeting.verdict)}</h3>
                     <p>The crew’s votes have been counted.</p>
                   </div>
                   <div className="tally-grid" aria-label="Vote totals by player">
@@ -5681,7 +5682,7 @@ function Game({
         <div className="modal-backdrop result-backdrop" role="dialog" aria-modal="true" aria-labelledby="result-title">
           <div className="result-card">
             <small>SIMULATION COMPLETE</small>
-            <h2 id="result-title">{result}</h2>
+            <h2 id="result-title">{matchResultLabel(result)}</h2>
             <p>The hidden role was assigned privately. No public character trait revealed allegiance.</p>
             <button onClick={onExit}>RETURN TO LOBBY</button>
           </div>

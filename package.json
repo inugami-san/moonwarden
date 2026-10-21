@@ -11,7 +11,7 @@
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "ws": "tsx server/ws-server.ts",
     "test:ws": "node --import tsx --test tests/ws-server.test.mjs",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs && node --import tsx --test tests/multiplayer.test.mjs tests/movement.test.mjs tests/network.test.mjs tests/sanctum.test.mjs tests/slime-art.test.mjs tests/forest-audio.test.mjs tests/game-feedback.test.mjs tests/ordeal.test.mjs tests/analytics.test.mjs tests/analytics-game.test.mjs tests/sanctuary-map.test.mjs tests/navigation-map.test.mjs tests/world-camera.test.mjs tests/client-exploration.test.mjs tests/ritual-art.test.mjs tests/lobby-palette.test.mjs tests/collision-slide.test.mjs tests/version-compatibility.test.mjs",
+    "test": "npm run build && node --test tests/rendered-html.test.mjs && node --import tsx --test tests/multiplayer.test.mjs tests/movement.test.mjs tests/network.test.mjs tests/sanctum.test.mjs tests/slime-art.test.mjs tests/forest-audio.test.mjs tests/game-feedback.test.mjs tests/ordeal.test.mjs tests/analytics.test.mjs tests/analytics-game.test.mjs tests/sanctuary-map.test.mjs tests/navigation-map.test.mjs tests/world-camera.test.mjs tests/client-exploration.test.mjs tests/ritual-art.test.mjs tests/lobby-palette.test.mjs tests/collision-slide.test.mjs tests/version-compatibility.test.mjs tests/role-presentation.test.mjs",
     "test:analytics": "node --import tsx --test tests/analytics.test.mjs tests/analytics-game.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"

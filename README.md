@@ -6,9 +6,9 @@ within the Silverpine forest. It runs in the browser with a procedurally rendere
 
 ## Included gameplay
 
-- Four to eight players with exactly one privately assigned Impostor
-- Forced Crewmate, forced Impostor, and random role test modes
-- Cinematic private role reveals for both Wardens and the Impostor
+- Four to eight players with exactly one player privately assigned the role of The Hollow
+- Test modes with forced roles (Warden or The Hollow) or random assignment
+- Cinematic private role reveals for both Wardens and The Hollow
 - Twenty-four-second Calm, three-second warning, and ten-second Ordeal phases; Mirror Pool lasts twenty-five seconds
 - Six rotating Ordeals: Total Blackout, Thick Sea Fog, Moon Glare, Rootwake's six-cell grid, Phantom Procession decoys that Sonar can expose, and Mirror Pool's reversed controls and contact-triggered color swaps
 - A shared 1920×1140 forest with connected clearings and a responsive following camera; slimes, shrines, and collision props retain their readable sizes
@@ -16,9 +16,9 @@ within the Silverpine forest. It runs in the browser with a procedurally rendere
 - Task-earned Glowing Mushrooms, five-second Moonblossoms, and Echo Bells, with clear reward notices
 - Forest sanctums with mossy stone, living roots, fireflies, and flowers; personal reward availability and shared restoration have separate visual states
 - Sanctums reopen each round (the next Calm, including after meetings), preserving earned gear and shared task progress; successful tasks emit a small 0.5-second completion pulse in solo and multiplayer
-- One personal ritual per player, sanctum, and round; a teammate's shared seal never removes your gear reward. Only the first real Warden completion adds team progress; deceptive Impostor tasks do not. Delayed requests from older rounds are rejected
-- Quick arithmetic and constellation-link shrine puzzles, including fake Impostor versions
-- One Impostor strike per Ordeal with a compact, non-blocking top kill notice (no public identity reveal), private Impostor Moon Sight, jelly puddles, reporting, emergency meetings, voting,
+- One personal ritual per player, sanctum, and round; a teammate's shared seal never removes your gear reward. Only the first real Warden completion adds team progress; deceptive tasks by The Hollow do not. Delayed requests from older rounds are rejected
+- Quick arithmetic and constellation-link shrine puzzles, including fake versions for The Hollow
+- One strike by The Hollow per Ordeal with a compact, non-blocking top kill notice (no public identity reveal), private Moon Sight for The Hollow, jelly puddles, reporting, emergency meetings, voting,
   ejection, task victory, and parity victory
 - Phase-aware background music that crossfades between the gentle normal-flow theme and hostile Ordeal theme, preserving each track's position with an in-game BGM toggle
 - Living-player meeting chat with contextual AI discussion for the local playtest
@@ -157,7 +157,7 @@ guides. The next hazard does not repeat the previous one.
 Each player can complete one personal ritual at each shrine per round. The
 first real Warden completion at that shrine adds **8% team ward progress during
 Calm/Countdown**, or **12% during an Ordeal**. Later completions there still earn
-that player's gear, but never duplicate the shared progress. Impostors can
+that player's gear, but never duplicate the shared progress. The Hollow can
 perform convincing fake rituals and earn gear without restoring the wards.
 Rituals remain available during Ordeals if players take the risk; meetings pause
 them. Round changes reopen personal rituals and shared seals while preserving
@@ -175,13 +175,13 @@ Phantom paths use a per-Ordeal seed shared by the server.
 Soft Glare reduces brightness without exposing colors/accessories. SFX can be
 enabled independently of music; directional rustle captions work with sound off.
 
-The impostor has one **shared special-action charge** each Ordeal: `V` Moon Sight
+The Hollow has one **shared special-action charge** each Ordeal: `V` Moon Sight
 (up to 3.2 seconds) **or** `C` Echo Lure (aim first; 2 seconds; 220-unit range).
 The kill remains a separate one-per-Ordeal action. The room server validates role,
 life, phase, round, range and charge; only the caster receives private ability state.
 Real footsteps and lures share the same anonymous sound-cue format and hearing range.
 Rootwake confines Wardens and lures/sounds to their current chamber. The existing
-Impostor Rootwalk exception permits the Impostor to pass through roots; the
+Rootwalk exception for The Hollow permits it to pass through roots; the
 navigation map still masks other chambers and never becomes a player radar.
 
 This expansion changes shared world coordinates and private ritual-state
@@ -199,9 +199,9 @@ client with an old room server. The live Render service tracks
 | Select gear | `1`, `2`, `3` |
 | Use gear | `F` or right-click |
 | Report / emergency | `R` |
-| Impostor kill | `Q` or `Space` |
-| Impostor Moon Sight | `V` |
-| Impostor Echo Lure (aim first; shares charge with Sight) | `C` |
+| The Hollow — strike | `Q` or `Space` |
+| The Hollow — Moon Sight | `V` |
+| The Hollow — Echo Lure (aim first; shares charge with Sight) | `C` |
 | Environmental sound / reduced glare | `ENABLE SFX` / `SOFT GLARE` |
 
 ## Eye customization

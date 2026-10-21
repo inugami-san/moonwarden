@@ -46,6 +46,17 @@ test("server-renders the Moonwarden lobby", async () => {
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
+test("homepage and social metadata introduce The Hollow without the old role name", async () => {
+  const html = await (await render()).text();
+  assert.match(html, /One friend is secretly The Hollow/);
+  assert.match(html, /Uncover The Hollow hiding in your circle/);
+  for (const attribute of ['name="description"', 'property="og:description"', 'name="twitter:description"']) {
+    const tag = html.match(new RegExp(`<meta[^>]*${attribute}[^>]*>`))?.[0] ?? "";
+    assert.match(tag, /The Hollow/);
+  }
+  assert.doesNotMatch(html, /impostor|crewmate/i);
+});
+
 test("homepage prioritizes multiplayer with an accessible, clearly labeled local preview", async () => {
   const html = await (await render()).text();
   const modes = html.match(/<div class="lobby-mode-switch"[\s\S]*?<\/div>/)?.[0];

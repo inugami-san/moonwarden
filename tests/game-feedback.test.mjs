@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import ts from "typescript";
+import { ejectionVerdict } from "../server/role-presentation.ts";
 
 // Exercise the real engine methods without starting RAF, audio hardware, or a
 // network connection. Extracting the class avoids adding test exports/routes
@@ -23,6 +24,7 @@ function fixture() {
     isOccludedByObstacle: () => false,
     sharesRootCell: () => false,
     drawSanctumStatus: () => layers.push("status"),
+    ejectionVerdict,
   });
   const engine = Object.assign(Object.create(Engine.prototype), {
     players: [{ id: "you", x: 640, y: 400, role: "CREWMATE", alive: true }],
@@ -100,6 +102,20 @@ test("match-result feedback follows the local role without broadcasting role-spe
   engine.playResultSound("CREW VICTORY — ALL MOON WARDS RESTORED");
   engine.playResultSound("IMPOSTOR VICTORY — THE CREW IS AT PARITY");
   assert.deepEqual(cues, ["victory", "defeat", "victory"]);
+});
+
+test("solo vote verdicts reveal The Hollow or Warden without rewriting player names", () => {
+  for (const [role, label] of [["IMPOSTOR", "THE HOLLOW"], ["CREWMATE", "WARDEN"]]) {
+    const { engine } = fixture();
+    engine.players.push({ id: "suspect", name: "Impostor", color: "#20d8ed", role, alive: true, ai: false });
+    engine.paused = true;
+    engine.activeMeeting = { candidates: engine.players };
+    engine.suspicion = new Map();
+    engine.onMeeting = () => {};
+    engine.vote("suspect");
+    assert.equal(engine.activeMeeting.verdict, `Impostor was ejected — ${label}`);
+    assert.equal(engine.activeMeeting.ejectedId, "suspect");
+  }
 });
 
 test("Rootwake blocks a distant chamber's gulp while retaining the victim's private sound", () => {

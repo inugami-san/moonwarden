@@ -38,6 +38,7 @@ import {
   type WorldPoint,
 } from "./sanctuary-map";
 import { planRoute } from "./sanctuary-paths";
+import { ejectionVerdict } from "./role-presentation";
 
 export interface IWebSocketClient {
   send(data: string): void;
@@ -766,7 +767,7 @@ export class GameRoom {
       const ejected = this.players.get(ejectedId);
       if (ejected) {
         ejected.alive = false;
-        verdict = `${ejected.name} was ejected — ${ejected.role === "IMPOSTOR" ? "THE IMPOSTOR" : "CREWMATE"}`;
+        verdict = ejectionVerdict(ejected.name, ejected.role ?? "CREWMATE");
       }
     }
 

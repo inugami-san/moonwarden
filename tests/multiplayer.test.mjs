@@ -40,6 +40,32 @@ function createMockClient() {
   };
 }
 
+for (const role of ["IMPOSTOR", "CREWMATE"]) {
+  test(`multiplayer ejection names the ${role === "IMPOSTOR" ? "Hollow" : "Warden"} without altering role IDs or player names`, () => {
+    const registry = new GameServerRegistry();
+    const room = registry.createRoom();
+    const host = createMockClient();
+    const guest = createMockClient();
+    room.addClient("label-host", host, "Host", PLAYER_COLORS[0], "hood");
+    const target = room.addClient("label-target", guest, "Impostor", PLAYER_COLORS[1], "moth");
+    try {
+      room.handleMessage("label-host", { type: "START_MATCH", botFill: true, targetPlayers: 4 });
+      assert.ok(["CREWMATE", "IMPOSTOR"].includes(host.popMessage("MATCH_STARTED").role));
+      target.role = role;
+      room.phase = "DISCUSSION";
+      for (const player of room.players.values()) room.votes.set(player.id, target.id);
+      room.concludeMeeting();
+      const result = host.popMessage("MEETING_CONCLUDED");
+      assert.equal(result.verdict, `Impostor was ejected — ${role === "IMPOSTOR" ? "THE HOLLOW" : "WARDEN"}`);
+      assert.equal(target.role, role);
+      assert.equal(result.tally.find(entry => entry.targetId === target.id).targetName, "Impostor");
+      assert.equal(target.alive, false);
+    } finally {
+      registry.removeRoom(room.code);
+    }
+  });
+}
+
 test("eye cosmetics survive create, join, profile updates, discovery, matches, and vote tallies", () => {
   const registry = new GameServerRegistry();
   const room = registry.createRoom();
