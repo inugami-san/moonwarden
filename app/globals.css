@@ -1186,6 +1186,10 @@ input:focus-visible { outline: 3px solid #63e7f4; outline-offset: 3px; }
 
 /* Short console puzzles */
 .modal-backdrop.task-backdrop { background: rgba(0, 10, 14, .86); }
+.task-failure-card { border-color: #c18486; }
+.task-failure-card .task-puzzle-body > button { padding: 13px 20px; border: 1px solid #dac2a0; border-radius: 8px; color: #243337; background: #e7d5b6; cursor: pointer; font-weight: 800; }
+.task-failure-card .task-puzzle-body > button:focus-visible { outline: 3px solid #b9e7d2; outline-offset: 4px; }
+.slime-avatar canvas.slime-hat-svg { filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .25)); }
 .task-puzzle-card { width: min(610px, 100%); overflow: hidden; border: 1px solid #b58a4e; border-radius: 10px; background: linear-gradient(150deg, #102f35, #08171e 68%); box-shadow: 0 35px 100px #000, inset 0 1px rgba(255,245,209,.08); }
 .task-puzzle-head { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 22px; border-bottom: 1px solid rgba(203,159,87,.52); background: linear-gradient(90deg, rgba(37,104,103,.65), rgba(34,26,25,.38)); }
 .task-puzzle-head small { color: #d6b878; font: 850 8px var(--font-geist-mono), monospace; letter-spacing: .12em; }

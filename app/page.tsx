@@ -4,12 +4,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MultiplayerClient, type MultiplayerState } from "./network";
 import type { NetMovement, NetPlayer, S2CMessage } from "../server/game-types";
 import { ROLE_LABELS, ejectionVerdict, matchResultLabel, meetingVerdictLabel } from "../server/role-presentation";
+import { createMatchLayout } from "../server/match-layout";
+import { clampHollowCount, hollowVictory, ritualProgress, WARD_SETTLE_SECONDS, STEALTH_BODY_DELAY_SECONDS, STEALTH_COOLDOWN_SECONDS, STEALTH_ORDEAL_LOCKOUT } from "../server/match-rules";
 import { MovementBuffer } from "./movement";
 import { slimeEyes, slimeOutline, slimeSkin } from "./slime-art";
 import { SlimePortrait } from "./slime-portrait";
 import { EyeStylePicker } from "./eye-style-picker";
 import { EYE_LABELS } from "./slime-eyes";
 import { SlimeAnimator } from "./slime-motion";
+import { drawAccessory } from "./accessory-art";
 import { EYE_STYLES, normalizeEyeStyle, type EyeStyle } from "../server/appearance";
 import { drawForestSanctum, drawSanctumStatus } from "./sanctum-art";
 import { availablePlayerName, PLAYER_COLORS as COLORS, randomWardenCallsign, WARDEN_CALLSIGNS } from "../server/palette";
@@ -19,9 +22,7 @@ import {
   MIRROR_BUMP_COOLDOWN_MS,
   MIRROR_BUMP_DISTANCE,
   MOON_SIGHT_SECONDS,
-  ORDEAL_TASK_PROGRESS_REWARD,
   SANCTUARY_OBSTACLES,
-  TASK_PROGRESS_REWARD,
   isOccludedByObstacle,
   nextHazard,
   ordealDuration,
@@ -113,6 +114,9 @@ type Snapshot = {
   canKill: boolean;
   killCooldown: number;
   killSpent: boolean;
+  stealthCooldown: number;
+  stealthOrdealsLeft: number;
+  taskFailure: string;
   canUseMoonSight: boolean;
   moonSightActive: boolean;
   soundCaption: string;
@@ -234,6 +238,9 @@ function initialSnapshot(role: Role = "CREWMATE"): Snapshot {
     canKill: false,
     killCooldown: 0,
     killSpent: false,
+    stealthCooldown: 0,
+    stealthOrdealsLeft: 0,
+    taskFailure: "",
     canUseMoonSight: false,
     moonSightActive: false,
     soundCaption: "",
@@ -284,6 +291,7 @@ function snapshotsEqual(a: Snapshot, b: Snapshot): boolean {
     && a.canKill === b.canKill
     && a.killCooldown === b.killCooldown
     && a.killSpent === b.killSpent
+    && a.stealthCooldown === b.stealthCooldown && a.stealthOrdealsLeft === b.stealthOrdealsLeft && a.taskFailure === b.taskFailure
     && a.canUseMoonSight === b.canUseMoonSight
     && a.moonSightActive === b.moonSightActive
     && a.soundCaption === b.soundCaption
@@ -309,6 +317,22 @@ function snapshotsEqual(a: Snapshot, b: Snapshot): boolean {
 }
 
 class OrdealEngine {
+  layoutSeed = 0;
+  obstacles = [...SANCTUARY_OBSTACLES];
+  private hollowIds = new Set<string>();
+  private initialHollows = 1;
+  private initialWardens = 0;
+  private pendingWardDelta = 0;
+  private wardSettleTimer = 0;
+  private stealthUntil = 0;
+  private stealthAvailableOrdeal = 0;
+  private ordealNumber = 0;
+  private botStrikeSpent = new Set<string>();
+  private pendingBodies: { body: Body; at: number }[] = [];
+  private pendingKillStealth = false;
+  private taskFailure = "";
+  private lastQuestions = new Map<string, string>();
+  private wardClaims = new Set<string>();
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
   mask: HTMLCanvasElement;
@@ -475,6 +499,7 @@ class OrdealEngine {
     initialPlayers?: NetPlayer[],
     assignedRole?: Role,
     soloProfile?: SoloProfile,
+    matchOptions?: { layoutSeed?: number; hollowCount?: number; hollowAllies?: string[] },
   ) {
     this.canvas = canvas;
     this.motionPreference = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
@@ -503,14 +528,21 @@ class OrdealEngine {
     this.onDeath = onDeath;
     this.onEnd = onEnd;
     this.audio.enabled = true;
-    this.makeStations();
+    this.layoutSeed = matchOptions?.layoutSeed ?? Math.floor(Math.random() * 4294967296);
+    const layout = createMatchLayout(this.layoutSeed);
+    this.obstacles = layout.obstacles;
+    this.makeStations(layout.stations);
+    this.renderStaticBackground();
+    this.hollowIds = new Set(matchOptions?.hollowAllies ?? []);
+    this.initialHollows = clampHollowCount(matchOptions?.hollowCount, count);
+    this.initialWardens = count - this.initialHollows;
     this.multiplayerClient = multiplayerClient || null;
     if (this.multiplayerClient && initialPlayers && initialPlayers.length > 0) {
       this.localPlayerId = this.multiplayerClient.playerId;
       this.initMultiplayerPlayers(initialPlayers, assignedRole);
       this.unsubscribeNet = this.multiplayerClient.onMessage((msg) => this.handleNetworkMessage(msg));
     } else {
-      this.makePlayers(count, roleChoice, soloProfile);
+      this.makePlayers(count, roleChoice, soloProfile, this.initialHollows);
       this.hazard = nextHazard(this.hazard);
     }
     this.resize();
@@ -537,7 +569,7 @@ class OrdealEngine {
       return {
         id: p.id,
         name: isLocal ? `${p.name} (YOU)` : p.name,
-        role: isLocal ? (assignedRole || p.role || "CREWMATE") : "CREWMATE",
+        role: isLocal ? (assignedRole || p.role || "CREWMATE") : this.hollowIds.has(p.id) ? "IMPOSTOR" : "CREWMATE",
         x: p.x,
         y: p.y,
         vx: p.vx,
@@ -578,9 +610,20 @@ class OrdealEngine {
         break;
       case "KILL_RESULT":
         this.killUsedThisOrdeal = msg.spent;
+        this.stealthUntil = this.elapsed + (msg.stealthRemainingMs ?? 0) / 1000;
+        this.stealthAvailableOrdeal = this.ordealNumber + (msg.stealthOrdealsLeft ?? 0);
+        if (msg.accepted && this.pendingKillStealth && this.pendingDevourVictimId) {
+          const victim = this.players.find(p => p.id === this.pendingDevourVictimId);
+          if (victim) this.startDevour(`body-${victim.id}`, victim.x, victim.y, victim.color, this.human.id, this.human.color);
+        }
         if (!msg.accepted) this.pendingDevourVictimId = null;
         if (!msg.accepted) this.flashMessage(msg.spent ? "Your single strike is already spent for this Ordeal." : "Strike missed — the target moved out of reach. Your strike is still available.");
         this.emit(true);
+        break;
+      case "STRIKE_STATE":
+        this.killUsedThisOrdeal = msg.spent;
+        this.stealthUntil = this.elapsed + msg.stealthRemainingMs / 1000;
+        this.stealthAvailableOrdeal = this.ordealNumber + msg.stealthOrdealsLeft;
         break;
       case "GEAR_SYNC": {
         if (msg.roundId !== undefined && msg.roundId < this.stationRound) break;
@@ -600,7 +643,7 @@ class OrdealEngine {
               this.rewardNotice = { item: station.reward, station: station.label, progress: msg.wardProgressGain ?? 0 };
               this.rewardNoticeUntil = this.elapsed + 5.5;
               station.completedAt = this.elapsed;
-              this.flashMessage(msg.wardProgressGain ? `Your ritual restored +${msg.wardProgressGain}% wards. ${ITEM_LABELS[station.reward]} is ready.` : `Your personal ritual is complete. ${ITEM_LABELS[station.reward]} is ready.`);
+              this.flashMessage(msg.wardProgressGain ? `Ritual accepted (${msg.wardProgressGain > 0 ? "+" : ""}${msg.wardProgressGain}% queued). ${ITEM_LABELS[station.reward]} is ready.` : `Your personal ritual is complete. ${ITEM_LABELS[station.reward]} is ready.`);
             }
           }
         }
@@ -741,6 +784,7 @@ class OrdealEngine {
           if (!this.gameOver) this.paused = false;
         }
         if (this.phase === "ORDEAL" && previousPhase !== "ORDEAL") {
+          this.ordealNumber += 1;
           this.audio.cue("ordeal-start");
           this.killUsedThisOrdeal = false;
           this.pendingDevourVictimId = null;
@@ -759,7 +803,7 @@ class OrdealEngine {
         const b = msg.body;
         if (!this.bodies.some((x) => x.id === b.id)) {
           this.bodies.push({ id: b.id, x: b.x, y: b.y, color: b.color, name: b.name, age: b.age });
-          this.startDevour(b.id, b.x, b.y, b.color);
+          if (!b.delayed) this.startDevour(b.id, b.x, b.y, b.color);
           this.onKill({ key: `${b.id}-${performance.now()}` });
         }
         break;
@@ -771,6 +815,7 @@ class OrdealEngine {
       }
 
       case "MEETING_CALLED": {
+        this.taskFailure = "";
         this.movementBuffer.clear();
         this.pendingInputs.clear();
         for (const player of this.players) { player.vx = 0; player.vy = 0; player.working = false; }
@@ -878,11 +923,12 @@ class OrdealEngine {
     }
   }
 
-  makeStations() {
-    this.stations = STATIONS.map(station => ({ ...station, cooldown: 0, completed: false, teamRestored: false, pending: false }));
+  makeStations(stations: readonly Omit<Station, "cooldown" | "completed">[] = STATIONS) {
+    this.stations = stations.map(station => ({ ...station, cooldown: 0, completed: false, teamRestored: false, pending: false }));
   }
 
   resetStations(roundId = this.stationRound + 1) {
+    this.wardClaims.clear();
     this.stationRound = roundId;
     this.cancelPuzzle("");
     this.taskHold = 0;
@@ -898,12 +944,15 @@ class OrdealEngine {
     }
   }
 
-  makePlayers(count: number, roleChoice: RoleChoice, profile?: SoloProfile) {
+  makePlayers(count: number, roleChoice: RoleChoice, profile?: SoloProfile, hollowCount = 1) {
     const colors = profile ? [profile.color, ...COLORS.filter(color => color !== profile.color)] : COLORS;
     const occupiedNames: string[] = [];
     let impostorIndex = Math.floor(Math.random() * count);
     if (roleChoice === "IMPOSTOR") impostorIndex = 0;
     if (roleChoice === "CREWMATE") impostorIndex = 1 + Math.floor(Math.random() * (count - 1));
+    const hollowIndexes = new Set([impostorIndex]);
+    const candidates = Array.from({ length: count }, (_, i) => i).filter(i => i !== impostorIndex && !(roleChoice === "CREWMATE" && i === 0));
+    while (hollowIndexes.size < clampHollowCount(hollowCount, count) && candidates.length) hollowIndexes.add(candidates.splice(Math.floor(Math.random() * candidates.length), 1)[0]);
     for (let i = 0; i < count; i += 1) {
       const angle = (i / count) * Math.PI * 2;
       const callsign = availablePlayerName(i === 0 ? (profile?.name || "") : NAMES[i - 1], occupiedNames);
@@ -911,7 +960,7 @@ class OrdealEngine {
       this.players.push({
         id: i === 0 ? "you" : `bot-${i}`,
         name: i === 0 ? `${callsign} (YOU)` : callsign,
-        role: i === impostorIndex ? "IMPOSTOR" : "CREWMATE",
+        role: hollowIndexes.has(i) ? "IMPOSTOR" : "CREWMATE",
         x: CENTER.x + Math.cos(angle) * 170,
         y: CENTER.y + Math.sin(angle) * 116,
         vx: 0,
@@ -963,6 +1012,7 @@ class OrdealEngine {
       event.preventDefault();
     }
     this.keys.add(event.code);
+    if (this.taskFailure) { if (event.code === "Escape" || event.code === "Enter") this.dismissTaskFailure(); return; }
     if (this.activePuzzle) {
       if (!event.repeat && ["Digit1", "Digit2", "Digit3"].includes(event.code)) this.submitPuzzle(Number(event.code.slice(-1)) - 1);
       if (!event.repeat && event.code === "Escape") this.cancelPuzzle();
@@ -973,6 +1023,7 @@ class OrdealEngine {
     if (event.code === "KeyF") this.useItem();
     if (event.code === "KeyR") this.report();
     if (event.code === "KeyQ" || event.code === "Space") this.kill();
+    if (event.code === "KeyX") this.kill(true);
     if (event.code === "KeyV") this.useMoonSight();
     if (event.code === "KeyC") this.useEchoLure();
     if (event.code === "Digit1") this.selectItem("FLASHLIGHT");
@@ -1042,11 +1093,14 @@ class OrdealEngine {
   }
 
   tryOpenPuzzle() {
-    if (this.phase === "DISCUSSION" || !this.human.alive || this.paused || this.activePuzzle) return;
+    if (this.phase === "DISCUSSION" || !this.human.alive || this.paused || this.activePuzzle || this.taskFailure) return;
     const stationIndex = this.stations.findIndex((station) => dist(station, this.human) < 84 && !station.completed && !station.pending && station.cooldown <= 0 && station.puzzle);
     if (stationIndex < 0) return;
     const station = this.stations[stationIndex];
-    const puzzle = station.puzzle === "MATH" ? this.createMathPuzzle(station, stationIndex) : this.createLinkPuzzle(station, stationIndex);
+    let puzzle = station.puzzle === "MATH" ? this.createMathPuzzle(station, stationIndex) : this.createLinkPuzzle(station, stationIndex);
+    const signature = (question: TaskPuzzle) => `${question.prompt}:${question.sequence?.join() ?? ""}`;
+    for (let retry = 0; retry < 16 && signature(puzzle) === this.lastQuestions.get(station.label); retry++) puzzle = station.puzzle === "MATH" ? this.createMathPuzzle(station, stationIndex) : this.createLinkPuzzle(station, stationIndex);
+    this.lastQuestions.set(station.label, signature(puzzle));
     // The world keeps running while a puzzle is open: the phase timer and bots
     // continue, and the human simply stands still at the shrine.
     this.activePuzzle = puzzle;
@@ -1064,11 +1118,12 @@ class OrdealEngine {
     let a = 2 + Math.floor(Math.random() * 9);
     let b = 2 + Math.floor(Math.random() * 8);
     if (operator === "−" && b > a) [a, b] = [b, a];
+    if (this.lastQuestions.get(station.label)?.startsWith(`${a} ${operator} ${b} = ?:`)) a += 1;
     const answer = operator === "+" ? a + b : operator === "−" ? a - b : a * b;
     const choices = new Set<number>([answer]);
-    while (choices.size < 3) {
-      const offset = choose([-5, -3, -2, -1, 1, 2, 3, 5]);
+    for (const offset of [-5, -3, -2, -1, 1, 2, 3, 5].sort(() => Math.random() - .5)) {
       choices.add(Math.max(0, answer + offset));
+      if (choices.size === 3) break;
     }
     const options = [...choices].sort(() => Math.random() - 0.5).map(String);
     return {
@@ -1089,7 +1144,8 @@ class OrdealEngine {
       { sequence: ["◇", "○", "□", "◇", "○"], answer: "□", decoys: ["◇", "○"] },
       { sequence: ["I", "II", "III", "I", "II"], answer: "III", decoys: ["I", "IV"] },
     ];
-    const pattern = choose(patterns);
+    const previous = this.lastQuestions.get(station.label);
+    const pattern = choose(patterns.filter(pattern => !previous?.endsWith(`:${pattern.sequence.join()}`)));
     const options = [pattern.answer, ...pattern.decoys].sort(() => Math.random() - 0.5);
     return {
       stationIndex,
@@ -1107,8 +1163,10 @@ class OrdealEngine {
     if (!this.activePuzzle) return;
     if (optionIndex !== this.activePuzzle.answerIndex) {
       this.audio.cue("task-error");
-      this.activePuzzle = { ...this.activePuzzle, error: this.activePuzzle.kind === "MATH" ? "That calculation is off. Try another answer." : "That link breaks the circuit. Try another node." };
-      this.onPuzzle(this.activePuzzle);
+      this.stations[this.activePuzzle.stationIndex].cooldown = 1.5;
+      this.taskFailure = "Incorrect answer — ritual failed. No item was awarded. Reopen the shrine for a new question.";
+      this.cancelPuzzle("");
+      this.emit(true);
       return;
     }
     const station = this.stations[this.activePuzzle.stationIndex];
@@ -1126,7 +1184,8 @@ class OrdealEngine {
     station.cooldown = 0;
     this.human.working = false;
     const reward = station.reward;
-    const progressGain = this.phase === "ORDEAL" ? ORDEAL_TASK_PROGRESS_REWARD : TASK_PROGRESS_REWARD;
+    const wardens = this.players.filter(p => p.alive && p.role === "CREWMATE").length;
+    const progressGain = ritualProgress(wardens, this.phase === "ORDEAL", wasFake, this.initialHollows);
     if (this.multiplayerClient) {
       station.pending = true;
       this.multiplayerClient.sendTask(station.label, reward, this.stationRound);
@@ -1136,19 +1195,22 @@ class OrdealEngine {
     station.completed = true;
     this.charges[reward] = Math.min(3, this.charges[reward] + 1);
     this.selectedItem = reward;
-    const earnedProgress = !wasFake && !station.teamRestored ? progressGain : 0;
+    const earnedProgress = wasFake || !this.wardClaims.has(station.label) ? progressGain : 0;
     if (earnedProgress) {
+      if (!wasFake) this.wardClaims.add(station.label);
       station.teamRestored = true;
-      this.taskProgress = Math.min(100, this.taskProgress + progressGain);
+      this.pendingWardDelta += earnedProgress;
     }
     this.rewardNotice = { item: reward, station: station.label, progress: earnedProgress };
     this.rewardNoticeUntil = this.elapsed + 5.5;
-    const prefix = wasFake ? "Counterfeit rite accepted" : earnedProgress ? `Your ritual restored +${earnedProgress}% wards` : "Your personal ritual is complete";
+    const prefix = wasFake ? "Siphon rite accepted — ward reduction queued" : earnedProgress ? `Your ritual queued +${earnedProgress}% wards` : "Your personal ritual is complete";
     this.flashMessage(`${prefix}. ${ITEM_LABELS[reward]} acquired for the next Ordeal.`);
     station.completedAt = this.elapsed;
     this.audio.cue("task-complete");
     if (!wasFake) this.checkWin();
   }
+
+  dismissTaskFailure() { this.taskFailure = ""; this.keys.clear(); this.touchKeys.clear(); this.emit(true); }
 
   cancelPuzzle(message = "Shrine trial paused. Return when ready.") {
     if (!this.activePuzzle) return;
@@ -1242,7 +1304,7 @@ class OrdealEngine {
     else this.flashMessage("No body nearby. Emergency button is available during Calm.");
   }
 
-  kill() {
+  kill(stealth = false) {
     void this.audio.unlock();
     if (this.human.role !== "IMPOSTOR" || this.phase !== "ORDEAL" || !this.human.alive || this.paused) return;
     if (this.killUsedThisOrdeal) {
@@ -1250,10 +1312,12 @@ class OrdealEngine {
       return;
     }
     if (this.elapsed < this.killCooldownUntil) return;
+    if (stealth && (this.elapsed < this.stealthUntil || this.ordealNumber < this.stealthAvailableOrdeal)) { this.flashMessage("Veiled Bite is recovering. Use your normal strike instead."); return; }
     if (this.multiplayerClient) {
       const victims = this.players.filter((player) =>
         player.alive
         && player.id !== this.human.id
+        && player.role !== "IMPOSTOR"
         && dist(player, this.human) < 84
       );
       const victim = victims.sort((a, b) => dist(a, this.human) - dist(b, this.human))[0];
@@ -1262,7 +1326,8 @@ class OrdealEngine {
         return;
       }
       this.pendingDevourVictimId = victim.id;
-      this.multiplayerClient.sendKill(victim.id);
+      this.pendingKillStealth = stealth;
+      this.multiplayerClient.sendKill(victim.id, stealth ? "STEALTH" : "NORMAL");
       this.killUsedThisOrdeal = true;
       this.killCooldownUntil = this.elapsed + KILL_COOLDOWN_SECONDS;
       this.flashMessage("Devouring target — awaiting the sanctuary's verdict.");
@@ -1278,20 +1343,24 @@ class OrdealEngine {
       this.flashMessage("No Warden in melee range.");
       return;
     }
-    this.eliminate(victim, this.human);
+    this.eliminate(victim, this.human, stealth);
     this.killCooldownUntil = this.elapsed + KILL_COOLDOWN_SECONDS;
     this.flashMessage("Prey devoured. Your jaws are spent until the next Ordeal.");
   }
 
-  eliminate(victim: Player, killer: Player) {
+  eliminate(victim: Player, killer: Player, stealth = false) {
     victim.alive = false;
     victim.working = false;
     victim.vx = 0;
     victim.vy = 0;
-    this.killUsedThisOrdeal = true;
-    this.bodies.push({ id: victim.id, x: victim.x, y: victim.y, color: victim.color, name: victim.name, age: 0 });
+    if (killer.id === this.human.id) this.killUsedThisOrdeal = true;
+    this.botStrikeSpent.add(killer.id);
+    if (stealth) { this.stealthUntil = this.elapsed + STEALTH_COOLDOWN_SECONDS; this.stealthAvailableOrdeal = this.ordealNumber + STEALTH_ORDEAL_LOCKOUT; }
+    const body = { id: victim.id, x: victim.x, y: victim.y, color: victim.color, name: victim.name, age: 0 };
+    if (stealth) this.pendingBodies.push({ body, at: this.elapsed + STEALTH_BODY_DELAY_SECONDS });
+    else this.bodies.push(body);
     this.startDevour(victim.id, victim.x, victim.y, victim.color, killer.id, killer.color);
-    this.onKill({ key: `${victim.id}-${performance.now()}` });
+    if (!stealth) this.onKill({ key: `${victim.id}-${performance.now()}` });
     this.recordWitnesses(victim, killer);
     if (victim.id === "you") {
       this.cancelPuzzle("");
@@ -1318,7 +1387,7 @@ class OrdealEngine {
   canSee(observer: Player, target: Player) {
     const d = dist(observer, target);
     const flareLit = this.flares.some((flare) => dist(flare, target) < 146);
-    if (!flareLit && isOccludedByObstacle(observer, target)) return false;
+    if (!flareLit && isOccludedByObstacle(observer, target, this.obstacles)) return false;
     if (this.phase !== "ORDEAL") return d < 420;
     if (this.hazard === "ROOTWAKE") return sharesRootCell(observer, target) && d < 420;
     if (this.hazard === "PHANTOMS") return d < 58;
@@ -1398,6 +1467,7 @@ class OrdealEngine {
 
   startMeeting(reason: string, reporter: string) {
     if (this.paused) return;
+    this.taskFailure = "";
     this.restoreTrueColors();
     this.cancelPuzzle("");
     for (const player of this.players) player.working = false;
@@ -1506,6 +1576,7 @@ class OrdealEngine {
   }
 
   resolveMeeting() {
+    this.pendingBodies = [];
     if (!this.activeMeeting?.tally) return;
     if (this.multiplayerClient) {
       this.multiplayerClient.resolveMeeting();
@@ -1536,17 +1607,17 @@ class OrdealEngine {
   checkWin() {
     if (this.multiplayerClient) return false;
     if (this.gameOver) return true;
-    const impostor = this.players.find((player) => player.role === "IMPOSTOR");
+    const hollows = this.players.filter((player) => player.role === "IMPOSTOR" && player.alive);
     const crewLiving = this.players.filter((player) => player.role === "CREWMATE" && player.alive).length;
-    if (!impostor?.alive) {
-      this.end("CREW VICTORY — THE IMPOSTOR WAS EJECTED");
+    if (!hollows.length) {
+      this.end("CREW VICTORY — ALL HOLLOWS WERE EXPOSED");
       return true;
     }
     if (this.taskProgress >= 100) {
       this.end("CREW VICTORY — ALL MOON WARDS RESTORED");
       return true;
     }
-    if (crewLiving <= 1) {
+    if (hollowVictory(crewLiving, hollows.length, this.initialWardens, this.initialHollows)) {
       this.end("IMPOSTOR VICTORY — THE CREW IS AT PARITY");
       return true;
     }
@@ -1601,6 +1672,9 @@ class OrdealEngine {
       canKill: this.human.role === "IMPOSTOR" && this.phase === "ORDEAL" && !this.killUsedThisOrdeal && rawKillCooldown <= 0 && victimNear,
       killCooldown,
       killSpent: this.killUsedThisOrdeal,
+      stealthCooldown: Math.ceil(Math.max(0, this.stealthUntil - this.elapsed)),
+      stealthOrdealsLeft: Math.max(0, this.stealthAvailableOrdeal - this.ordealNumber),
+      taskFailure: this.taskFailure,
       canUseMoonSight: this.human.alive && this.human.role === "IMPOSTOR" && this.phase === "ORDEAL" && !this.moonSightUsedThisOrdeal && !this.abilityPending,
       moonSightActive,
       soundCaption: this.phase === "ORDEAL" && this.elapsed < this.captionUntil ? this.caption : "",
@@ -1619,7 +1693,7 @@ class OrdealEngine {
         teamRestored: this.stations.filter(station => station.teamRestored).map(station => station.label),
         destinationId: this.destinationId && this.stations.some(station => station.label === this.destinationId && !station.completed)
           ? this.destinationId
-          : preparationStation(this.hazard, this.human, this.stations.filter(station => station.completed).map(station => station.label)),
+          : preparationStation(this.hazard, this.human, this.stations.filter(station => station.completed).map(station => station.label), this.stations.map(station => ({ ...station, id: station.label }))),
       },
     };
   }
@@ -1673,6 +1747,17 @@ class OrdealEngine {
   }
 
   update(dt: number) {
+    if (!this.multiplayerClient) {
+      this.wardSettleTimer += dt;
+      if (this.wardSettleTimer >= WARD_SETTLE_SECONDS) {
+        this.wardSettleTimer %= WARD_SETTLE_SECONDS;
+        this.taskProgress = clamp(Math.round((this.taskProgress + this.pendingWardDelta) * 10) / 10, 0, 100);
+        this.pendingWardDelta = 0;
+        if (this.checkWin()) return;
+      }
+      for (const entry of this.pendingBodies.filter(entry => entry.at <= this.elapsed)) { this.bodies.push(entry.body); this.onKill({ key: `${entry.body.id}-delayed` }); }
+      this.pendingBodies = this.pendingBodies.filter(entry => entry.at > this.elapsed);
+    }
     if (this.multiplayerClient) {
       this.phaseTime = Math.max(0, this.phaseTime - dt);
     } else {
@@ -1690,6 +1775,7 @@ class OrdealEngine {
           this.phaseTime = ordealDuration(this.hazard);
           this.killCooldownUntil = 0;
           this.killUsedThisOrdeal = false;
+          this.botStrikeSpent.clear(); this.ordealNumber += 1;
           this.moonSightUntil = 0;
           this.moonSightUsedThisOrdeal = false;
           for (const player of this.players) player.flareDropped = false;
@@ -1820,7 +1906,7 @@ class OrdealEngine {
     if (this.multiplayerClient && !this.multiplayerClient.connected) { player.vx = 0; player.vy = 0; player.working = false; return; }
     if (this.navigationOpen) { player.vx = 0; player.vy = 0; player.working = false; return; }
     player.flashlight = this.phase === "ORDEAL" && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil;
-    if (this.activePuzzle) {
+    if (this.activePuzzle || this.taskFailure) {
       player.vx = 0;
       player.vy = 0;
       player.working = true;
@@ -1850,7 +1936,7 @@ class OrdealEngine {
     const vy = rootChecked.y !== intendedY ? 0 : player.vy;
     const next = impostorPhasing
       ? { ...rootChecked, vx, vy }
-      : resolveObstacleMovement(rootChecked.x, rootChecked.y, vx, vy);
+      : resolveObstacleMovement(rootChecked.x, rootChecked.y, vx, vy, 22, this.obstacles);
     player.vx = next.vx;
     player.vy = next.vy;
     player.x = next.x;
@@ -1894,7 +1980,7 @@ class OrdealEngine {
           player.targetY = station.y + (station.side === "top" ? 48 : station.side === "bottom" ? -48 : 0);
           if (station.side === "left") player.targetX += 48;
           if (station.side === "right") player.targetX -= 48;
-        } else if (player.role === "IMPOSTOR" && !this.killUsedThisOrdeal && this.elapsed >= this.killCooldownUntil) {
+        } else if (player.role === "IMPOSTOR" && !this.botStrikeSpent.has(player.id)) {
           const victims = this.players.filter((entry) =>
             entry.alive
             && entry.role === "CREWMATE"
@@ -1913,7 +1999,7 @@ class OrdealEngine {
       const rootLocked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && player.role !== "IMPOSTOR";
       let route = this.botRoutes.get(player.id);
       if (!route || route.targetX !== player.targetX || route.targetY !== player.targetY || route.root !== rootLocked) {
-        route = { targetX: player.targetX, targetY: player.targetY, root: rootLocked, points: planRoute(player, { x: player.targetX, y: player.targetY }, rootLocked) };
+        route = { targetX: player.targetX, targetY: player.targetY, root: rootLocked, points: planRoute(player, { x: player.targetX, y: player.targetY }, rootLocked, this.obstacles) };
         this.botRoutes.set(player.id, route);
       }
       while (route.points.length > 1 && dist(player, route.points[0]) < 20) route.points.shift();
@@ -1923,7 +2009,7 @@ class OrdealEngine {
       const length = Math.hypot(dx, dy) || 1;
       const speed = player.role === "IMPOSTOR" && this.phase === "ORDEAL" ? 148 : 122;
       const riteStation = this.stations[player.atStation % this.stations.length];
-      const holdingRite = this.phase !== "DISCUSSION" && player.role === "CREWMATE"
+      const holdingRite = this.phase !== "DISCUSSION"
         && !personalRites.has(riteStation.label) && dist(player, riteStation) < 84;
       if (holdingRite) {
         player.vx = 0;
@@ -1938,14 +2024,14 @@ class OrdealEngine {
       const rootChecked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && !impostorPhasing
         ? keepInRootCell(player, { x: nextX, y: nextY })
         : { x: nextX, y: nextY };
-      const next = impostorPhasing ? rootChecked : resolveObstaclePosition(rootChecked.x, rootChecked.y);
+      const next = impostorPhasing ? rootChecked : resolveObstaclePosition(rootChecked.x, rootChecked.y, 22, this.obstacles);
       if (next.x !== nextX) player.vx *= -0.18;
       if (next.y !== nextY) player.vy *= -0.18;
       player.x = next.x;
       player.y = next.y;
 
       player.working = false;
-      if (this.phase !== "DISCUSSION" && player.role === "CREWMATE") {
+      if (this.phase !== "DISCUSSION") {
         const station = this.stations[player.atStation % this.stations.length];
         if (personalRites.has(station.label)) {
           player.atStation = (player.atStation + 1) % this.stations.length;
@@ -1960,9 +2046,10 @@ class OrdealEngine {
             this.botWork.delete(player.id);
             player.gearCharges[station.reward] = Math.min(3, player.gearCharges[station.reward] + 1);
             station.completedAt = this.elapsed;
-            if (!station.teamRestored) {
+            if (player.role === "IMPOSTOR" || !this.wardClaims.has(station.label)) {
+              if (player.role === "CREWMATE") this.wardClaims.add(station.label);
               station.teamRestored = true;
-              this.taskProgress = Math.min(100, this.taskProgress + (this.phase === "ORDEAL" ? ORDEAL_TASK_PROGRESS_REWARD : TASK_PROGRESS_REWARD));
+              this.pendingWardDelta += ritualProgress(this.players.filter(p => p.alive && p.role === "CREWMATE").length, this.phase === "ORDEAL", player.role === "IMPOSTOR", this.initialHollows);
             }
             player.atStation = (player.atStation + 1 + Math.floor(Math.random() * 3)) % this.stations.length;
             player.thinkAt = 0;
@@ -1982,7 +2069,7 @@ class OrdealEngine {
           player.flareDropped = true;
           player.gearCharges.FLARE -= 1;
         }
-        if (player.role === "IMPOSTOR" && !this.killUsedThisOrdeal && this.elapsed >= this.killCooldownUntil && this.phaseTime < ordealDuration(this.hazard) - 1.6) {
+        if (player.role === "IMPOSTOR" && !this.botStrikeSpent.has(player.id) && this.phaseTime < ordealDuration(this.hazard) - 1.6) {
           const victim = this.players
             .filter((entry) =>
               entry.alive
@@ -2057,10 +2144,14 @@ class OrdealEngine {
     const ordered: RenderItem[] = [
       ...this.players.filter((player) => player.alive).map((player): RenderItem => ({ kind: "PLAYER", y: player.y, player, phantom: false })),
       ...(phantomProcessionActive ? this.getPhantoms().map((player): RenderItem => ({ kind: "PLAYER", y: player.y, player, phantom: true })) : []),
-      ...SANCTUARY_OBSTACLES.map((obstacle): RenderItem => ({ kind: "OBSTACLE", y: obstacle.y, obstacle })),
+      ...this.obstacles.map((obstacle): RenderItem => ({ kind: "OBSTACLE", y: obstacle.y, obstacle })),
     ].sort((a, b) => a.y - b.y);
     const sonarActive = this.selectedItem === "SONAR" && this.elapsed < this.itemActiveUntil;
     for (const entry of ordered) {
+      const point = entry.kind === "PLAYER" ? entry.player : entry.obstacle;
+      // Leave enough margin for crowns, labels, canopies, and bounce. This is
+      // rendering-only: all offscreen physics and visibility still simulate.
+      if (point.x < this.camera.x - 160 || point.x > this.camera.x + this.viewWidth + 160 || point.y < this.camera.y - 160 || point.y > this.camera.y + this.viewHeight + 160) continue;
       if (entry.kind === "OBSTACLE") {
         this.drawObstacle(ctx, entry.obstacle);
         continue;
@@ -2072,7 +2163,7 @@ class OrdealEngine {
         continue;
       }
       const isLocal = player.id === this.localPlayerId;
-      const occludedBehindCover = !isLocal && !moonSightActive && isOccludedByObstacle(this.human, player) && !this.flares.some((f) => dist(f, player) < 146);
+      const occludedBehindCover = !isLocal && !moonSightActive && isOccludedByObstacle(this.human, player, this.obstacles) && !this.flares.some((f) => dist(f, player) < 146);
       const revealed = isLocal || moonSightActive || (!occludedBehindCover && this.isRevealed(player));
       if (this.phase === "ORDEAL" && this.hazard === "BLACKOUT" && !revealed) continue;
       const silhouette = !moonSightActive && (moonGlareActive || phantomProcessionActive || occludedBehindCover || (this.phase === "ORDEAL" && (this.hazard === "FOG" || this.hazard === "MIRROR_POOL") && !revealed));
@@ -2318,6 +2409,14 @@ class OrdealEngine {
 
   renderStaticBackground() {
     drawMoonGlade(this.bgCtx);
+    this.bgCtx.save(); this.bgCtx.strokeStyle = "rgba(210,221,178,.13)"; this.bgCtx.lineWidth = 40; this.bgCtx.lineCap = "round";
+    for (const station of this.stations) {
+      const path = planRoute(CENTER, station, false, this.obstacles);
+      this.bgCtx.beginPath(); this.bgCtx.moveTo(CENTER.x, CENTER.y);
+      for (const point of path) this.bgCtx.lineTo(point.x, point.y);
+      this.bgCtx.stroke();
+    }
+    this.bgCtx.restore();
   }
 
 
@@ -2576,93 +2675,7 @@ class OrdealEngine {
   }
 
   drawHat(ctx: CanvasRenderingContext2D, hat: Hat, x: number, y: number, muted: boolean) {
-    ctx.save();
-    ctx.translate(x, y + 5);
-    ctx.scale(0.82, 0.82);
-    x = 0;
-    y = 0;
-    const pale = muted ? "#9ca9ae" : "#a1b4b8";
-    const cloth = ctx.createLinearGradient(-25, -15, 25, 20);
-    cloth.addColorStop(0, muted ? "#69767d" : "#475361");
-    cloth.addColorStop(1, muted ? "#48545b" : "#1b2935");
-    const night = cloth;
-    ctx.strokeStyle = "rgba(10,22,30,.6)";
-    ctx.lineWidth = 1.5;
-    if (hat === "antlers") {
-      ctx.strokeStyle = muted ? "#66716f" : "#817b69";
-      ctx.lineWidth = 2.5;
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(x - 14, y + 17);
-      ctx.quadraticCurveTo(x - 27, y + 2, x - 23, y - 13);
-      ctx.moveTo(x - 24, y - 5);
-      ctx.lineTo(x - 34, y - 12);
-      ctx.moveTo(x - 24, y + 2);
-      ctx.lineTo(x - 36, y + 1);
-      ctx.moveTo(x + 14, y + 17);
-      ctx.quadraticCurveTo(x + 27, y + 2, x + 23, y - 13);
-      ctx.moveTo(x + 24, y - 5);
-      ctx.lineTo(x + 34, y - 12);
-      ctx.moveTo(x + 24, y + 2);
-      ctx.lineTo(x + 36, y + 1);
-      ctx.stroke();
-      ctx.lineCap = "butt";
-      ctx.fillStyle = night;
-      ctx.beginPath();
-      ctx.ellipse(x, y + 14, 25, 7, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(10,22,30,.6)";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    } else if (hat === "hood") {
-      ctx.fillStyle = night;
-      ctx.beginPath();
-      ctx.moveTo(x - 26, y + 18);
-      ctx.quadraticCurveTo(x - 23, y - 13, x, y - 18);
-      ctx.quadraticCurveTo(x + 23, y - 13, x + 26, y + 18);
-      ctx.quadraticCurveTo(x, y + 6, x - 26, y + 18);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = "rgba(10,22,30,.6)";
-      ctx.stroke();
-      ctx.fillStyle = pale;
-      ctx.beginPath();
-      ctx.arc(x - 2, y - 2, 8, -Math.PI * .6, Math.PI * .6);
-      ctx.fill();
-    } else if (hat === "moth") {
-      ctx.fillStyle = muted ? "#839093" : "#9ca9bb";
-      ctx.strokeStyle = "rgba(10,22,30,.6)";
-      ctx.lineWidth = 1.3;
-      ctx.beginPath();
-      ctx.ellipse(x - 14, y + 5, 17, 10, -.48, 0, Math.PI * 2);
-      ctx.ellipse(x + 14, y + 5, 17, 10, .48, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = muted ? "#647275" : "#5d6c81";
-      ctx.beginPath();
-      ctx.ellipse(x, y + 7, 7, 15, 0, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.fillStyle = night;
-      ctx.strokeStyle = "rgba(10,22,30,.6)";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(x - 27, y + 17);
-      ctx.quadraticCurveTo(x - 8, y - 7, x + 7, y - 22);
-      ctx.quadraticCurveTo(x + 17, y - 4, x + 25, y + 17);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = pale;
-      ctx.beginPath();
-      ctx.arc(x + 2, y + 1, 7, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = night;
-      ctx.beginPath();
-      ctx.arc(x + 6, y - 2, 7, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
+    drawAccessory(ctx, hat, x, y, muted);
   }
 
   drawDevourEffect(ctx: CanvasRenderingContext2D, event: DevourEvent, silhouette = false, killer?: Player, muted = false, alpha = 1) {
@@ -2830,7 +2843,7 @@ class OrdealEngine {
     if (dist(player, this.human) < (this.hazard === "BLACKOUT" ? 66 : 92)) return true;
     if (this.flares.some((flare) => dist(player, flare) < 146)) return true;
     if (this.phase === "ORDEAL" && this.hazard === "BLACKOUT") {
-      for (const obs of SANCTUARY_OBSTACLES) {
+      for (const obs of this.obstacles) {
         if (obs.kind !== "CRYSTAL_SPIRE") continue;
         const blink = this.getCrystalBlink(obs.x);
         if (blink > 0.25 && dist(player, obs) < 118 * blink) return true;
@@ -2929,7 +2942,7 @@ class OrdealEngine {
       }
       for (const flare of this.flares) this.cutRadial(mask, flare.x, flare.y, 152);
       if (this.hazard === "BLACKOUT") {
-        for (const obs of SANCTUARY_OBSTACLES) {
+        for (const obs of this.obstacles) {
           if (obs.kind !== "CRYSTAL_SPIRE") continue;
           const blink = this.getCrystalBlink(obs.x);
           if (blink > 0) {
@@ -2954,7 +2967,7 @@ class OrdealEngine {
 
     // Subtle cyan wash over blinking crystals during Blackout
     if (this.hazard === "BLACKOUT") {
-      for (const obs of SANCTUARY_OBSTACLES) {
+      for (const obs of this.obstacles) {
         if (obs.kind !== "CRYSTAL_SPIRE") continue;
         const blink = this.getCrystalBlink(obs.x);
         if (blink <= 0) continue;
@@ -3608,81 +3621,15 @@ const HAT_META: Record<Hat, { label: string; title: string }> = {
 };
 
 function HatGraphic({ hat }: { hat: Hat }) {
-  if (hat === "antlers") {
-    return (
-      <svg className="slime-hat-svg hat-antlers" viewBox="0 0 80 44" aria-hidden="true">
-        <path
-          d="M27 38 L22 18 L11 12 M22 22 L15 24 M22 18 L28 9 M53 38 L58 18 L69 12 M58 22 L65 24 M58 18 L52 9"
-          fill="none"
-          stroke="#0c151f"
-          strokeWidth="7"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M27 38 L22 18 L11 12 M22 22 L15 24 M22 18 L28 9 M53 38 L58 18 L69 12 M58 22 L65 24 M58 18 L52 9"
-          fill="none"
-          stroke="#dfd0ad"
-          strokeWidth="4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <circle cx="11" cy="12" r="2.5" fill="#6cf5e3" />
-        <circle cx="69" cy="12" r="2.5" fill="#6cf5e3" />
-      </svg>
-    );
-  }
-  if (hat === "hood") {
-    return (
-      <svg className="slime-hat-svg hat-hood" viewBox="0 0 80 44" aria-hidden="true">
-        <path
-          d="M14 39 C14 17 28 7 40 5 C52 7 66 17 66 39 C54 33 26 33 14 39 Z"
-          fill="#262f52"
-          stroke="#0c151f"
-          strokeWidth="3.5"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M22 36 C26 22 34 15 40 13 C46 15 54 22 58 36"
-          fill="none"
-          stroke="#54dbef"
-          strokeWidth="2"
-          strokeOpacity="0.65"
-          strokeLinecap="round"
-        />
-      </svg>
-    );
-  }
-  if (hat === "moth") {
-    return (
-      <svg className="slime-hat-svg hat-moth" viewBox="0 0 80 44" aria-hidden="true">
-        <path
-          d="M33 36 C28 21 19 13 11 11 C15 21 22 29 31 35 Z M47 36 C52 21 61 13 69 11 C65 21 58 29 49 35 Z"
-          fill="#d9c6ff"
-          stroke="#0c151f"
-          strokeWidth="3"
-          strokeLinejoin="round"
-        />
-        <circle cx="16" cy="15" r="3" fill="#6cf5e3" />
-        <circle cx="64" cy="15" r="3" fill="#6cf5e3" />
-        <circle cx="40" cy="34" r="4" fill="#ffee99" stroke="#0c151f" strokeWidth="2.5" />
-      </svg>
-    );
-  }
-  return (
-    <svg className="slime-hat-svg hat-mooncap" viewBox="0 0 80 44" aria-hidden="true">
-      <path
-        d="M16 37 C18 17 35 7 60 11 C53 20 51 28 58 36 C42 33 28 34 16 37 Z"
-        fill="#313968"
-        stroke="#0c151f"
-        strokeWidth="3.5"
-        strokeLinejoin="round"
-      />
-      <circle cx="62" cy="12" r="5.5" fill="#ffd94a" stroke="#0c151f" strokeWidth="2.5" />
-    </svg>
-  );
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const context = ref.current?.getContext("2d");
+    if (!context) return;
+    context.setTransform(2, 0, 0, 2, 0, 0); context.clearRect(0, 0, 80, 44);
+    drawAccessory(context, hat, 40, 22);
+  }, [hat]);
+  return <canvas ref={ref} width={160} height={88} className={`slime-hat-svg hat-${hat}`} aria-hidden="true" />;
 }
-
 function SlimeAvatar({
   color,
   hat,
@@ -3869,7 +3816,7 @@ function Lobby({
   multiplayerClient,
   mpState,
 }: {
-  onLaunch: (count: number, role: RoleChoice, profile: SoloProfile) => void;
+  onLaunch: (count: number, role: RoleChoice, profile: SoloProfile, hollowCount: number) => void;
   multiplayerClient?: MultiplayerClient | null;
   mpState?: MultiplayerState | null;
 }) {
@@ -3897,6 +3844,7 @@ function Lobby({
   const [joinCode, setJoinCode] = useState("");
   const [botFill, setBotFill] = useState(true);
   const [targetPlayers, setTargetPlayers] = useState(6);
+  const [hollowCount, setHollowCount] = useState(1);
   const [copied, setCopied] = useState(false);
   const [hideRoomCode, setHideRoomCode] = useState(false);
   const [editingInRoom, setEditingInRoom] = useState(true);
@@ -3911,6 +3859,8 @@ function Lobby({
   const inRoom = Boolean(mpState?.roomCode);
   const activeTargetPlayers = inRoom && mpState ? mpState.targetPlayers : targetPlayers;
   const activeBotFill = inRoom && mpState ? mpState.botFill : botFill;
+  const activeHollowCount = inRoom && mpState ? mpState.hollowCount : hollowCount;
+  const roomPopulation = activeBotFill ? activeTargetPlayers : mpState?.players.length ?? 4;
   const myNetPlayer = inRoom && mpState ? mpState.players.find((p) => p.id === mpState.playerId) : undefined;
   const readyCount = inRoom && mpState ? mpState.players.filter((p) => p.ready || p.isHost).length : 0;
   const displayError = mpError || mpState?.lastError || "";
@@ -4069,7 +4019,7 @@ function Lobby({
       eyeStyle: selectedEyes,
     };
     window.setTimeout(() => {
-      onLaunch(players, role, launchProfile);
+      onLaunch(players, role, launchProfile, clampHollowCount(hollowCount, players));
     }, 380);
   };
 
@@ -4128,11 +4078,11 @@ function Lobby({
     window.setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleHostConfigUpdate = (nextTarget: number, nextBotFill: boolean) => {
+  const handleHostConfigUpdate = (nextTarget: number, nextBotFill: boolean, nextHollows = activeHollowCount) => {
     setTargetPlayers(nextTarget);
     setBotFill(nextBotFill);
     if (inRoom && mpState?.isHost && multiplayerClient) {
-      multiplayerClient.updateRoomConfig(nextTarget, nextBotFill);
+      multiplayerClient.updateRoomConfig(nextTarget, nextBotFill, nextHollows);
     }
   };
 
@@ -4450,6 +4400,10 @@ function Lobby({
                 <div className="range-labels"><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
 
                 <div className="field-label role-label">TEST IDENTITY <span>PRIVATE TO THIS CLIENT</span></div>
+                <label className="field-label" htmlFor="solo-hollow-count">HOLLOWS <span>DEFAULT 1 · MAX HALF THE CIRCLE</span></label>
+                <select id="solo-hollow-count" className="mp-field" value={clampHollowCount(hollowCount, players)} onChange={event => setHollowCount(Number(event.target.value))}>
+                  {Array.from({ length: Math.floor(players / 2) }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} {i ? "Hollows" : "Hollow"}</option>)}
+                </select>
                 <div className="role-switch" role="group" aria-label="Choose test role">
                   {(["RANDOM", "CREWMATE", "IMPOSTOR"] as RoleChoice[]).map((value) => (
                     <button key={value} className={role === value ? "active" : ""} onClick={() => { playLobbySfx("switch", 1); setRole(value); }}>{value === "RANDOM" ? "AUTO" : ROLE_LABELS[value].toUpperCase()}</button>
@@ -4739,6 +4693,11 @@ function Lobby({
                 {/* Host Controls or Guest Status */}
                 {mpState.isHost ? (
                   <div className="host-panel">
+                    <label className="field-label" htmlFor="mp-hollow-count">HOLLOWS <span>1–{Math.max(1, Math.floor(roomPopulation / 2))} · DEFAULT 1</span></label>
+                    <select id="mp-hollow-count" className="mp-field" value={clampHollowCount(activeHollowCount, roomPopulation)} onChange={event => handleHostConfigUpdate(activeTargetPlayers, activeBotFill, Number(event.target.value))}>
+                      {Array.from({ length: Math.max(1, Math.floor(roomPopulation / 2)) }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} {i ? "Hollows" : "Hollow"}</option>)}
+                    </select>
+                    {activeHollowCount * 2 === roomPopulation && <p className="role-note">High difficulty: half the circle is Hollow. The opening tie does not end the match.</p>}
                     <div className="host-config-header">
                       <label className="field-label" htmlFor="mp-player-count">
                         TARGET CIRCLE <span>{activeTargetPlayers} SLOTS</span>
@@ -4778,7 +4737,7 @@ function Lobby({
                     <button
                       className="launch-button"
                       disabled={!mpState.connected}
-                      onClick={() => multiplayerClient?.startMatch(activeBotFill, activeTargetPlayers)}
+                      onClick={() => multiplayerClient?.startMatch(activeBotFill, activeTargetPlayers, activeHollowCount)}
                     >
                       <span>
                         START MATCH ({mpState.players.length} HUMAN
@@ -5034,6 +4993,9 @@ function Game({
   multiplayerClient,
   initialPlayers,
   assignedRole,
+  layoutSeed = 0,
+  hollowCount = 1,
+  hollowAllies,
   onExit,
   onMatchComplete,
 }: {
@@ -5043,10 +5005,14 @@ function Game({
   multiplayerClient?: MultiplayerClient | null;
   initialPlayers?: NetPlayer[];
   assignedRole?: Role;
+  layoutSeed?: number;
+  hollowCount?: number;
+  hollowAllies?: string[];
   onExit: () => void;
   onMatchComplete: (result: string) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [mapLayout] = useState(() => createMatchLayout(layoutSeed));
   const engineRef = useRef<OrdealEngine | null>(null);
   const normalMusicRef = useRef<HTMLAudioElement | null>(null);
   const ordealMusicRef = useRef<HTMLAudioElement | null>(null);
@@ -5107,6 +5073,7 @@ function Game({
       initialPlayers,
       assignedRole,
       soloProfile,
+      { layoutSeed, hollowCount, hollowAllies },
     );
     engineRef.current = engine;
     engine.roleRevealActive = true;
@@ -5140,7 +5107,7 @@ function Game({
       if (unsubChat) unsubChat();
       engine.destroy();
     };
-  }, [count, roleChoice, multiplayerClient, initialPlayers, assignedRole, soloProfile, onMatchComplete]);
+  }, [count, roleChoice, multiplayerClient, initialPlayers, assignedRole, soloProfile, layoutSeed, hollowCount, hollowAllies, onMatchComplete]);
 
   useEffect(() => {
     const normalMusic = new Audio("/audio/moonlit-deduction.mp3");
@@ -5380,7 +5347,8 @@ function Game({
           position={snapshot.navigation}
           phase={snapshot.phase}
           hazard={snapshot.hazard}
-          stations={STATIONS.map(station => ({ ...station, personalCompleted: snapshot.navigation.personalCompleted.includes(station.id), teamRestored: snapshot.navigation.teamRestored.includes(station.id) }))}
+          layoutSeed={layoutSeed}
+          stations={mapLayout.stations.map(station => ({ ...station, personalCompleted: snapshot.navigation.personalCompleted.includes(station.id), teamRestored: snapshot.navigation.teamRestored.includes(station.id) }))}
           destinationId={snapshot.navigation.destinationId}
           onDestinationChange={handleDestinationChange}
           onExpandedChange={handleNavigationExpanded}
@@ -5414,7 +5382,7 @@ function Game({
         <div className="crew-count"><span className="crew-dot" />{snapshot.living}<small> / {snapshot.total} ALIVE</small></div>
 
         {snapshot.role === "IMPOSTOR" && (
-          <div className="private-role"><small>PRIVATE ROLE</small><b>{ROLE_LABELS.IMPOSTOR.toUpperCase()}</b><span>Sight V OR Echo C • one special action</span><span>one strike per Ordeal</span></div>
+          <div className="private-role"><small>PRIVATE ROLE</small><b>{ROLE_LABELS.IMPOSTOR.toUpperCase()}</b><span>Sight V OR Echo C • one special action</span><span>one strike per Ordeal · Veiled Bite X</span><span>{(hollowAllies ?? []).filter(id => id !== snapshot.localPlayerId).map(id => initialPlayers?.find(p => p.id === id)?.name).filter(Boolean).join(", ") || (hollowCount > 1 && !multiplayerClient ? "Other Hollows share your side" : "You hunt alone")}</span></div>
         )}
 
         {snapshot.message && <div className="toast-message">{snapshot.message}</div>}
@@ -5425,7 +5393,7 @@ function Game({
         {snapshot.rewardNotice && (
           <aside className="reward-toast" aria-live="polite">
             <span className="reward-icon"><ItemIcon item={snapshot.rewardNotice.item} /></span>
-            <div><small>{snapshot.rewardNotice.progress ? `YOU RESTORED +${snapshot.rewardNotice.progress}% WARDS` : "YOUR RITUAL IS COMPLETE"} • {snapshot.rewardNotice.station}</small><b>{ITEM_LABELS[snapshot.rewardNotice.item]} ready</b><p>{snapshot.rewardNotice.progress ? "One step closer to restoring the forest. " : snapshot.role === "IMPOSTOR" ? "Counterfeit ritual complete; gear earned without restoring a ward. " : "Personal gear earned; this ward’s team progress was already claimed. "}{ITEM_DESCRIPTIONS[snapshot.rewardNotice.item]}.</p></div>
+            <div><small>{snapshot.rewardNotice.progress ? `${snapshot.rewardNotice.progress > 0 ? "RESTORATION" : "SIPHON"} QUEUED ${Math.abs(snapshot.rewardNotice.progress)}%` : "YOUR RITUAL IS COMPLETE"} • {snapshot.rewardNotice.station}</small><b>{ITEM_LABELS[snapshot.rewardNotice.item]} ready</b><p>{snapshot.role === "IMPOSTOR" ? "Siphon complete. The gauge settles anonymously every four seconds. " : "Gear earned. Shared ward changes settle every four seconds. "}{ITEM_DESCRIPTIONS[snapshot.rewardNotice.item]}.</p></div>
           </aside>
         )}
 
@@ -5451,6 +5419,7 @@ function Game({
           {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight || snapshot.moonSightActive ? "ready" : ""}`} onClick={() => engineRef.current?.useMoonSight()} disabled={snapshot.phase !== "ORDEAL" || !snapshot.canUseMoonSight}><kbd>V</kbd><span>{snapshot.moonSightActive ? "SEEING" : "SIGHT"}</span></button>}
           {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight ? "ready" : ""}`} title="Aim, then create a two-second false rustle. Shares one charge with Sight." onClick={() => engineRef.current?.useEchoLure()} disabled={!snapshot.canUseMoonSight}><kbd>C</kbd><span>ECHO</span></button>}
           {snapshot.role === "IMPOSTOR" && <button className={`action kill ${snapshot.canKill ? "ready" : ""}`} onClick={() => engineRef.current?.kill()} disabled={snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.killCooldown > 0}><kbd>Q</kbd><span>{snapshot.killSpent ? "SPENT" : snapshot.killCooldown > 0 ? snapshot.killCooldown.toFixed(1) : "KILL"}</span></button>}
+          {snapshot.role === "IMPOSTOR" && <button className={`action kill ${snapshot.canKill && !snapshot.stealthCooldown && !snapshot.stealthOrdealsLeft ? "ready" : ""}`} title="Veiled Bite: uses your strike; puddle appears 8s later. Cooldown: 45s and two Ordeal starts." onClick={() => engineRef.current?.kill(true)} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.stealthCooldown > 0 || snapshot.stealthOrdealsLeft > 0}><kbd>X</kbd><span>{snapshot.stealthCooldown ? `${snapshot.stealthCooldown}s` : snapshot.stealthOrdealsLeft ? `${snapshot.stealthOrdealsLeft} ORDEALS` : "VEILED BITE"}</span></button>}
           <button className={`action use ${snapshot.charges[snapshot.selectedItem] > 0 ? "ready" : ""}`} onClick={() => engineRef.current?.useItem()}><kbd>F</kbd><span>USE</span></button>
         </div>
 
@@ -5542,6 +5511,11 @@ function Game({
         </div>
       )}
 
+      {snapshot.taskFailure && snapshot.humanAlive && !deathReveal && !result && (
+        <div className="modal-backdrop task-backdrop" role="alertdialog" aria-modal="true" aria-labelledby="task-failed-title">
+          <div className="task-puzzle-card task-failure-card"><div className="task-puzzle-head"><div><small>RITUAL INTERRUPTED</small><h2 id="task-failed-title">The answer was incorrect</h2></div></div><div className="task-puzzle-body"><p>{snapshot.taskFailure}</p><button autoFocus onClick={() => engineRef.current?.dismissTaskFailure()}>RETURN TO THE SHRINE</button></div></div>
+        </div>
+      )}
       {puzzle && (
         <div className="modal-backdrop task-backdrop" role="dialog" aria-modal="true" aria-labelledby="task-puzzle-title">
           <div className="task-puzzle-card">
@@ -5694,8 +5668,8 @@ function Game({
 
 export default function Home() {
   const [match, setMatch] = useState<
-    | { mode: "SOLO"; count: number; role: RoleChoice; profile: SoloProfile }
-    | { mode: "MULTI"; client: MultiplayerClient; initialPlayers: NetPlayer[]; assignedRole: Role }
+    | { mode: "SOLO"; count: number; role: RoleChoice; profile: SoloProfile; hollowCount: number; layoutSeed: number }
+    | { mode: "MULTI"; client: MultiplayerClient; initialPlayers: NetPlayer[]; assignedRole: Role; hollowCount: number; layoutSeed: number; hollowAllies?: string[] }
     | null
   >(null);
 
@@ -5717,6 +5691,9 @@ export default function Home() {
           client,
           initialPlayers: msg.players,
           assignedRole: msg.role,
+          layoutSeed: msg.layoutSeed ?? 0,
+          hollowCount: msg.hollowCount ?? 1,
+          hollowAllies: msg.hollowAllies,
         });
       }
     });
@@ -5744,14 +5721,17 @@ export default function Home() {
       multiplayerClient={match.mode === "MULTI" ? match.client : null}
       initialPlayers={match.mode === "MULTI" ? match.initialPlayers : undefined}
       assignedRole={match.mode === "MULTI" ? match.assignedRole : undefined}
+      layoutSeed={match.layoutSeed}
+      hollowCount={match.hollowCount}
+      hollowAllies={match.mode === "MULTI" ? match.hollowAllies : undefined}
       onExit={handleExit}
       onMatchComplete={handleMatchComplete}
     />
   ) : (
     <Lobby
-      onLaunch={(count, role, profile) => {
+      onLaunch={(count, role, profile, hollowCount) => {
         gameAnalytics.start("solo", count);
-        setMatch({ mode: "SOLO", count, role, profile });
+        setMatch({ mode: "SOLO", count, role, profile, hollowCount, layoutSeed: Math.floor(Math.random() * 4294967296) });
       }}
       multiplayerClient={client}
       mpState={mpState}

@@ -58,6 +58,8 @@ export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?
     if (msg.type === "SEND_CHAT" && typeof msg.text !== "string") return;
     if (msg.type === "UPDATE_ROOM_CONFIG" && !Number.isFinite(msg.targetPlayers)) return;
     if (msg.type === "START_MATCH" && msg.targetPlayers !== undefined && !Number.isFinite(msg.targetPlayers)) return;
+    if ((msg.type === "START_MATCH" || msg.type === "UPDATE_ROOM_CONFIG") && msg.hollowCount !== undefined && !Number.isFinite(msg.hollowCount)) return;
+    if (msg.type === "TRIGGER_KILL" && (typeof msg.victimId !== "string" || (msg.style !== undefined && !["NORMAL", "STEALTH"].includes(msg.style)))) return;
     if (msg.type === "CAST_VOTE" && msg.targetId !== null && typeof msg.targetId !== "string") return;
     if (msg.type === "USE_ITEM" && !["FLASHLIGHT", "FLARE", "SONAR"].includes(msg.item)) return;
     if (msg.type === "USE_ABILITY" && (!["MOON_SIGHT", "ECHO_LURE"].includes(msg.ability)

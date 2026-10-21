@@ -6,6 +6,25 @@ import { EYE_STYLES, normalizeEyeStyle } from "../server/appearance.ts";
 import { drawEyeShape, eyePath } from "../app/slime-eyes.ts";
 import { SlimeAnimator } from "../app/slime-motion.ts";
 import { DEVOUR_SECONDS, consumptionLayout, devourPose, drawSlimeConsumption } from "../app/slime-devour.ts";
+import { drawAccessory } from "../app/accessory-art.ts";
+
+test("wardrobe and gameplay share cached accessory artwork without repainting every animation frame", async t => {
+  const original = globalThis.document;
+  let canvases = 0, blits = 0;
+  const painter = () => new Proxy({}, { get: (_, key) => key === "createLinearGradient" ? () => ({ addColorStop() {} }) : () => {}, set: () => true });
+  globalThis.document = { createElement: () => { canvases++; return { getContext: painter }; } };
+  t.after(() => { globalThis.document = original; });
+  const target = { drawImage() { blits++; } };
+  for (const hat of ["antlers", "hood", "moth", "mooncap"]) {
+    for (let frame = 0; frame < 60; frame++) drawAccessory(target, hat, 0, 0, false);
+    drawAccessory(target, hat, 0, 0, true);
+  }
+  assert.equal(canvases, 8, "four hats × two visibility materials, not one sprite per frame");
+  assert.equal(blits, 244);
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /drawAccessory\(context, hat, 40, 22\)/);
+  assert.match(source, /drawAccessory\(ctx, hat, x, y, muted\)/);
+});
 
 test("consumption reaches, envelops, swallows, then returns to a neutral pose", () => {
   assert.equal(DEVOUR_SECONDS, 1.6);

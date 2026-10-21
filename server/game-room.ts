@@ -21,8 +21,6 @@ import {
   MIRROR_BUMP_COOLDOWN_MS,
   MIRROR_BUMP_DISTANCE,
   MOON_SIGHT_SECONDS,
-  ORDEAL_TASK_PROGRESS_REWARD,
-  TASK_PROGRESS_REWARD,
   nextHazard,
   ordealDuration,
   resolveObstacleMovement,
@@ -39,6 +37,8 @@ import {
 } from "./sanctuary-map";
 import { planRoute } from "./sanctuary-paths";
 import { ejectionVerdict } from "./role-presentation";
+import { createMatchLayout } from "./match-layout";
+import { clampHollowCount, hollowVictory, ritualProgress, WARD_SETTLE_SECONDS, STEALTH_BODY_DELAY_SECONDS, STEALTH_COOLDOWN_SECONDS, STEALTH_ORDEAL_LOCKOUT } from "./match-rules";
 
 export interface IWebSocketClient {
   send(data: string): void;
@@ -49,7 +49,6 @@ export interface IWebSocketClient {
 
 const BOT_NAMES = ["Mochi", "Bubbles", "Gloop", "Pebble", "Nori", "Fizz", "Pip", "Wobble"];
 const HATS: readonly Hat[] = ["antlers", "hood", "moth", "mooncap"];
-const STATION_BY_ID = new Map(STATIONS.map(station => [station.id, station]));
 const STATION_INTERACTION_RANGE = 104;
 const BOT_RITUAL_SECONDS = 2.6;
 const KILL_COOLDOWN_MS = 1500;
@@ -75,6 +74,19 @@ export class GameRoom {
   state: "LOBBY" | "PLAYING" | "ENDED" = "LOBBY";
   targetPlayers: number = 6;
   botFill: boolean = true;
+  hollowCount = 1;
+  layoutSeed = 0;
+  stations = [...STATIONS];
+  obstacles = createMatchLayout(0).obstacles.slice(0, 8);
+  private startingWardens = 0;
+  private startingHollows = 1;
+  private pendingWardDelta = 0;
+  private wardSettleTimer = 0;
+  private strikeSpent = new Set<string>();
+  private stealthUntil = new Map<string, number>();
+  private stealthOrdeal = new Map<string, number>();
+  private ordealNumber = 0;
+  private pendingBodies: { body: NetBody; at: number }[] = [];
   clients = new Map<string, IWebSocketClient>();
   players = new Map<string, NetPlayer>();
 
@@ -93,6 +105,7 @@ export class GameRoom {
   private footsteps = new Map<string, { x: number; y: number; at: number }>();
   private soundSequence = 0;
   sealedStations = new Set<string>();
+  private publicSeals = new Set<string>();
   roundId = 1;
   private stationCompletionSequence = 0;
   completedStations = new Map<string, Set<string>>();
@@ -158,6 +171,7 @@ export class GameRoom {
       state: this.state,
       targetPlayers: this.targetPlayers,
       botFill: this.botFill,
+      hollowCount: this.hollowCount,
       chatHistory: this.chatHistory,
     });
 
@@ -206,6 +220,9 @@ export class GameRoom {
 
     if (this.clients.size === 0) {
       this.destroy();
+    } else if (this.state === "LOBBY") {
+      this.hollowCount = clampHollowCount(this.hollowCount, this.botFill ? this.targetPlayers : this.players.size);
+      this.broadcastLobbyUpdate();
     } else if (this.state === "PLAYING") {
       if (!this.checkWinConditions() && this.phase === "DISCUSSION" && !this.meetingTally) this.checkVotesComplete();
     }
@@ -217,6 +234,7 @@ export class GameRoom {
       players: Array.from(this.players.values()),
       targetPlayers: this.targetPlayers,
       botFill: this.botFill,
+      hollowCount: this.hollowCount,
       hostId: this.hostId,
     });
   }
@@ -266,6 +284,7 @@ export class GameRoom {
         if (player.isHost && this.state === "LOBBY") {
           this.targetPlayers = Math.max(this.players.size, 4, Math.min(8, Math.round(msg.targetPlayers)));
           this.botFill = Boolean(msg.botFill);
+          this.hollowCount = clampHollowCount(msg.hollowCount ?? this.hollowCount, this.botFill ? this.targetPlayers : this.players.size);
           this.broadcastLobbyUpdate();
         }
         break;
@@ -274,6 +293,7 @@ export class GameRoom {
         if (player.isHost && this.state === "LOBBY") {
           this.botFill = msg.botFill ?? this.botFill;
           this.targetPlayers = Math.max(this.players.size, 4, Math.min(8, Math.round(msg.targetPlayers ?? this.targetPlayers)));
+          this.hollowCount = clampHollowCount(msg.hollowCount ?? this.hollowCount, this.botFill ? this.targetPlayers : this.players.size);
           this.startMatch(this.botFill, this.targetPlayers);
         }
         break;
@@ -293,7 +313,7 @@ export class GameRoom {
           const speedScale = inputSpeed > 184 ? 184 / inputSpeed : 1;
           const next = impostorPhasing
             ? { ...rootChecked, vx: velocityX * speedScale, vy: velocityY * speedScale }
-            : resolveObstacleMovement(rootChecked.x, rootChecked.y, velocityX, velocityY);
+            : resolveObstacleMovement(rootChecked.x, rootChecked.y, velocityX, velocityY, 22, this.obstacles);
           player.x = next.x;
           player.y = next.y;
           player.vx = next.vx;
@@ -346,7 +366,9 @@ export class GameRoom {
 
       case "TRIGGER_KILL": {
         let accepted = false;
-        if (this.state === "PLAYING" && player.role === "IMPOSTOR" && player.alive && this.phase === "ORDEAL" && !this.killUsedThisOrdeal && Date.now() >= this.killCooldownUntil) {
+        const stealth = msg.style === "STEALTH";
+        const stealthReady = Date.now() >= (this.stealthUntil.get(playerId) ?? 0) && this.ordealNumber >= (this.stealthOrdeal.get(playerId) ?? 0);
+        if (this.state === "PLAYING" && player.role === "IMPOSTOR" && player.alive && this.phase === "ORDEAL" && !this.strikeSpent.has(playerId) && (!stealth || stealthReady)) {
           const victim = this.players.get(msg.victimId);
           if (
             victim
@@ -355,10 +377,10 @@ export class GameRoom {
             && dist(player, victim) < 84
           ) {
             accepted = true;
-            this.executeKill(victim, player);
+            this.executeKill(victim, player, stealth);
           }
         }
-        this.sendTo(this.clients.get(playerId)!, { type: "KILL_RESULT", accepted, spent: this.killUsedThisOrdeal });
+        this.sendTo(this.clients.get(playerId)!, { type: "KILL_RESULT", accepted, ...this.strikeState(playerId) });
         break;
       }
 
@@ -416,7 +438,7 @@ export class GameRoom {
 
   private completeRitual(player: NetPlayer, stationId: string, reward: ItemKind, roundId = this.roundId) {
     player.working = false;
-    const station = STATION_BY_ID.get(stationId);
+    const station = this.stations.find(station => station.id === stationId);
     const completed = this.completedStations.get(player.id);
     const charges = this.itemCharges.get(player.id);
     if (this.state !== "PLAYING" || !player.alive || this.phase === "DISCUSSION" || roundId !== this.roundId
@@ -427,21 +449,22 @@ export class GameRoom {
     }
 
     completed.add(stationId);
+    this.publicSeals.add(stationId);
     charges[reward] = Math.min(3, charges[reward] + 1);
     // A shared seal advances the ward only once, but never takes another player's personal rite away.
-    const progressGain = player.role === "CREWMATE" && !this.sealedStations.has(stationId)
-      ? (this.phase === "ORDEAL" ? ORDEAL_TASK_PROGRESS_REWARD : TASK_PROGRESS_REWARD) : 0;
+    const hollow = player.role === "IMPOSTOR";
+    const wardens = [...this.players.values()].filter(p => p.alive && p.role === "CREWMATE").length;
+    const progressGain = hollow || !this.sealedStations.has(stationId)
+      ? ritualProgress(wardens, this.phase === "ORDEAL", hollow, this.startingHollows) : 0;
     if (progressGain) {
-      this.sealedStations.add(stationId);
-      this.taskProgress = Math.min(100, this.taskProgress + progressGain);
+      if (!hollow) this.sealedStations.add(stationId);
+      this.pendingWardDelta += progressGain;
     }
     this.syncGear(player.id, true, { stationId, wardProgressGain: progressGain });
     // No player identity, role, reward, or fake-task flag in the public completion cue.
     this.broadcast({ type: "STATION_COMPLETED", stationId, roundId: this.roundId, sequence: ++this.stationCompletionSequence });
-    if (progressGain) {
-      this.broadcastWorld();
-      if (this.taskProgress >= 100) this.endMatch("CREW VICTORY — ALL MOON WARDS RESTORED");
-    }
+    // The public gauge changes on the same clock for every role, not at the
+    // instant a visible player finishes a shrine. No false progress is shown.
     return true;
   }
 
@@ -485,6 +508,13 @@ export class GameRoom {
     this.phaseTime = CALM_SECONDS;
     this.announceNextOrdeal();
     this.taskProgress = 0;
+    this.pendingWardDelta = 0;
+    this.wardSettleTimer = 0;
+    this.strikeSpent.clear();
+    this.stealthUntil.clear(); this.stealthOrdeal.clear(); this.pendingBodies = []; this.ordealNumber = 0;
+    this.layoutSeed = Math.floor(Math.random() * 4294967296);
+    const layout = createMatchLayout(this.layoutSeed);
+    this.stations = layout.stations; this.obstacles = layout.obstacles;
     this.bodies = [];
     this.flares = [];
     this.killCooldownUntil = 0;
@@ -496,6 +526,7 @@ export class GameRoom {
     this.roundId = 1;
     this.stationCompletionSequence = 0;
     this.sealedStations.clear();
+    this.publicSeals.clear();
     this.completedStations.clear();
     this.itemCharges.clear();
     this.botRituals.clear();
@@ -537,11 +568,16 @@ export class GameRoom {
 
     this.trueColors.clear();
     this.mirrorBumpCooldowns.clear();
-    // Assign roles secretly: exactly 1 Impostor
+    // Assign the configured Hollow team, then disclose allies only to that team.
     const playerList = Array.from(this.players.values());
-    const impostor = choose(playerList);
+    this.hollowCount = clampHollowCount(this.hollowCount, playerList.length);
+    const shuffled = [...playerList];
+    for (let i = shuffled.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]; }
+    const hollowIds = new Set(shuffled.slice(0, this.hollowCount).map(p => p.id));
+    this.startingHollows = this.hollowCount;
+    this.startingWardens = playerList.length - this.hollowCount;
     for (const p of playerList) {
-      p.role = p.id === impostor.id ? "IMPOSTOR" : "CREWMATE";
+      p.role = hollowIds.has(p.id) ? "IMPOSTOR" : "CREWMATE";
       this.trueColors.set(p.id, p.color);
     }
 
@@ -552,6 +588,9 @@ export class GameRoom {
       this.sendTo(client, {
         type: "MATCH_STARTED",
         role: p.role || "CREWMATE",
+        layoutSeed: this.layoutSeed,
+        hollowCount: this.hollowCount,
+        ...(p.role === "IMPOSTOR" ? { hollowAllies: [...hollowIds] } : {}),
         players: playerList.map((player) => ({
           ...player,
           role: player.id === id ? player.role : undefined, // Keep role secret!
@@ -614,6 +653,7 @@ export class GameRoom {
   private resetStationsForRound() {
     this.roundId += 1;
     this.sealedStations.clear();
+    this.publicSeals.clear();
     for (const completed of this.completedStations.values()) completed.clear();
     this.botRituals.clear();
     for (const id of this.clients.keys()) this.syncGear(id, true, {});
@@ -625,12 +665,18 @@ export class GameRoom {
     this.ordealSeed = Math.floor(Math.random() * 4294967296);
   }
 
-  private executeKill(victim: NetPlayer, killer: NetPlayer) {
+  private strikeState(id: string) {
+    return { spent: this.strikeSpent.has(id), stealthRemainingMs: Math.max(0, (this.stealthUntil.get(id) ?? 0) - Date.now()), stealthOrdealsLeft: Math.max(0, (this.stealthOrdeal.get(id) ?? 0) - this.ordealNumber) };
+  }
+
+  private executeKill(victim: NetPlayer, killer: NetPlayer, stealth = false) {
     victim.alive = false;
     victim.vx = 0;
     victim.vy = 0;
     victim.working = false;
     this.killUsedThisOrdeal = true;
+    this.strikeSpent.add(killer.id);
+    if (stealth) { this.stealthUntil.set(killer.id, Date.now() + STEALTH_COOLDOWN_SECONDS * 1000); this.stealthOrdeal.set(killer.id, this.ordealNumber + STEALTH_ORDEAL_LOCKOUT); }
     this.killCooldownUntil = Date.now() + KILL_COOLDOWN_MS;
 
     const body: NetBody = {
@@ -641,9 +687,8 @@ export class GameRoom {
       name: victim.name,
       age: 0,
     };
-    this.bodies.push(body);
-
-    this.broadcast({ type: "BODY_SPAWNED", body });
+    if (stealth) this.pendingBodies.push({ body: { ...body, delayed: true }, at: Date.now() + STEALTH_BODY_DELAY_SECONDS * 1000 });
+    else { this.bodies.push(body); this.broadcast({ type: "BODY_SPAWNED", body }); }
 
     // Send private death reveal only to the victim
     const victimClient = this.clients.get(victim.id);
@@ -784,6 +829,7 @@ export class GameRoom {
   private resolveMeeting() {
     this.clearMeetingTimers();
     this.bodies = [];
+    this.pendingBodies = [];
     this.flares = [];
     this.meetingTally = null;
 
@@ -799,18 +845,18 @@ export class GameRoom {
 
   private checkWinConditions(): boolean {
     if (this.state !== "PLAYING") return false;
-    const impostor = Array.from(this.players.values()).find((p) => p.role === "IMPOSTOR");
+    const hollows = Array.from(this.players.values()).filter((p) => p.role === "IMPOSTOR" && p.alive);
     const livingCrew = Array.from(this.players.values()).filter((p) => p.role === "CREWMATE" && p.alive).length;
 
-    if (!impostor?.alive) {
-      this.endMatch("CREW VICTORY — THE IMPOSTOR WAS EJECTED");
+    if (hollows.length === 0) {
+      this.endMatch("CREW VICTORY — ALL HOLLOWS WERE EXPOSED");
       return true;
     }
     if (this.taskProgress >= 100) {
       this.endMatch("CREW VICTORY — ALL MOON WARDS RESTORED");
       return true;
     }
-    if (livingCrew <= 1) {
+    if (hollowVictory(livingCrew, hollows.length, this.startingWardens, this.startingHollows)) {
       this.endMatch("IMPOSTOR VICTORY — CREW AT PARITY");
       return true;
     }
@@ -844,6 +890,16 @@ export class GameRoom {
     const elapsed = Math.max(0, Math.min((now - this.lastTick) / 1000, 60));
     const dt = Math.min(elapsed, 0.1);
     this.lastTick = now;
+    if (this.phase !== "DISCUSSION") {
+      this.wardSettleTimer += elapsed;
+      if (this.wardSettleTimer >= WARD_SETTLE_SECONDS) {
+        this.wardSettleTimer %= WARD_SETTLE_SECONDS;
+        if (this.settleWards()) return;
+      }
+      const due = this.pendingBodies.filter(entry => entry.at <= now);
+      this.pendingBodies = this.pendingBodies.filter(entry => entry.at > now);
+      for (const entry of due) { this.bodies.push(entry.body); this.broadcast({ type: "BODY_SPAWNED", body: entry.body }); }
+    }
 
     // AI Bots movement
     if (this.phase !== "DISCUSSION") {
@@ -870,6 +926,7 @@ export class GameRoom {
           this.footsteps.clear();
           this.killCooldownUntil = 0;
           this.killUsedThisOrdeal = false;
+          this.strikeSpent.clear(); this.ordealNumber += 1;
         } else if (this.phase === "ORDEAL") {
           this.phase = "CALM";
           this.phaseTime += CALM_SECONDS;
@@ -913,10 +970,16 @@ export class GameRoom {
     if (previousPhase !== this.phase || this.worldSyncTimer >= 0.2) this.broadcastWorld();
   }
 
+  private settleWards() {
+    this.taskProgress = Math.max(0, Math.min(100, Math.round((this.taskProgress + this.pendingWardDelta) * 10) / 10));
+    this.pendingWardDelta = 0;
+    return this.checkWinConditions();
+  }
+
   private broadcastWorld() {
     this.worldSyncTimer = 0;
-    this.broadcast({ type: "SYNC_WORLD", serverTime: Date.now(), roundId: this.roundId, ordealSeed: this.ordealSeed, phase: this.phase, time: Math.max(0, this.phaseTime), hazard: this.hazard, taskProgress: this.taskProgress, bodies: this.bodies, flares: this.flares, completedStations: Array.from(this.sealedStations) });
-    for (const player of this.players.values()) if (player.role === "IMPOSTOR") this.syncAbility(player.id);
+    this.broadcast({ type: "SYNC_WORLD", serverTime: Date.now(), roundId: this.roundId, ordealSeed: this.ordealSeed, phase: this.phase, time: Math.max(0, this.phaseTime), hazard: this.hazard, taskProgress: this.taskProgress, bodies: this.bodies, flares: this.flares, completedStations: Array.from(this.publicSeals) });
+    for (const player of this.players.values()) if (player.role === "IMPOSTOR") { this.syncAbility(player.id); const client = this.clients.get(player.id); if (client) this.sendTo(client, { type: "STRIKE_STATE", ...this.strikeState(player.id) }); }
   }
 
   private tickBots(dt: number) {
@@ -942,7 +1005,7 @@ export class GameRoom {
       const rootChecked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && !impostorPhasing
         ? keepInRootCell(bot, { x: nextX, y: nextY })
         : { x: nextX, y: nextY };
-      const next = impostorPhasing ? rootChecked : resolveObstaclePosition(rootChecked.x, rootChecked.y);
+      const next = impostorPhasing ? rootChecked : resolveObstaclePosition(rootChecked.x, rootChecked.y, 22, this.obstacles);
       if (next.x !== nextX) bot.vx *= -0.2;
       if (next.y !== nextY) bot.vy *= -0.2;
       bot.x = next.x;
@@ -952,7 +1015,7 @@ export class GameRoom {
       this.tickBotGear(bot);
 
       // Bot Impostor hunting
-      if (this.phase === "ORDEAL" && bot.role === "IMPOSTOR" && !this.killUsedThisOrdeal && Date.now() >= this.killCooldownUntil && this.phaseTime < ordealDuration(this.hazard) - 1.5) {
+      if (this.phase === "ORDEAL" && bot.role === "IMPOSTOR" && !this.strikeSpent.has(bot.id) && this.phaseTime < ordealDuration(this.hazard) - 1.5) {
         const victim = Array.from(this.players.values()).find((p) =>
           p.alive
           && p.role === "CREWMATE"
@@ -970,13 +1033,13 @@ export class GameRoom {
     if (!completed) return false;
     let ritual = this.botRituals.get(bot.id);
     if (!ritual || completed.has(ritual.stationId)) {
-      const target = STATIONS.filter(station => !completed.has(station.id)).sort((a, b) =>
+      const target = this.stations.filter(station => !completed.has(station.id)).sort((a, b) =>
         Number(this.sealedStations.has(a.id)) - Number(this.sealedStations.has(b.id)) || dist(bot, a) - dist(bot, b))[0];
       if (!target) { bot.working = false; return false; }
-      ritual = { stationId: target.id, route: planRoute(bot, target), dwell: 0 };
+      ritual = { stationId: target.id, route: planRoute(bot, target, false, this.obstacles), dwell: 0 };
       this.botRituals.set(bot.id, ritual);
     }
-    const station = STATION_BY_ID.get(ritual.stationId)!;
+    const station = this.stations.find(station => station.id === ritual.stationId)!;
     if (dist(bot, station) <= 82) {
       bot.vx = 0;
       bot.vy = 0;
@@ -1114,6 +1177,7 @@ export class GameServerRegistry {
           playerCount: room.players.size,
           targetPlayers: room.targetPlayers,
           botFill: room.botFill,
+          hollowCount: room.hollowCount,
         });
       }
     }

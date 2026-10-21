@@ -1,5 +1,5 @@
 /** Bump when world geometry or shared gameplay state becomes incompatible. */
-export const GAME_WORLD_VERSION = "silverpine-1920x1140-personal-rites-v2";
+export const GAME_WORLD_VERSION = "silverpine-seeded-hollows-stealth-v3";
 
 export const GAME_VERSION_MISMATCH = "The game page and room server use different map versions. Refresh the page and reconnect. For local testing, start the matching local room server; production needs both the site and room server updated together.";
 

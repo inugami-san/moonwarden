@@ -5,6 +5,7 @@ import {
   getRootCell,
   type WorldPoint,
 } from "../server/sanctuary-map";
+import { createMatchLayout } from "../server/match-layout";
 
 /** Navigation accepts shrine state, never a roster, bodies, roles, or sound cues. */
 export type NavigationStation = WorldPoint & {
@@ -20,19 +21,21 @@ export type NavigationInput = {
   hazard: string;
   stations: readonly NavigationStation[];
   destinationId: string | null;
+  layoutSeed?: number;
 };
 
 const STATION_CATALOG = new Map(STATIONS.map(station => [station.id, station]));
 
 /** Strip unknown IDs and extra properties before anything reaches the map. */
 export function navigationView(input: NavigationInput) {
+  const catalog = input.layoutSeed === undefined ? STATION_CATALOG : new Map(createMatchLayout(input.layoutSeed).stations.map(station => [station.id, station]));
   const position = clampWorldPoint(input.position.x, input.position.y);
   const rootLocked = input.phase === "ORDEAL" && input.hazard === "ROOTWAKE";
   const cell = rootLocked ? getRootCell(position.x, position.y) : null;
   const visibleStations: NavigationStation[] = [];
   const seen = new Set<string>();
   for (const state of input.stations) {
-    const station = STATION_CATALOG.get(state.id);
+    const station = catalog.get(state.id);
     if (!station || seen.has(station.id)) continue;
     seen.add(station.id);
     if (cell && getRootCell(station.x, station.y).index !== cell.index) continue;

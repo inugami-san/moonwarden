@@ -8,13 +8,15 @@ import { PLAYER_COLORS } from "../server/palette.ts";
 import { CALM_SECONDS, CENTER, PLAYER_BOUNDS, STATIONS, SANCTUARY_OBSTACLES, keepInRootCell } from "../server/sanctuary-map.ts";
 import { planRoute } from "../server/sanctuary-paths.ts";
 import { GAME_WORLD_VERSION } from "../server/game-version.ts";
+import { ritualProgress } from "../server/match-rules.ts";
+const wardGain = room => ritualProgress([...room.players.values()].filter(player => player.alive && player.role === "CREWMATE").length, room.phase === "ORDEAL");
 
 const hello = { type: "CLIENT_HELLO", worldVersion: GAME_WORLD_VERSION };
 const initialHandshake = payload => !payload.sessionId && !payload.disconnect
   ? { ...payload, messages: [hello, ...(payload.messages ?? [])] } : payload;
 
-function atStation(player, stationId) {
-  const station = STATIONS.find(station => station.id === stationId);
+function atStation(room, player, stationId) {
+  const station = room.stations.find(station => station.id === stationId);
   player.x = station.x;
   player.y = station.y + (station.side === "top" ? 60 : station.side === "bottom" ? -60 : 0);
 }
@@ -153,11 +155,13 @@ test("Multiplayer GameRoom: Lifecycle, Input Sync, Tasks, Meetings, and Voting",
 
   // 5. Task Progress & Shared Station Completion Sync
   playerA.role = "CREWMATE";
-  atStation(playerA, "FROST FONT");
+  atStation(room, playerA, "FROST FONT");
   clientB.sent.length = 0;
   const initialTask = room.taskProgress;
   room.handleMessage("player-a", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT" });
-  assert.equal(room.taskProgress, initialTask + 8);
+  assert.equal(room.taskProgress, initialTask, "the gauge is not an instant identity detector");
+  room.settleWards(); room.broadcastWorld();
+  assert.equal(room.taskProgress, initialTask + wardGain(room));
   assert.equal(room.itemCharges.get("player-a").FLASHLIGHT, 1);
   assert.equal(room.sealedStations.has("FROST FONT"), true);
   const worldSyncForB = clientB.popMessage("SYNC_WORLD");
@@ -166,10 +170,10 @@ test("Multiplayer GameRoom: Lifecycle, Input Sync, Tasks, Meetings, and Voting",
   // Personal gear rites remain available to teammates, but cannot double team progress.
   room.handleMessage("player-a", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT" });
   assert.equal(room.itemCharges.get("player-a").FLASHLIGHT, 1);
-  atStation(playerB, "FROST FONT");
+  atStation(room, playerB, "FROST FONT");
   room.handleMessage("player-b", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT" });
   assert.equal(room.itemCharges.get("player-b").FLASHLIGHT, 1);
-  assert.equal(room.taskProgress, initialTask + 8);
+  assert.equal(room.taskProgress, initialTask + wardGain(room));
 
   // 6. Emergency Meeting Trigger
   playerA.x = CENTER.x;
@@ -260,19 +264,20 @@ function preparedMatch(t, bots = false) {
 
 test("each player keeps a private shrine rite after the team seal, without duplicate ward progress", t => {
   const { room, clients } = preparedMatch(t);
-  for (const player of room.players.values()) atStation(player, "FROST FONT");
+  for (const player of room.players.values()) atStation(room, player, "FROST FONT");
   const request = { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT", roundId: room.roundId };
   room.handleMessage("rite-1", request);
-  assert.equal(room.taskProgress, 8);
+  room.settleWards();
+  assert.equal(room.taskProgress, wardGain(room));
   room.handleMessage("rite-2", request);
   room.handleMessage("rite-0", request);
-  assert.equal(room.taskProgress, 8, "a teammate or fake rite cannot seal the same ward twice");
+  assert.equal(room.taskProgress, wardGain(room), "a teammate cannot add a second restoration; Hollow siphons settle later");
   for (const id of ["rite-0", "rite-1", "rite-2"]) assert.equal(room.itemCharges.get(id).FLASHLIGHT, 1);
   const personal = clients[2].sent.filter(message => message.type === "GEAR_SYNC").at(-1);
   assert.deepEqual(personal.completedStations, ["FROST FONT"]);
   assert.equal(personal.stationCompleted, true);
   assert.equal(personal.wardProgressGain, 0);
-  assert.equal(clients[1].sent.find(message => message.type === "GEAR_SYNC").wardProgressGain, 8);
+  assert.equal(clients[1].sent.find(message => message.type === "GEAR_SYNC").wardProgressGain, wardGain(room));
   assert.ok(!clients[3].sent.some(message => message.type === "GEAR_SYNC"), "private inventories never leak to other clients");
   for (const message of clients[3].sent.filter(message => message.type === "STATION_COMPLETED")) {
     assert.deepEqual(Object.keys(message).sort(), ["roundId", "sequence", "stationId", "type"]);
@@ -290,14 +295,16 @@ test("each player keeps a private shrine rite after the team seal, without dupli
 
 test("fake rites award gear but leave the first real Warden restoration available", t => {
   const { room } = preparedMatch(t);
-  for (const player of room.players.values()) atStation(player, "STAR ALTAR");
+  for (const player of room.players.values()) atStation(room, player, "STAR ALTAR");
   const request = { type: "TASK_UPDATE", stationId: "STAR ALTAR", reward: "SONAR", roundId: 1 };
   room.handleMessage("rite-0", request);
   assert.equal(room.taskProgress, 0);
   assert.equal(room.sealedStations.has("STAR ALTAR"), false);
   room.phase = "ORDEAL";
   room.handleMessage("rite-1", request);
-  assert.equal(room.taskProgress, 12);
+  const expected = wardGain(room) + ritualProgress(3, false, true);
+  room.settleWards();
+  assert.equal(room.taskProgress, Math.round(expected * 10) / 10);
   assert.equal(room.sealedStations.has("STAR ALTAR"), true);
 });
 
@@ -307,7 +314,7 @@ test("rites reject distant, dead, discussion, wrong-reward and stale-round claim
   const request = { type: "TASK_UPDATE", stationId: "ROOT SEAL", reward: "SONAR", roundId: 1 };
   room.handleMessage(player.id, request);
   assert.equal(clients[1].sent.at(-1).accepted, false, "distant task claims cannot repair the forest");
-  atStation(player, "ROOT SEAL");
+  atStation(room, player, "ROOT SEAL");
   for (const change of [{ alive: false }, { alive: true, phase: "DISCUSSION" }, { alive: true, phase: "CALM", roundId: 0 }, { reward: "FLARE", roundId: 1 }]) {
     if (change.alive !== undefined) player.alive = change.alive;
     if (change.phase) room.phase = change.phase;
@@ -361,12 +368,13 @@ test("bots cannot repair from afar: they travel, dwell, claim gear and use the s
   assert.equal(room.completedStations.get(bot.id).size, 0);
   assert.ok(Math.hypot(bot.vx, bot.vy) > 0);
   const target = room.botRituals.get(bot.id).stationId;
-  atStation(bot, target);
+  atStation(room, bot, target);
   for (let i = 0; i < 20; i++) room.tickBots(0.1);
   assert.equal(room.taskProgress, 0, "standing at a shrine is not immediate completion");
   assert.equal(bot.working, true);
   for (let i = 0; i < 7; i++) room.tickBots(0.1);
-  assert.equal(room.taskProgress, 8);
+  room.settleWards();
+  assert.equal(room.taskProgress, wardGain(room));
   assert.equal(room.completedStations.get(bot.id).has(target), true);
   assert.equal(room.itemCharges.get(bot.id)[STATIONS.find(station => station.id === target).reward], 1);
   assert.equal(room.sealedStations.has(target), true);
@@ -411,7 +419,7 @@ test("bot shrine trips finish real rituals without clipping the forest's obstacl
   const { room } = preparedMatch(t, true);
   const bot = [...room.players.values()].find(player => player.isAi);
   for (const other of room.players.values()) if (other.id !== bot.id) other.isAi = false;
-  atStation(bot, "ROOT SEAL");
+  atStation(room, bot, "ROOT SEAL");
   for (let step = 0; step < 380; step++) {
     room.tickBots(0.05);
     assert.ok(bot.x >= PLAYER_BOUNDS.left && bot.x <= PLAYER_BOUNDS.right);
@@ -421,7 +429,8 @@ test("bot shrine trips finish real rituals without clipping the forest's obstacl
     }
   }
   assert.ok(room.completedStations.get(bot.id).size >= 2, "the bot actually arrives at later shrines, not just its spawn shrine");
-  assert.equal(room.taskProgress, room.sealedStations.size * 8);
+  room.settleWards();
+  assert.ok(Math.abs(room.taskProgress - room.sealedStations.size * wardGain(room)) < 1e-6);
   const charges = room.itemCharges.get(bot.id);
   assert.ok(charges.SONAR >= 1);
   assert.ok(charges.FLASHLIGHT + charges.FLARE >= 1);
@@ -437,7 +446,7 @@ test("bots consume only gear they earned and extinguish their lights outside the
   room.tickBots(0.05);
   assert.equal(bot.flashlight, false, "no free mushroom at the start of an ordeal");
   room.phase = "CALM";
-  atStation(bot, "FROST FONT");
+  atStation(room, bot, "FROST FONT");
   room.completeRitual(bot, "FROST FONT", "FLASHLIGHT", 1);
   assert.equal(room.itemCharges.get(bot.id).FLASHLIGHT, 1);
   room.phase = "ORDEAL";
@@ -709,9 +718,10 @@ test("invalid and reordered movement cannot corrupt a room or tunnel through Roo
   player.role = "CREWMATE";
   const input = { type: "PLAYER_INPUT", x: 300, y: 180, vx: 100, vy: 0, angle: 0, flashlight: false, seq: 2 };
   room.handleMessage("host", input);
+  const acceptedX = player.x;
   room.handleMessage("host", { ...input, x: 250, seq: 1 });
   room.handleMessage("host", { ...input, x: NaN, seq: 3 });
-  assert.equal(player.x, 300);
+  assert.equal(player.x, acceptedX, "stale and invalid inputs cannot change the collision-resolved position");
   assert.equal(player.inputSeq, 2);
   room.phase = "ORDEAL";
   room.hazard = "ROOTWAKE";
@@ -772,7 +782,7 @@ test("rejected kill and gear actions return authoritative state to the requestin
   host.role = "IMPOSTOR";
   room.phase = "ORDEAL";
   room.handleMessage("host", { type: "TRIGGER_KILL", victimId: "missing" });
-  assert.deepEqual(client.popMessage("KILL_RESULT"), { type: "KILL_RESULT", accepted: false, spent: false });
+  assert.deepEqual(client.popMessage("KILL_RESULT"), { type: "KILL_RESULT", accepted: false, spent: false, stealthRemainingMs: 0, stealthOrdealsLeft: 0 });
   room.itemCharges.get("host").SONAR = 1;
   room.handleMessage("host", { type: "USE_ITEM", item: "SONAR", x: 0, y: 0 });
   assert.equal(client.popMessage("GEAR_SYNC").charges.SONAR, 0);

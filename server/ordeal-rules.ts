@@ -42,10 +42,10 @@ export function phantomPaths(seed: number) {
 }
 
 /** Smoothly pushes a moving circle (player) out of any overlapping sanctuary obstacle trunks/bases. */
-export function resolveObstaclePosition(x: number, y: number, playerRadius = 22) {
+export function resolveObstaclePosition(x: number, y: number, playerRadius = 22, obstacles = SANCTUARY_OBSTACLES) {
   let rx = x;
   let ry = y;
-  for (const obs of SANCTUARY_OBSTACLES) {
+  for (const obs of obstacles) {
     const dx = rx - obs.x;
     const dy = ry - obs.y;
     const minDist = obs.r + playerRadius;
@@ -67,7 +67,7 @@ export function resolveObstaclePosition(x: number, y: number, playerRadius = 22)
  * Both prediction and room authority use this so glancing contacts do not
  * alternate between free movement and a full stop on every network update.
  */
-export function resolveObstacleMovement(x: number, y: number, vx: number, vy: number, playerRadius = 22) {
+export function resolveObstacleMovement(x: number, y: number, vx: number, vy: number, playerRadius = 22, obstacles = SANCTUARY_OBSTACLES) {
   let rx = Number.isFinite(x) ? x : CENTER.x;
   let ry = Number.isFinite(y) ? y : CENTER.y;
   let rvx = Number.isFinite(vx) ? vx : 0;
@@ -75,7 +75,7 @@ export function resolveObstacleMovement(x: number, y: number, vx: number, vy: nu
   const radius = Number.isFinite(playerRadius) && playerRadius >= 0 ? playerRadius : 22;
   const speed = Math.hypot(rvx, rvy);
   if (speed > 184) { rvx = rvx / speed * 184; rvy = rvy / speed * 184; }
-  for (const obstacle of SANCTUARY_OBSTACLES) {
+  for (const obstacle of obstacles) {
     const dx = rx - obstacle.x, dy = ry - obstacle.y;
     const distance = Math.hypot(dx, dy);
     const contactDistance = obstacle.r + radius;
@@ -98,12 +98,12 @@ export function resolveObstacleMovement(x: number, y: number, vx: number, vy: nu
 }
 
 /** Returns true if the line-of-sight segment between `a` and `b` is blocked by a sanctuary obstacle trunk/pillar. */
-export function isOccludedByObstacle(a: { x: number; y: number }, b: { x: number; y: number }) {
+export function isOccludedByObstacle(a: { x: number; y: number }, b: { x: number; y: number }, obstacles = SANCTUARY_OBSTACLES) {
   const abx = b.x - a.x;
   const aby = b.y - a.y;
   const lenSq = abx * abx + aby * aby;
   if (lenSq < 1) return false;
-  for (const obs of SANCTUARY_OBSTACLES) {
+  for (const obs of obstacles) {
     // Project obstacle center onto segment a->b
     const t = Math.max(0, Math.min(1, ((obs.x - a.x) * abx + (obs.y - a.y) * aby) / lenSq));
     if (t <= 0.05 || t >= 0.95) continue;

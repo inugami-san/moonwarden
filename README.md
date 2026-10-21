@@ -6,19 +6,19 @@ within the Silverpine forest. It runs in the browser with a procedurally rendere
 
 ## Included gameplay
 
-- Four to eight players with exactly one player privately assigned the role of The Hollow
+- Four to eight players; hosts choose 1 to half the circle as Hollows (default 1). Hollow teammates are revealed only to their own side. A 50/50 opening does not immediately end the match; expose every Hollow for a Warden role victory
 - Test modes with forced roles (Warden or The Hollow) or random assignment
 - Cinematic private role reveals for both Wardens and The Hollow
 - Twenty-four-second Calm, three-second warning, and ten-second Ordeal phases; Mirror Pool lasts twenty-five seconds
 - Six rotating Ordeals: Total Blackout, Thick Sea Fog, Moon Glare, Rootwake's six-cell grid, Phantom Procession decoys that Sonar can expose, and Mirror Pool's reversed controls and contact-triggered color swaps
-- A shared 1920×1140 forest with connected clearings and a responsive following camera; slimes, shrines, and collision props retain their readable sizes
+- A shared 1920×1140 forest with connected clearings and a responsive following camera; each match randomizes shrine positions and surrounding trees/ward stones from one server-issued seed. Clients, bots, collision and the navigation map use the same layout, fixed for the match
 - A collapsible minimap and expanded map (`M` or the map button) showing only your position, static landmarks, and shrine rewards—not players, bodies, roles, or sound cues
 - Task-earned Glowing Mushrooms, five-second Moonblossoms, and Echo Bells, with clear reward notices
 - Forest sanctums with mossy stone, living roots, fireflies, and flowers; personal reward availability and shared restoration have separate visual states
 - Sanctums reopen each round (the next Calm, including after meetings), preserving earned gear and shared task progress; successful tasks emit a small 0.5-second completion pulse in solo and multiplayer
-- One personal ritual per player, sanctum, and round; a teammate's shared seal never removes your gear reward. Only the first real Warden completion adds team progress; deceptive tasks by The Hollow do not. Delayed requests from older rounds are rejected
-- Quick arithmetic and constellation-link shrine puzzles, including fake versions for The Hollow
-- One strike by The Hollow per Ordeal with a compact, non-blocking top kill notice (no public identity reveal), private Moon Sight for The Hollow, jelly puddles, reporting, emergency meetings, voting,
+- One personal ritual per player, sanctum, and round; a teammate's shared seal never removes your gear reward. The first Warden completion restores wards; each Hollow completion siphons wards without consuming the Warden claim. Both leave the same public shrine visuals. All gauge changes settle together every four seconds, with gains scaled to living Wardens
+- Quick arithmetic and constellation-link shrine puzzles. One wrong answer ends the attempt, awards no item, and shows a failure popup; reopening gives a different question, with a short retry delay
+- One strike per Hollow per Ordeal, shared between a normal strike and Veiled Bite. Veiled Bite delays its puddle by eight seconds and recovers only after 45 seconds and two further Ordeal starts. Normal strikes retain a compact, non-blocking top kill notice (no public identity reveal), private Moon Sight, jelly puddles, reporting, emergency meetings, voting,
   ejection, task victory, and parity victory
 - Phase-aware background music that crossfades between the gentle normal-flow theme and hostile Ordeal theme, preserving each track's position with an in-game BGM toggle
 - Living-player meeting chat with contextual AI discussion for the local playtest
@@ -27,7 +27,7 @@ within the Silverpine forest. It runs in the browser with a procedurally rendere
   and weighted voting
 - Responsive keyboard, mouse, and touch controls
 - **Multiplayer**: WebSocket transport with an HTTP relay fallback, 4-letter room codes, unique room-wide slime colors (including bots), waiting room chat and roster, host controls, a 20Hz room tick, buffered movement interpolation, and synchronized voting
-- Cached translucent slime materials with subdued pigments, soft moonlight reflections, subtle eyes, and restrained fluid motion; identity-concealing Ordeals retain anonymous silhouettes
+- Cached translucent slime materials and shared, cached gameplay accessories in both customization and the arena; offscreen actor/prop drawing is culled without disabling simulation. Identity-concealing Ordeals retain anonymous silhouettes
 
 ## Run locally
 
@@ -155,10 +155,14 @@ teammate. Countdown supplies a final three-second warning and Rootwake boundary
 guides. The next hazard does not repeat the previous one.
 
 Each player can complete one personal ritual at each shrine per round. The
-first real Warden completion at that shrine adds **8% team ward progress during
-Calm/Countdown**, or **12% during an Ordeal**. Later completions there still earn
-that player's gear, but never duplicate the shared progress. The Hollow can
-perform convincing fake rituals and earn gear without restoring the wards.
+first real Warden completion at that shrine queues team ward progress:
+`clamp(14 / livingWardens, 1.5, 5)%`, multiplied by 1.25 during an Ordeal,
+rounded to one decimal. Later Warden completions still earn personal gear but
+never duplicate shared progress. Hollow rituals instead queue a reduction at
+65% of the corresponding gain divided by the configured Hollow count, without
+consuming the first Warden claim or allowing several Hollows to stack an
+overwhelming drain on the same shrine.
+The real gauge settles every four seconds; it never displays invented progress.
 Rituals remain available during Ordeals if players take the risk; meetings pause
 them. Round changes reopen personal rituals and shared seals while preserving
 earned gear and accumulated team progress. Charges are capped at three per item.
@@ -177,7 +181,9 @@ enabled independently of music; directional rustle captions work with sound off.
 
 The Hollow has one **shared special-action charge** each Ordeal: `V` Moon Sight
 (up to 3.2 seconds) **or** `C` Echo Lure (aim first; 2 seconds; 220-unit range).
-The kill remains a separate one-per-Ordeal action. The room server validates role,
+The kill remains a separate one-per-Hollow, per-Ordeal action (normal OR stealth).
+`X` Veiled Bite shares that strike and delays its puddle eight seconds, with a
+45-second cooldown plus a two-Ordeal lockout. The room server validates role,
 life, phase, round, range and charge; only the caster receives private ability state.
 Real footsteps and lures share the same anonymous sound-cue format and hearing range.
 Rootwake confines Wardens and lures/sounds to their current chamber. The existing
@@ -200,6 +206,7 @@ client with an old room server. The live Render service tracks
 | Use gear | `F` or right-click |
 | Report / emergency | `R` |
 | The Hollow — strike | `Q` or `Space` |
+| The Hollow — Veiled Bite (delayed puddle) | `X` |
 | The Hollow — Moon Sight | `V` |
 | The Hollow — Echo Lure (aim first; shares charge with Sight) | `C` |
 | Environmental sound / reduced glare | `ENABLE SFX` / `SOFT GLARE` |

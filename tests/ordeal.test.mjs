@@ -151,8 +151,8 @@ test("shrines stay open during Ordeals, sync working status, and grant +12% Moon
   const p1 = room.players.get("p1");
   room.handleMessage("p1", {
     type: "PLAYER_INPUT",
-    x: STATIONS[0].x,
-    y: STATIONS[0].y + 60,
+    x: room.stations.find(station => station.id === "FROST FONT").x,
+    y: room.stations.find(station => station.id === "FROST FONT").y,
     vx: 0,
     vy: 0,
     angle: 0,
@@ -169,7 +169,9 @@ test("shrines stay open during Ordeals, sync working status, and grant +12% Moon
   assert.equal(netP1.working, true);
 
   room.handleMessage("p1", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT" });
-  assert.equal(room.taskProgress, ORDEAL_TASK_PROGRESS_REWARD);
+  assert.equal(room.taskProgress, 0, "progress settles after the interaction");
+  room.settleWards();
+  assert.equal(room.taskProgress, 5.8);
   assert.equal(p1.working, false);
 });
 

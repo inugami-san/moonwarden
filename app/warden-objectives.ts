@@ -10,8 +10,8 @@ export const ORDEAL_PREPARATION: Record<Hazard, { item: ItemKind; title: string;
   MIRROR_POOL: { item: "FLARE", title: "Keep a familiar light nearby", reason: "Earn a Moonblossom for a shared landmark while controls and colors shift." },
 };
 
-export function preparationStation(hazard: Hazard, position: { x: number; y: number }, personalCompleted: readonly string[]) {
-  const available = STATIONS.filter(station => !personalCompleted.includes(station.id));
+export function preparationStation(hazard: Hazard, position: { x: number; y: number }, personalCompleted: readonly string[], stations = STATIONS) {
+  const available = stations.filter(station => !personalCompleted.includes(station.id));
   const preferred = available.filter(station => station.reward === ORDEAL_PREPARATION[hazard].item);
   return [...(preferred.length ? preferred : available)].sort((a, b) =>
     Math.hypot(a.x - position.x, a.y - position.y) - Math.hypot(b.x - position.x, b.y - position.y),

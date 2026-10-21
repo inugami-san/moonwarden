@@ -6,6 +6,7 @@ import { mapTitle, navigationStationState, navigationView, type NavigationStatio
 import "./navigation-map.css";
 
 export type NavigationMapProps = {
+  layoutSeed?: number;
   position: { x: number; y: number };
   phase: string;
   hazard: string;
@@ -65,7 +66,7 @@ function ForestDiagram({ view, id, expanded = false }: { view: NavigationView; i
   );
 }
 
-export function NavigationMap({ position, phase, hazard, stations, destinationId, onDestinationChange, enabled, onExpandedChange }: NavigationMapProps) {
+export function NavigationMap({ position, phase, hazard, stations, destinationId, layoutSeed, onDestinationChange, enabled, onExpandedChange }: NavigationMapProps) {
   const preferredCompactOpen = useSyncExternalStore(subscribeMapPreference, getMapPreference, serverMapPreference);
   const [compactOverride, setCompactOverride] = useState<boolean | null>(null);
   const compactOpen = compactOverride ?? preferredCompactOpen;
@@ -79,7 +80,7 @@ export function NavigationMap({ position, phase, hazard, stations, destinationId
   const dialogRef = useRef<HTMLDialogElement>(null);
   const expandedCallback = useRef(onExpandedChange);
   const id = useId().replace(/:/g, "");
-  const view = navigationView({ position, phase, hazard, stations, destinationId });
+  const view = navigationView({ position, phase, hazard, stations, destinationId, layoutSeed });
   const isOpen = enabled && expanded;
 
   useEffect(() => {

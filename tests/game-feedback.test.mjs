@@ -4,6 +4,7 @@ import { runInNewContext } from "node:vm";
 import test from "node:test";
 import ts from "typescript";
 import { ejectionVerdict } from "../server/role-presentation.ts";
+import * as matchRules from "../server/match-rules.ts";
 
 // Exercise the real engine methods without starting RAF, audio hardware, or a
 // network connection. Extracting the class avoids adding test exports/routes
@@ -25,6 +26,8 @@ function fixture() {
     sharesRootCell: () => false,
     drawSanctumStatus: () => layers.push("status"),
     ejectionVerdict,
+    ...matchRules,
+    choose: items => items[0],
   });
   const engine = Object.assign(Object.create(Engine.prototype), {
     players: [{ id: "you", x: 640, y: 400, role: "CREWMATE", alive: true }],
@@ -33,6 +36,9 @@ function fixture() {
     stationRound: 1, stations: [], charges: { FLASHLIGHT: 0, FLARE: 0, SONAR: 0 },
     audio: { cue: cue => cues.push(cue) }, taskProgress: 0, multiplayerClient: null,
     emit() {}, onPuzzle() {}, checkWin() {}, onEnd() {},
+    wardClaims: new Set(), pendingWardDelta: 0, wardSettleTimer: 0, obstacles: [],
+    keys: new Set(), touchKeys: new Set(), lastQuestions: new Map(), taskFailure: "",
+    ordealNumber: 0, botStrikeSpent: new Set(), stealthUntil: 0, stealthAvailableOrdeal: 0, pendingBodies: [],
   });
   return { engine, cues, layers };
 }
@@ -46,7 +52,10 @@ test("puzzles emit error feedback and grant one completion cue only after a corr
   assert.equal(station.completed, false);
   assert.equal(engine.charges.FLASHLIGHT, 0);
   assert.deepEqual(cues, ["task-error"]);
-  engine.keys = new Set();
+  assert.equal(engine.activePuzzle, null, "one wrong answer terminates this attempt");
+  assert.match(engine.taskFailure, /Incorrect answer/);
+  engine.dismissTaskFailure();
+  engine.activePuzzle = { kind: "MATH", stationIndex: 0, answerIndex: 1 };
   engine.submitPuzzle(1);
   engine.completeStation(station, false);
   assert.equal(station.completed, true);
@@ -66,6 +75,28 @@ test("multiplayer reward audio waits for authoritative acceptance and rejection 
   engine.handleNetworkMessage({ type: "GEAR_SYNC", accepted: false, stationId: station.label, stationCompleted: true, roundId: 1, charges: { FLASHLIGHT: 1, FLARE: 0, SONAR: 0 } });
   assert.deepEqual(cues, ["task-complete", "task-error"]);
   assert.equal(engine.charges.FLASHLIGHT, 1);
+});
+
+test("reopened shrine questions change even when random picks repeat, and failures cannot award gear", () => {
+  const { engine } = fixture();
+  const station = { label: "FROST FONT", x: 640, y: 400, completed: false, cooldown: 0, reward: "FLASHLIGHT", puzzle: "MATH" };
+  engine.stations = [station];
+  engine.tryOpenPuzzle();
+  const first = engine.activePuzzle.prompt;
+  engine.submitPuzzle((engine.activePuzzle.answerIndex + 1) % 3);
+  assert.equal(engine.activePuzzle, null);
+  engine.submitPuzzle(0);
+  assert.equal(engine.charges.FLASHLIGHT, 0);
+  engine.dismissTaskFailure(); station.cooldown = 0;
+  engine.tryOpenPuzzle();
+  assert.notEqual(engine.activePuzzle.prompt, first);
+  engine.cancelPuzzle("");
+  station.puzzle = "LINK";
+  engine.tryOpenPuzzle();
+  const firstSequence = engine.activePuzzle.sequence.join();
+  engine.cancelPuzzle("");
+  engine.tryOpenPuzzle();
+  assert.notEqual(engine.activePuzzle.sequence.join(), firstSequence);
 });
 
 test("network snapshots play phase transitions once, not on every world update", () => {

@@ -119,7 +119,8 @@ function match(t) {
   }
   room.handleMessage("p0", { type: "START_MATCH", botFill: false, targetPlayers: 4 });
   for (const p of room.players.values()) p.role = p.id === "p3" ? "IMPOSTOR" : "CREWMATE";
-  for (const p of room.players.values()) { p.x = STATIONS[0].x; p.y = STATIONS[0].y + 60; }
+  const shrine = room.stations.find(station => station.id === "FROST FONT");
+  for (const p of room.players.values()) { p.x = shrine.x; p.y = shrine.y; }
   clients.forEach((client) => { client.sent.length = 0; });
   t.after(() => room.destroy());
   return { room, clients };
@@ -141,7 +142,9 @@ test("stations reopen next Calm without losing team progress or earned gear", (t
   const task = { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT", roundId: 1 };
   room.handleMessage("p0", task);
   room.handleMessage("p0", task);
-  assert.equal(room.taskProgress, 8);
+  assert.equal(room.taskProgress, 0, "public gauge is queued");
+  room.settleWards();
+  assert.equal(room.taskProgress, 4.7);
   assert.equal(room.itemCharges.get("p0").FLASHLIGHT, 1);
   for (const client of clients) {
     assert.equal(client.sent.filter((msg) => msg.type === "STATION_COMPLETED").length, 1);
@@ -154,13 +157,14 @@ test("stations reopen next Calm without losing team progress or earned gear", (t
   assert.equal(room.roundId, 2);
   assert.equal(room.sealedStations.size, 0);
   assert.equal(room.completedStations.get("p0").size, 0);
-  assert.equal(room.taskProgress, 8);
+  assert.equal(room.taskProgress, 4.7);
   assert.equal(room.itemCharges.get("p0").FLASHLIGHT, 1);
   const world = clients[1].sent.filter((msg) => msg.type === "SYNC_WORLD").at(-1);
   assert.equal(world.roundId, 2);
   assert.deepEqual(world.completedStations, []);
   room.handleMessage("p0", { ...task, roundId: 2 });
-  assert.equal(room.taskProgress, 16);
+  room.settleWards();
+  assert.equal(room.taskProgress, 9.4);
   assert.equal(room.itemCharges.get("p0").FLASHLIGHT, 2);
 });
 
@@ -177,8 +181,9 @@ test("a delayed task from an older round cannot claim a fresh reward or create a
 test("meeting resolution starts a fresh shrine round and clears fake-task locks too", (t) => {
   const { room } = match(t);
   room.handleMessage("p0", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT", roundId: 1 });
-  room.players.get("p3").x = STATIONS[1].x;
-  room.players.get("p3").y = STATIONS[1].y + 60;
+  const shrine = room.stations.find(station => station.id === "STAR ALTAR");
+  room.players.get("p3").x = shrine.x;
+  room.players.get("p3").y = shrine.y;
   room.handleMessage("p3", { type: "TASK_UPDATE", stationId: "STAR ALTAR", reward: "SONAR", roundId: 1 });
   assert.equal(room.completedStations.get("p3").size, 1);
   const previousHazard = room.hazard;
@@ -189,6 +194,8 @@ test("meeting resolution starts a fresh shrine round and clears fake-task locks 
   assert.equal(room.roundId, 2);
   assert.equal(room.sealedStations.size, 0);
   assert.equal(room.completedStations.get("p3").size, 0);
-  assert.equal(room.taskProgress, 8);
+  assert.equal(room.taskProgress, 0, "meetings do not flush role-correlated gauge changes");
+  room.settleWards();
+  assert.equal(room.taskProgress, 1.7, "both restoration and the queued Hollow siphon survive the round transition");
   assert.equal(room.itemCharges.get("p3").SONAR, 1);
 });

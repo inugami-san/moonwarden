@@ -55,6 +55,43 @@ function waitFor(socket, type) {
 
 function send(socket, message) { socket.send(JSON.stringify(message)); }
 
+test("real sockets share seeded layouts, private Hollow teams, and delayed-puddle strikes", async t => {
+  const { connect } = await fixture(t);
+  const sockets = await Promise.all(Array.from({ length: 6 }, () => connect()));
+  send(sockets[0], { type: "CREATE_ROOM", playerName: "Host", color: "#20d8ed", hat: "hood" });
+  const created = await waitFor(sockets[0], "ROOM_STATE");
+  for (let i = 1; i < sockets.length; i++) {
+    send(sockets[i], { type: "JOIN_ROOM", roomCode: created.roomCode, playerName: `Guest ${i}`, color: "#20d8ed", hat: "hood" });
+    await waitFor(sockets[i], "ROOM_STATE");
+  }
+  send(sockets[0], { type: "UPDATE_ROOM_CONFIG", targetPlayers: 6, botFill: false, hollowCount: 2 });
+  let config;
+  do { config = await waitFor(sockets[0], "LOBBY_UPDATED"); } while (config.hollowCount !== 2);
+  const started = sockets.map(socket => waitFor(socket, "MATCH_STARTED"));
+  send(sockets[0], { type: "START_MATCH", botFill: false, targetPlayers: 6 });
+  const matches = await Promise.all(started);
+  assert.equal(new Set(matches.map(match => match.layoutSeed)).size, 1);
+  assert.equal(matches.filter(match => match.role === "IMPOSTOR").length, 2);
+  assert.ok(matches.filter(match => match.role === "CREWMATE").every(match => match.hollowAllies === undefined));
+  const killerIndex = matches.findIndex(match => match.role === "IMPOSTOR"), victimIndex = matches.findIndex(match => match.role === "CREWMATE");
+  const room = gameRegistry.getRoom(created.roomCode);
+  const order = [...room.players.values()];
+  for (const player of order) { player.x = 960; player.y = 573; }
+  room.phase = "ORDEAL"; room.phaseTime = 10; room.ordealNumber = 1;
+  sockets.forEach(socket => { socket.messages.length = 0; });
+  const victimId = order[victimIndex].id;
+  send(sockets[killerIndex], { type: "TRIGGER_KILL", victimId, style: "STEALTH" });
+  const result = await waitFor(sockets[killerIndex], "KILL_RESULT");
+  assert.equal(result.accepted, true); assert.equal(result.spent, true);
+  assert.equal(room.bodies.length, 0);
+  assert.equal((await waitFor(sockets[victimIndex], "DEATH_EVENT")).killerName, order[killerIndex].name);
+  const arrived = waitFor(sockets[0], "BODY_SPAWNED");
+  room.pendingBodies[0].at = Date.now() - 1;
+  room.tick();
+  const body = (await arrived).body;
+  assert.equal(body.id, `body-${victimId}`); assert.equal(body.delayed, true);
+});
+
 test("a cached legacy WebSocket page is rejected before a room is created", async t => {
   const { url } = await fixture(t);
   const socket = new WebSocket(url.replace("http:", "ws:"), { origin: FRONTEND_ORIGINS[0] });
@@ -110,7 +147,7 @@ test("matching browser clients negotiate the expanded WebSocket world before co-
     const movement = await pending;
     const entry = movement.players.find(entry => entry.id === host.playerId);
     assert.equal(entry.inputSeq, seq);
-    assert.deepEqual({ x: player.x, y: player.y }, resolveObstaclePosition(x, y));
+    assert.deepEqual({ x: player.x, y: player.y }, resolveObstaclePosition(x, y, 22, room.obstacles));
   }
 });
 
@@ -212,20 +249,22 @@ test("real sockets keep personal gear rites available after a teammate seals the
   const crewIndices = matches.flatMap((match, index) => match.role === "CREWMATE" ? [index] : []);
   const [first, second] = crewIndices;
   const room = gameRegistry.getRoom(created.roomCode);
-  const shrine = STATIONS[0];
+  const shrine = room.stations.find(station => station.id === "FROST FONT");
   for (const player of room.players.values()) { player.x = shrine.x; player.y = shrine.y + 60; }
   const task = { type: "TASK_UPDATE", stationId: shrine.id, reward: shrine.reward, roundId: room.roundId };
   send(sockets[first], task);
   const firstGear = await waitFor(sockets[first], "GEAR_SYNC");
   assert.equal(firstGear.accepted, true);
-  assert.equal(firstGear.wardProgressGain, 8);
+  assert.equal(firstGear.wardProgressGain, 4.7);
   assert.deepEqual(firstGear.completedStations, [shrine.id]);
   send(sockets[second], task);
   const secondGear = await waitFor(sockets[second], "GEAR_SYNC");
   assert.equal(secondGear.accepted, true);
   assert.equal(secondGear.wardProgressGain, 0);
   assert.equal(secondGear.charges.FLASHLIGHT, 1);
-  assert.equal(room.taskProgress, 8);
+  assert.equal(room.taskProgress, 0, "public gauge settles independently of the completion packet");
+  room.settleWards();
+  assert.equal(room.taskProgress, 4.7);
   const pulse = await waitFor(sockets[crewIndices[2]], "STATION_COMPLETED");
   assert.deepEqual(Object.keys(pulse).sort(), ["roundId", "sequence", "stationId", "type"]);
   assert.ok(!sockets[crewIndices[2]].messages.some(message => message.type === "GEAR_SYNC"));

@@ -24,6 +24,7 @@ export interface MultiplayerState {
   state: "LOBBY" | "PLAYING" | "ENDED";
   targetPlayers: number;
   botFill: boolean;
+  hollowCount: number;
   openRooms: RoomSummary[];
   lobbyChat: NetChatMessage[];
   lastError: string;
@@ -62,6 +63,7 @@ export class MultiplayerClient {
   public state: "LOBBY" | "PLAYING" | "ENDED" = "LOBBY";
   public targetPlayers: number = 6;
   public botFill: boolean = true;
+  public hollowCount = 1;
   public openRooms: RoomSummary[] = [];
   public lobbyChat: NetChatMessage[] = [];
   public lastError: string = "";
@@ -93,6 +95,7 @@ export class MultiplayerClient {
       state: this.state,
       targetPlayers: this.targetPlayers,
       botFill: this.botFill,
+      hollowCount: this.hollowCount,
       openRooms: [...this.openRooms],
       lobbyChat: [...this.lobbyChat],
       lastError: this.lastError,
@@ -497,6 +500,7 @@ export class MultiplayerClient {
         this.state = msg.state;
         this.targetPlayers = msg.targetPlayers ?? 6;
         this.botFill = msg.botFill ?? true;
+        this.hollowCount = msg.hollowCount ?? 1;
         this.lobbyChat = msg.chatHistory ? [...msg.chatHistory] : [];
         this.lastError = "";
         this.notifyState();
@@ -506,6 +510,7 @@ export class MultiplayerClient {
         this.players = msg.players;
         this.targetPlayers = msg.targetPlayers;
         this.botFill = msg.botFill;
+        this.hollowCount = msg.hollowCount ?? 1;
         this.isHost = msg.hostId === this.playerId;
         this.notifyState();
         break;
@@ -636,16 +641,16 @@ export class MultiplayerClient {
     this.send({ type: "TOGGLE_READY", ready });
   }
 
-  public updateRoomConfig(targetPlayers: number, botFill: boolean) {
-    this.send({ type: "UPDATE_ROOM_CONFIG", targetPlayers, botFill });
+  public updateRoomConfig(targetPlayers: number, botFill: boolean, hollowCount = this.hollowCount) {
+    this.send({ type: "UPDATE_ROOM_CONFIG", targetPlayers, botFill, hollowCount });
   }
 
   public requestRoomsList() {
     this.send({ type: "LIST_ROOMS" });
   }
 
-  public startMatch(botFill = true, targetPlayers = 6) {
-    this.send({ type: "START_MATCH", botFill, targetPlayers });
+  public startMatch(botFill = true, targetPlayers = 6, hollowCount = this.hollowCount) {
+    this.send({ type: "START_MATCH", botFill, targetPlayers, hollowCount });
   }
 
   public sendInput(x: number, y: number, vx: number, vy: number, angle: number, flashlight: boolean, working?: boolean) {
@@ -654,8 +659,8 @@ export class MultiplayerClient {
     return seq;
   }
 
-  public sendKill(victimId: string) {
-    this.send({ type: "TRIGGER_KILL", victimId });
+  public sendKill(victimId: string, style: "NORMAL" | "STEALTH" = "NORMAL") {
+    this.send({ type: "TRIGGER_KILL", victimId, style });
   }
 
   public sendReport(bodyId?: string) {

@@ -5,6 +5,7 @@ import test from "node:test";
 import ts from "typescript";
 import * as world from "../server/sanctuary-map.ts";
 import * as rules from "../server/ordeal-rules.ts";
+import * as matchRules from "../server/match-rules.ts";
 import { planRoute } from "../server/sanctuary-paths.ts";
 import { preparationStation } from "../app/warden-objectives.ts";
 import { GameRoom } from "../server/game-room.ts";
@@ -15,7 +16,7 @@ const node = ast.statements.find(statement => ts.isClassDeclaration(statement) &
 const js = ts.transpileModule(node.getText(ast), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 function fixture() {
   const Engine = runInNewContext(`${js}\nOrdealEngine`, {
-    ...world, ...rules, W: world.WORLD_WIDTH, H: world.WORLD_HEIGHT, planRoute, preparationStation,
+    ...world, ...rules, ...matchRules, W: world.WORLD_WIDTH, H: world.WORLD_HEIGHT, planRoute, preparationStation,
     dist: (a, b) => Math.hypot(a.x - b.x, a.y - b.y),
     clamp: (n, min, max) => Math.max(min, Math.min(max, n)),
     rootwakeStrength: (phase, hazard, time) => phase === "ORDEAL" && hazard === "ROOTWAKE" ? Math.min((10 - time) / .75, time / .55, 1) : 0,
@@ -32,6 +33,8 @@ function fixture() {
     keys: new Set(), touchKeys: new Set(), bodies: [], flares: [],
     botRites: new Map(), botWork: new Map(), botRoutes: new Map(),
     itemActiveUntil: 0, killCooldownUntil: 0, taskHold: 0,
+    wardClaims: new Set(), pendingWardDelta: 0, wardSettleTimer: 0, obstacles: world.SANCTUARY_OBSTACLES,
+    ordealNumber: 0, botStrikeSpent: new Set(), stealthUntil: 0, stealthAvailableOrdeal: 0, pendingBodies: [], lastQuestions: new Map(), taskFailure: "",
   });
   engine.makeStations();
   return { engine, human, cues, cancelled };
@@ -52,6 +55,7 @@ test("a personal ritual on an already-restored shrine awards gear without extra 
   engine.taskProgress = 8;
   const station = engine.stations[0];
   station.teamRestored = true;
+  engine.wardClaims.add(station.label);
   engine.completeStation(station, false);
   engine.completeStation(station, false);
   assert.equal(engine.taskProgress, 8);
@@ -169,7 +173,8 @@ test("solo bots must approach a shrine and dwell before contributing once", () =
   assert.equal(bot.vy, 0);
   assert.equal(bot.working, true, "the bot visibly stops to perform the rite");
   for (let i = 0; i < 76; i++) engine.updateBots(.035);
-  assert.equal(engine.taskProgress, 8);
+  assert.equal(engine.taskProgress, 0, "public progress waits for its shared settlement");
+  assert.equal(engine.pendingWardDelta, matchRules.ritualProgress(2, false));
   assert.equal(bot.gearCharges.FLASHLIGHT, 1);
   assert.equal(station.completed, false, "a bot cannot consume the human's ritual");
   assert.equal(station.teamRestored, true);
