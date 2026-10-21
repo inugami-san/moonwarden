@@ -46,6 +46,25 @@ test("server-renders the Moonwarden lobby", async () => {
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
+test("homepage displays the canonical release version in its branding", async () => {
+  const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  const html = await (await render()).text();
+  assert.ok(html.includes(`data-game-version="${pkg.version}"`));
+  assert.ok(html.includes(`v${pkg.version} · BETA`));
+});
+
+test("the built site serves uncached version metadata without room or secret data", async () => {
+  const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  const response = await render("/api/version");
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
+  const metadata = await response.json();
+  assert.equal(metadata.version, pkg.version);
+  assert.equal(metadata.name, "Moonwarden");
+  assert.equal(metadata.channel, "beta");
+  assert.deepEqual(Object.keys(metadata).sort(), ["channel", "name", "version", "worldVersion"]);
+});
+
 test("homepage and social metadata introduce The Hollow without the old role name", async () => {
   const html = await (await render()).text();
   assert.match(html, /One friend is secretly The Hollow/);
@@ -220,4 +239,28 @@ test("lobby exposes errors inside rooms and disables stale room controls", async
   assert.match(source, /This roster is no longer live/);
   assert.match(source, /RETURN TO LOBBY/);
   assert.doesNotMatch(source, /WEBSOCKET READY/);
+});
+
+test("wrong answers use a small non-blocking alert without a modal or focus capture", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const notification = source.slice(source.indexOf("{snapshot.taskFailure &&"), source.indexOf("{puzzle && ("));
+  assert.match(notification, /className="task-failure-toast" role="alert"/);
+  assert.doesNotMatch(notification, /modal-backdrop|aria-modal|autoFocus|<button/);
+  assert.doesNotMatch(source, /if \(this\.taskFailure\)/);
+  const style = css.match(/\.task-failure-toast \{([^}]+)\}/)?.[1] ?? "";
+  assert.match(style, /width: min\(420px, calc\(100% - 24px\)\)/);
+  assert.match(style, /pointer-events: none/);
+  assert.doesNotMatch(style, /inset:|backdrop-filter/);
+  assert.doesNotMatch(css, /task-failure-card/);
+});
+
+test("Moonsway explains the risk, confirms the actual destination, and preserves meeting chat", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /Moonsway: the body reporter’s player vote has a/);
+  assert.match(source, /MOONSWAY — YOUR VOTE SHIFTED/);
+  assert.match(source, /Your vote counts toward/);
+  assert.match(source, /next\.candidates !== discussionCandidates/);
+  assert.match(source, /!!meeting\.localVote \|\| !!meeting\.votePending/);
+  assert.match(source, /className=\{`vote-receipt[^\n]*role="status"/);
 });

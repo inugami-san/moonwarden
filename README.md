@@ -4,6 +4,43 @@ Moonwarden is a social deduction playtest set in an ancient mountain sanctuary
 within the Silverpine forest. It runs in the browser with a procedurally rendered
 2D Canvas world, multiplayer rooms, and autonomous AI wardens.
 
+## Versions and releases
+
+`package.json` is the single source of truth for the player-facing version.
+The home, lobby, and gameplay logo display it as **v<version> · BETA**. The site
+exposes its build at `/api/version`; the room server exposes its own release
+at `/health` and in the `SERVER_INFO` handshake. These are public identifiers,
+not credentials. Compare the site and server metadata when diagnosing a stale
+deployment. The release channel remains beta until explicitly changed.
+
+Use `MAJOR.MINOR.PATCH`: patch for fixes, minor for new gameplay/features, and
+major for a deliberately breaking public release. While the game is `0.x`,
+record breaking gameplay changes in a new minor release. Git already preserves
+the code history; release tags identify the exact commits actually published.
+
+For every future release:
+
+1. Bump the package and lockfile together, for example
+   `npm version patch --no-git-tag-version` (or `minor` for a feature release).
+2. Move the relevant `[Unreleased]` notes into a dated version entry in
+   [CHANGELOG.md](CHANGELOG.md). Do not invent historical release tags.
+3. Change `GAME_WORLD_VERSION` in `server/game-version.ts` **only** when clients
+   and room servers would otherwise disagree about geometry, simulation, or
+   required protocol data. Release numbers alone never decide compatibility.
+4. Run `npm run release:check` and the checks appropriate to the changes.
+   `npm test` also runs the release check before building. It catches package/
+   lockfile drift and missing release notes.
+5. Commit the tested source and deploy the intended revision. For protocol
+   changes, release the matching persistent room server before switching the
+   site. Confirm the deployed metadata and multiplayer connection.
+6. Tag that verified commit as `v<version>` (for example `v0.2.0`) and push the
+   tag when the release is authorized. Never move an existing release tag.
+
+Use the previous verified deployment for a rollback; do not rewrite Git history
+or reuse a released version number for different code. An incompatible rollback
+must restore matching frontend and room-server protocols together. Release
+checks, package bumps, and Git tags do not deploy anything by themselves.
+
 ## Included gameplay
 
 - Four to eight players; hosts choose 1 to half the circle as Hollows (default 1). Hollow teammates are revealed only to their own side. A 50/50 opening does not immediately end the match; expose every Hollow for a Warden role victory
@@ -127,6 +164,24 @@ Deploy the updated frontend and room server together when changing the protocol.
 No deployment is performed by the local checks below.
 
 ## Controls
+
+### Moonsway voting
+
+Only the player who reports a slime puddle is affected: when they cast a player
+vote, it has a **25% chance** to drift to another living player, excluding the
+reporter and their original choice. This happens regardless of either player's
+role; it cannot confirm whether someone is a Hollow, and it does not claim to
+detect whether the reporter actually witnessed the kill. Emergency meetings,
+skip votes, and every other voter's ballot are unchanged. If no alternative
+exists, the vote stays on its original target.
+
+The server rolls exactly once per accepted ballot, locks the result, and sends
+its destination privately to that voter. Repeated clicks/packets cannot reroll
+it. The same role-blind rule applies in solo play and to AI body reporters. The
+meeting explains the risk before voting; a small Moonsway confirmation names
+the actual destination, and the public tally counts that vote only once. Chat
+is preserved when a vote receipt arrives. Protocol `silverpine-moonsway-v4`
+requires matching frontend and room-server deployments.
 
 ### Expanded forest and Warden preparation
 

@@ -149,6 +149,47 @@ test("solo vote verdicts reveal The Hollow or Warden without rewriting player na
   }
 });
 
+test("solo Moonsway counts the body reporter's shifted ballot, not their original target", t => {
+  const { engine } = fixture();
+  engine.players.push(
+    { id: "suspect", name: "Suspect", role: "IMPOSTOR", alive: true, ai: false },
+    { id: "other", name: "Other", role: "CREWMATE", alive: true, ai: false },
+  );
+  engine.paused = true;
+  engine.activeMeeting = { candidates: engine.players, bodyReporterId: "you" };
+  engine.suspicion = new Map();
+  engine.onMeeting = () => {};
+  t.mock.method(Math, "random", () => 0);
+  engine.vote("suspect");
+  assert.equal(engine.activeMeeting.localVote.targetId, "other");
+  assert.equal(engine.activeMeeting.localVote.shifted, true);
+  assert.equal(engine.activeMeeting.tally.find(entry => entry.targetId === "other").votes, 1);
+  assert.equal(engine.activeMeeting.tally.find(entry => entry.targetId === "suspect").votes, 0);
+});
+
+test("multiplayer vote receipts lock one submission, preserve the discussion, and permit rejected retries", () => {
+  const { engine } = fixture();
+  const sent = [];
+  engine.players.push({ id: "suspect", alive: true }, { id: "other", alive: true });
+  const candidates = engine.players.map(player => ({ ...player }));
+  engine.paused = true;
+  engine.activeMeeting = { candidates, bodyReporterId: "you" };
+  engine.onMeeting = () => {};
+  engine.multiplayerClient = { sendVote: id => sent.push(id) };
+  engine.vote("suspect"); engine.vote("other");
+  assert.deepEqual(sent, ["suspect"]);
+  assert.equal(engine.activeMeeting.votePending, true);
+  engine.handleNetworkMessage({ type: "VOTE_RECEIPT", accepted: false, targetId: null, shifted: false });
+  assert.equal(engine.activeMeeting.votePending, false);
+  assert.equal(engine.activeMeeting.localVote, undefined);
+  engine.vote("suspect");
+  engine.handleNetworkMessage({ type: "VOTE_RECEIPT", accepted: true, targetId: "other", shifted: true });
+  assert.equal(engine.activeMeeting.localVote.targetId, "other");
+  assert.equal(engine.activeMeeting.candidates, candidates, "receipt updates do not recreate/reset the discussion roster");
+  engine.vote(null);
+  assert.deepEqual(sent, ["suspect", "suspect"]);
+});
+
 test("Rootwake blocks a distant chamber's gulp while retaining the victim's private sound", () => {
   const { engine, cues } = fixture();
   engine.audio.devour = () => cues.push("gulp");

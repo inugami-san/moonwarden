@@ -4,15 +4,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MultiplayerClient, type MultiplayerState } from "./network";
 import type { NetMovement, NetPlayer, S2CMessage } from "../server/game-types";
 import { ROLE_LABELS, ejectionVerdict, matchResultLabel, meetingVerdictLabel } from "../server/role-presentation";
+import { GAME_RELEASE_LABEL, GAME_RELEASE_VERSION, GAME_WORLD_VERSION } from "../server/game-version";
 import { createMatchLayout } from "../server/match-layout";
-import { clampHollowCount, hollowVictory, ritualProgress, WARD_SETTLE_SECONDS, STEALTH_BODY_DELAY_SECONDS, STEALTH_COOLDOWN_SECONDS, STEALTH_ORDEAL_LOCKOUT } from "../server/match-rules";
+import { clampHollowCount, hollowVictory, ritualProgress, resolveReporterVote, REPORTER_VOTE_DRIFT_CHANCE, type VoteReceipt, WARD_SETTLE_SECONDS, STEALTH_BODY_DELAY_SECONDS, STEALTH_COOLDOWN_SECONDS, STEALTH_ORDEAL_LOCKOUT } from "../server/match-rules";
 import { MovementBuffer } from "./movement";
 import { slimeEyes, slimeOutline, slimeSkin } from "./slime-art";
 import { SlimePortrait } from "./slime-portrait";
 import { EyeStylePicker } from "./eye-style-picker";
 import { EYE_LABELS } from "./slime-eyes";
 import { SlimeAnimator } from "./slime-motion";
-import { drawAccessory } from "./accessory-art";
+import { ACCESSORY_FRAME, drawAccessory } from "./accessory-art";
 import { EYE_STYLES, normalizeEyeStyle, type EyeStyle } from "../server/appearance";
 import { drawForestSanctum, drawSanctumStatus } from "./sanctum-art";
 import { availablePlayerName, PLAYER_COLORS as COLORS, randomWardenCallsign, WARDEN_CALLSIGNS } from "../server/palette";
@@ -182,6 +183,10 @@ type VoteTally = {
 type Meeting = {
   reason: string;
   reporter: string;
+  bodyReporterId?: string | null;
+  localVote?: VoteReceipt;
+  votePending?: boolean;
+  voteError?: string;
   candidates: Player[];
   tally?: VoteTally[];
   ejectedId?: string | null;
@@ -331,6 +336,7 @@ class OrdealEngine {
   private pendingBodies: { body: Body; at: number }[] = [];
   private pendingKillStealth = false;
   private taskFailure = "";
+  private taskFailureUntil = 0;
   private lastQuestions = new Map<string, string>();
   private wardClaims = new Set<string>();
   canvas: HTMLCanvasElement;
@@ -825,6 +831,7 @@ class OrdealEngine {
         this.activeMeeting = {
           reason: msg.reason,
           reporter: msg.reporter,
+          bodyReporterId: msg.bodyReporterId ?? null,
           candidates: msg.candidates.map((c) => ({
             id: c.id,
             name: c.id === this.localPlayerId ? `${c.name} (YOU)` : c.name,
@@ -851,6 +858,20 @@ class OrdealEngine {
         this.audio.meetingAlert(msg.reason.includes("PUDDLE") || msg.reason.includes("BODY"));
         this.onMeeting(this.activeMeeting);
         this.emit(true);
+        break;
+      }
+
+      case "VOTE_RECEIPT": {
+        if (this.activeMeeting && !this.activeMeeting.tally) {
+          this.activeMeeting = {
+            ...this.activeMeeting,
+            votePending: false,
+            localVote: msg.accepted ? { targetId: msg.targetId, shifted: msg.shifted } : undefined,
+            voteError: msg.accepted ? "" : "That player is no longer available. Choose another vote.",
+          };
+          this.onMeeting(this.activeMeeting);
+          this.emit(true);
+        }
         break;
       }
 
@@ -1012,7 +1033,6 @@ class OrdealEngine {
       event.preventDefault();
     }
     this.keys.add(event.code);
-    if (this.taskFailure) { if (event.code === "Escape" || event.code === "Enter") this.dismissTaskFailure(); return; }
     if (this.activePuzzle) {
       if (!event.repeat && ["Digit1", "Digit2", "Digit3"].includes(event.code)) this.submitPuzzle(Number(event.code.slice(-1)) - 1);
       if (!event.repeat && event.code === "Escape") this.cancelPuzzle();
@@ -1093,10 +1113,11 @@ class OrdealEngine {
   }
 
   tryOpenPuzzle() {
-    if (this.phase === "DISCUSSION" || !this.human.alive || this.paused || this.activePuzzle || this.taskFailure) return;
+    if (this.phase === "DISCUSSION" || !this.human.alive || this.paused || this.activePuzzle) return;
     const stationIndex = this.stations.findIndex((station) => dist(station, this.human) < 84 && !station.completed && !station.pending && station.cooldown <= 0 && station.puzzle);
     if (stationIndex < 0) return;
     const station = this.stations[stationIndex];
+    this.taskFailure = "";
     let puzzle = station.puzzle === "MATH" ? this.createMathPuzzle(station, stationIndex) : this.createLinkPuzzle(station, stationIndex);
     const signature = (question: TaskPuzzle) => `${question.prompt}:${question.sequence?.join() ?? ""}`;
     for (let retry = 0; retry < 16 && signature(puzzle) === this.lastQuestions.get(station.label); retry++) puzzle = station.puzzle === "MATH" ? this.createMathPuzzle(station, stationIndex) : this.createLinkPuzzle(station, stationIndex);
@@ -1164,7 +1185,8 @@ class OrdealEngine {
     if (optionIndex !== this.activePuzzle.answerIndex) {
       this.audio.cue("task-error");
       this.stations[this.activePuzzle.stationIndex].cooldown = 1.5;
-      this.taskFailure = "Incorrect answer — ritual failed. No item was awarded. Reopen the shrine for a new question.";
+      this.taskFailure = "Incorrect answer. No item earned — try the shrine again.";
+      this.taskFailureUntil = this.elapsed + 3.5;
       this.cancelPuzzle("");
       this.emit(true);
       return;
@@ -1210,7 +1232,7 @@ class OrdealEngine {
     if (!wasFake) this.checkWin();
   }
 
-  dismissTaskFailure() { this.taskFailure = ""; this.keys.clear(); this.touchKeys.clear(); this.emit(true); }
+  dismissTaskFailure() { this.taskFailure = ""; this.taskFailureUntil = 0; this.emit(true); }
 
   cancelPuzzle(message = "Shrine trial paused. Return when ready.") {
     if (!this.activePuzzle) return;
@@ -1299,7 +1321,7 @@ class OrdealEngine {
       }
       return;
     }
-    if (nearby) this.startMeeting(`${nearby.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, "YOU");
+    if (nearby) this.startMeeting(`${nearby.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, "YOU", this.localPlayerId);
     else if (atEmergency) this.startMeeting("EMERGENCY MEETING", "YOU");
     else this.flashMessage("No body nearby. Emergency button is available during Calm.");
   }
@@ -1465,7 +1487,7 @@ class OrdealEngine {
     }
   }
 
-  startMeeting(reason: string, reporter: string) {
+  startMeeting(reason: string, reporter: string, bodyReporterId: string | null = null) {
     if (this.paused) return;
     this.taskFailure = "";
     this.restoreTrueColors();
@@ -1477,27 +1499,32 @@ class OrdealEngine {
     for (const player of this.players) {
       if (player.ai && player.alive) accusations[player.id] = this.primeSuspect(player);
     }
-    this.activeMeeting = { reason, reporter, candidates: this.players.map((player) => ({ ...player })), accusations };
+    this.activeMeeting = { reason, reporter, bodyReporterId, candidates: this.players.map((player) => ({ ...player })), accusations };
     this.audio.meetingAlert(reason.includes("PUDDLE") || reason.includes("BODY"));
     this.onMeeting(this.activeMeeting);
     this.emit(true);
   }
 
   vote(targetId: string | null) {
-    if (!this.paused || !this.activeMeeting || this.activeMeeting.tally) return;
+    if (!this.paused || !this.activeMeeting || this.activeMeeting.tally || this.activeMeeting.votePending || this.activeMeeting.localVote) return;
+    if (targetId !== null && !this.players.some(player => player.id === targetId && player.alive)) return;
     this.audio.cue("vote");
     if (this.multiplayerClient) {
+      if (!this.human.alive) return;
+      this.activeMeeting = { ...this.activeMeeting, votePending: true, voteError: "" };
+      this.onMeeting(this.activeMeeting);
       this.multiplayerClient.sendVote(targetId);
-      this.flashMessage(targetId ? "Vote submitted." : "Skip vote submitted.");
       return;
     }
     const tally = new Map<string, number>();
-    const cast = (accusedId: string | null) => {
-      const tallyId = accusedId || "SKIP";
+    const living = this.players.filter((player) => player.alive);
+    const cast = (voter: Player, accusedId: string | null) => {
+      const receipt = resolveReporterVote(voter.id, accusedId, living.map(player => player.id), this.activeMeeting?.bodyReporterId);
+      if (voter.id === this.localPlayerId) this.activeMeeting = { ...this.activeMeeting!, localVote: receipt };
+      const tallyId = receipt.targetId || "SKIP";
       tally.set(tallyId, (tally.get(tallyId) || 0) + 1);
     };
-    if (this.human.alive) cast(targetId);
-    const living = this.players.filter((player) => player.alive);
+    if (this.human.alive) cast(this.human, targetId);
     // Combined table suspicion, used by the impostor bot to bandwagon convincingly.
     const tableSuspicion = new Map<string, number>();
     for (const ledger of this.suspicion.values()) {
@@ -1510,7 +1537,7 @@ class OrdealEngine {
         const crew = options.filter((player) => player.role !== "IMPOSTOR");
         const scapegoat = [...crew].sort((a, b) => (tableSuspicion.get(b.id) || 0) - (tableSuspicion.get(a.id) || 0))[0];
         if (Math.random() < 0.15) {
-          cast(null);
+          cast(voter, null);
           continue;
         }
         pick = scapegoat && (tableSuspicion.get(scapegoat.id) || 0) > 0 ? scapegoat : choose(crew);
@@ -1523,11 +1550,11 @@ class OrdealEngine {
         } else if (!primeId && Math.random() < 0.4) {
           pick = choose(options);
         } else {
-          cast(null);
+          cast(voter, null);
           continue;
         }
       }
-      if (pick) cast(pick.id);
+      if (pick) cast(voter, pick.id);
     }
     const ranked = [...tally.entries()].sort((a, b) => b[1] - a[1]);
     const tied = ranked.length > 1 && ranked[0][1] === ranked[1][1];
@@ -1674,7 +1701,7 @@ class OrdealEngine {
       killSpent: this.killUsedThisOrdeal,
       stealthCooldown: Math.ceil(Math.max(0, this.stealthUntil - this.elapsed)),
       stealthOrdealsLeft: Math.max(0, this.stealthAvailableOrdeal - this.ordealNumber),
-      taskFailure: this.taskFailure,
+      taskFailure: this.elapsed < this.taskFailureUntil ? this.taskFailure : "",
       canUseMoonSight: this.human.alive && this.human.role === "IMPOSTOR" && this.phase === "ORDEAL" && !this.moonSightUsedThisOrdeal && !this.abilityPending,
       moonSightActive,
       soundCaption: this.phase === "ORDEAL" && this.elapsed < this.captionUntil ? this.caption : "",
@@ -1906,7 +1933,7 @@ class OrdealEngine {
     if (this.multiplayerClient && !this.multiplayerClient.connected) { player.vx = 0; player.vy = 0; player.working = false; return; }
     if (this.navigationOpen) { player.vx = 0; player.vy = 0; player.working = false; return; }
     player.flashlight = this.phase === "ORDEAL" && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil;
-    if (this.activePuzzle || this.taskFailure) {
+    if (this.activePuzzle) {
       player.vx = 0;
       player.vy = 0;
       player.working = true;
@@ -1965,7 +1992,7 @@ class OrdealEngine {
       if (!personalRites) { personalRites = new Set(); this.botRites.set(player.id, personalRites); }
       const discoveredBody = this.bodies.find((body) => dist(player, body) < 72);
       if (discoveredBody && Math.random() < dt * (player.role === "IMPOSTOR" ? 0.18 : 0.7)) {
-        this.startMeeting(`${discoveredBody.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, player.name.toUpperCase());
+        this.startMeeting(`${discoveredBody.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, player.name.toUpperCase(), player.id);
         return;
       }
       if (this.elapsed > player.thinkAt || dist(player, { x: player.targetX, y: player.targetY }) < 22) {
@@ -3597,7 +3624,10 @@ function Logo() {
   return (
     <div className="brand" aria-label="Moonwarden">
       <span className="brand-mark"><i /><i /><i /></span>
-      <span>MOON<b>WARDEN</b></span>
+      <div className="brand-copy">
+        <span className="brand-name">MOON<b>WARDEN</b></span>
+        <small className="release-badge" data-game-version={GAME_RELEASE_VERSION} title={`Release ${GAME_RELEASE_VERSION}. Multiplayer compatibility: ${GAME_WORLD_VERSION}.`}>{GAME_RELEASE_LABEL}</small>
+      </div>
     </div>
   );
 }
@@ -3625,10 +3655,12 @@ function HatGraphic({ hat }: { hat: Hat }) {
   useEffect(() => {
     const context = ref.current?.getContext("2d");
     if (!context) return;
-    context.setTransform(2, 0, 0, 2, 0, 0); context.clearRect(0, 0, 80, 44);
-    drawAccessory(context, hat, 40, 22);
+    const { width, height, anchorX, anchorY, pixelRatio } = ACCESSORY_FRAME;
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    context.clearRect(0, 0, width, height);
+    drawAccessory(context, hat, anchorX, anchorY);
   }, [hat]);
-  return <canvas ref={ref} width={160} height={88} className={`slime-hat-svg hat-${hat}`} aria-hidden="true" />;
+  return <canvas ref={ref} width={ACCESSORY_FRAME.width * ACCESSORY_FRAME.pixelRatio} height={ACCESSORY_FRAME.height * ACCESSORY_FRAME.pixelRatio} className={`slime-hat-svg hat-${hat}`} aria-hidden="true" />;
 }
 function SlimeAvatar({
   color,
@@ -5043,13 +5075,16 @@ function Game({
 
   useEffect(() => {
     if (!canvasRef.current) return;
+    let discussionCandidates: Player[] | null = null;
     const handleMeeting = (next: Meeting | null) => {
       setMeeting(next);
       if (!next) {
+        discussionCandidates = null;
         meetingSerialRef.current += 1;
         setChatMessages([]);
         setChatDraft("");
-      } else if (!next.tally) {
+      } else if (!next.tally && next.candidates !== discussionCandidates) {
+        discussionCandidates = next.candidates;
         meetingSerialRef.current += 1;
         setMeetingKey(meetingSerialRef.current);
         setChatMessages(openingChat(next));
@@ -5511,9 +5546,10 @@ function Game({
         </div>
       )}
 
-      {snapshot.taskFailure && snapshot.humanAlive && !deathReveal && !result && (
-        <div className="modal-backdrop task-backdrop" role="alertdialog" aria-modal="true" aria-labelledby="task-failed-title">
-          <div className="task-puzzle-card task-failure-card"><div className="task-puzzle-head"><div><small>RITUAL INTERRUPTED</small><h2 id="task-failed-title">The answer was incorrect</h2></div></div><div className="task-puzzle-body"><p>{snapshot.taskFailure}</p><button autoFocus onClick={() => engineRef.current?.dismissTaskFailure()}>RETURN TO THE SHRINE</button></div></div>
+      {snapshot.taskFailure && snapshot.humanAlive && !puzzle && !deathReveal && !result && snapshot.phase !== "DISCUSSION" && (
+        <div className="task-failure-toast" role="alert" aria-atomic="true">
+          <span aria-hidden="true">!</span>
+          <div><strong>Ritual failed</strong><p>{snapshot.taskFailure}</p></div>
         </div>
       )}
       {puzzle && (
@@ -5568,6 +5604,13 @@ function Game({
               <b>{meeting.tally ? "FINAL TALLY" : "DISCUSS + VOTE"}</b>
             </div>
             <div className="meeting-content">
+              {meeting.localVote && (
+                <div className={`vote-receipt ${meeting.localVote.shifted ? "vote-shifted" : ""}`} role="status" aria-live="polite" aria-atomic="true">
+                  <strong>{meeting.localVote.shifted ? "☾ MOONSWAY — YOUR VOTE SHIFTED" : "YOUR VOTE IS LOCKED"}</strong>
+                  <span>Your vote counts toward {meeting.localVote.targetId ? meeting.candidates.find(player => player.id === meeting.localVote?.targetId)?.name ?? "the departed player" : "Skip"}. {meeting.localVote.shifted ? "The tally uses this destination." : meeting.tally ? "Shown in the final tally." : "Waiting for the circle."}</span>
+                </div>
+              )}
+              {meeting.voteError && <p className="vote-receipt vote-error" role="alert">{meeting.voteError}</p>}
               {meeting.tally ? (
                 <div className="vote-tally-screen">
                   <div className={`vote-verdict ${meeting.ejectedId ? "ejected" : "no-ejection"}`}>
@@ -5627,6 +5670,8 @@ function Game({
 
                   <section className="vote-panel" aria-label="Cast your vote">
                     <p>Discuss first, then select the slime you distrust. The next screen shows the final tally.</p>
+                    {meeting.bodyReporterId && <p className="moonsway-rule">☾ Moonsway: the body reporter’s player vote has a {Math.round(REPORTER_VOTE_DRIFT_CHANCE * 100)}% chance to drift to another living slime. Skip votes are safe.</p>}
+                    {meeting.votePending && <p className="vote-receipt" role="status">Sealing your vote…</p>}
                     <div className="vote-grid">
                       {meeting.candidates.map((player, idx) => {
                         const isYou = player.id === snapshot.localPlayerId;
@@ -5634,7 +5679,7 @@ function Game({
                           <button
                             key={player.id}
                             style={{ "--card-idx": idx } as React.CSSProperties}
-                            disabled={!player.alive || isYou || !snapshot.humanAlive}
+                            disabled={!player.alive || isYou || !snapshot.humanAlive || !!meeting.localVote || !!meeting.votePending}
                             onClick={() => engineRef.current?.vote(player.id)}
                           >
                             <span className="vote-slime"><SlimePortrait color={player.alive ? player.color : "#53616b"} eyeStyle={player.eyeStyle} /></span>
@@ -5643,7 +5688,7 @@ function Game({
                         );
                       })}
                     </div>
-                    <button className="skip-vote" onClick={() => engineRef.current?.vote(null)}>{snapshot.humanAlive ? "SKIP VOTE" : "REVEAL CREW VOTE"}</button>
+                    <button className="skip-vote" disabled={!!meeting.localVote || !!meeting.votePending || Boolean(multiplayerClient && !snapshot.humanAlive)} onClick={() => engineRef.current?.vote(null)}>{snapshot.humanAlive ? "SKIP VOTE" : "REVEAL CREW VOTE"}</button>
                   </section>
                 </div>
               )}

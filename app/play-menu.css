@@ -14,7 +14,8 @@
   0%, 94%, 98%, 100% { transform: scaleY(1); }
   96% { transform: scaleY(.08); }
 }
-.slime-avatar .slime-hat-svg { position: absolute; width: 56%; left: 22%; bottom: 68%; margin: 0; z-index: 2; }
+/* 96×72 accessory frame; match the arena's -43 head anchor in the 96-unit portrait. */
+.slime-avatar .slime-hat-svg { position: absolute; width: 100%; height: auto; left: 0; top: 50%; bottom: auto; translate: 0 -98.611111%; margin: 0; z-index: 2; }
 .preview-fog .slime-detail { visibility: hidden; }
 .preview-fog .slime-gel { fill: #7b8889; stroke: #7b8889; }
 .preview-fog .slime-portrait { filter: none; }

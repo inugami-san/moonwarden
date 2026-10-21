@@ -6,7 +6,7 @@ import { EYE_STYLES, normalizeEyeStyle } from "../server/appearance.ts";
 import { drawEyeShape, eyePath } from "../app/slime-eyes.ts";
 import { SlimeAnimator } from "../app/slime-motion.ts";
 import { DEVOUR_SECONDS, consumptionLayout, devourPose, drawSlimeConsumption } from "../app/slime-devour.ts";
-import { drawAccessory } from "../app/accessory-art.ts";
+import { ACCESSORY_FRAME, drawAccessory } from "../app/accessory-art.ts";
 
 test("wardrobe and gameplay share cached accessory artwork without repainting every animation frame", async t => {
   const original = globalThis.document;
@@ -22,8 +22,24 @@ test("wardrobe and gameplay share cached accessory artwork without repainting ev
   assert.equal(canvases, 8, "four hats × two visibility materials, not one sprite per frame");
   assert.equal(blits, 244);
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(source, /drawAccessory\(context, hat, 40, 22\)/);
+  assert.match(source, /drawAccessory\(context, hat, anchorX, anchorY\)/);
   assert.match(source, /drawAccessory\(ctx, hat, x, y, muted\)/);
+  assert.deepEqual(ACCESSORY_FRAME, { width: 96, height: 72, anchorX: 48, anchorY: 34, pixelRatio: 2 });
+});
+
+test("canvas headdress choices are contained without distorting or covering their labels", async () => {
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const studio = await readFile(new URL("../app/lobby-studio.css", import.meta.url), "utf8");
+  const portrait = await readFile(new URL("../app/play-menu.css", import.meta.url), "utf8");
+  const icon = css.match(/\.mp-hat-btn \.hat-btn-preview :is\(svg, canvas\) \{([^}]+)\}/)?.[1] ?? "";
+  assert.match(icon, /width: 100%/);
+  assert.match(icon, /height: 100%/);
+  assert.match(icon, /object-fit: contain/);
+  assert.match(icon, /pointer-events: none/);
+  assert.match(css, /\.mp-hat-btn \{[^}]*min-width: 0;[^}]*overflow: hidden/s);
+  assert.match(studio, /\.moon-studio \.mp-hat-btn \.hat-btn-preview \{ width: min\(72px, 100%\); height: 54px/);
+  assert.match(portrait, /\.slime-avatar \.slime-hat-svg \{[^}]*width: 100%;[^}]*translate: 0 -98\.611111%/);
+  assert.match(css, /\.moon-studio \.preview-warden canvas\.slime-hat-svg \{ filter: drop-shadow\([^;]+; \}/);
 });
 
 test("consumption reaches, envelops, swallows, then returns to a neutral pose", () => {

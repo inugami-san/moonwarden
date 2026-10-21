@@ -21,6 +21,7 @@ function fixture() {
     clamp: (n, min, max) => Math.max(min, Math.min(max, n)),
     rootwakeStrength: (phase, hazard, time) => phase === "ORDEAL" && hazard === "ROOTWAKE" ? Math.min((10 - time) / .75, time / .55, 1) : 0,
     ITEM_LABELS: { FLASHLIGHT: "Glowing Mushroom", FLARE: "Moonblossom", SONAR: "Echo Bell" },
+    choose: items => items[0],
     performance: { now: () => 100 },
   });
   const human = { id: "you", x: world.CENTER.x, y: world.CENTER.y, role: "CREWMATE", alive: true, vx: 0, vy: 0, ai: false, gearCharges: { FLASHLIGHT: 0, FLARE: 0, SONAR: 0 } };
@@ -105,6 +106,32 @@ test("the client can move beyond the old map and respects shared larger bounds",
   const x = human.x;
   engine.updateHuman(.035);
   assert.equal(human.x, x, "opening map stops local input without stopping the world");
+});
+
+test("an incorrect shrine answer shows a short notice without blocking movement or a fresh attempt", () => {
+  const { engine, human } = fixture();
+  const station = engine.stations.find(station => station.puzzle);
+  human.x = station.x; human.y = station.y + 55;
+  engine.tryOpenPuzzle();
+  const originalQuestion = engine.activePuzzle.prompt;
+  engine.submitPuzzle((engine.activePuzzle.answerIndex + 1) % 3);
+  assert.equal(engine.activePuzzle, null);
+  assert.match(engine.snapshot().taskFailure, /Incorrect answer/);
+  assert.equal(engine.charges[station.reward], 0);
+  engine.keys.add("KeyD");
+  const x = human.x;
+  engine.updateHuman(1 / 60);
+  assert.ok(human.x > x, "failure notification must not freeze movement");
+  assert.equal(human.working, false, "a failed ritual is no longer being worked on");
+  engine.elapsed += 3.5;
+  assert.equal(engine.snapshot().taskFailure, "", "notice dismisses automatically without a button");
+  // The notice must not act as a retry lock, even if it is still visible.
+  engine.elapsed -= 2;
+  station.cooldown = 0;
+  engine.tryOpenPuzzle();
+  assert.ok(engine.activePuzzle);
+  assert.notEqual(engine.activePuzzle.prompt, originalQuestion);
+  assert.equal(engine.snapshot().taskFailure, "");
 });
 
 test("client prediction and co-op authority agree through old walls under delayed, reordered acknowledgements", () => {

@@ -1,6 +1,6 @@
 import { gameRegistry, IWebSocketClient } from "./game-room";
 import type { C2SMessage, S2CMessage } from "./game-types";
-import { GAME_VERSION_MISMATCH, GAME_WORLD_VERSION } from "./game-version";
+import { GAME_RELEASE_VERSION, GAME_VERSION_MISMATCH, GAME_WORLD_VERSION } from "./game-version";
 
 export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?: string) {
   let currentRoomCode: string | null = null;
@@ -34,7 +34,7 @@ export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?
     if (!msg || typeof msg !== "object" || typeof msg.type !== "string") return;
     if (msg.type === "CLIENT_HELLO") {
       compatible = msg.worldVersion === GAME_WORLD_VERSION;
-      send({ type: "SERVER_INFO", worldVersion: GAME_WORLD_VERSION, compatible });
+      send({ type: "SERVER_INFO", worldVersion: GAME_WORLD_VERSION, compatible, version: GAME_RELEASE_VERSION });
       if (!compatible) {
         leaveCurrentRoom();
         send({ type: "ERROR_ALERT", message: GAME_VERSION_MISMATCH });
@@ -47,7 +47,7 @@ export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?
       return;
     }
     if (!compatible) {
-      send({ type: "SERVER_INFO", worldVersion: GAME_WORLD_VERSION, compatible: false });
+      send({ type: "SERVER_INFO", worldVersion: GAME_WORLD_VERSION, compatible: false, version: GAME_RELEASE_VERSION });
       send({ type: "ERROR_ALERT", message: GAME_VERSION_MISMATCH });
       socket.close();
       return;

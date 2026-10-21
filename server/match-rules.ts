@@ -3,6 +3,18 @@ export const WARD_SETTLE_SECONDS = 4;
 export const STEALTH_BODY_DELAY_SECONDS = 8;
 export const STEALTH_COOLDOWN_SECONDS = 45;
 export const STEALTH_ORDEAL_LOCKOUT = 2;
+export const REPORTER_VOTE_DRIFT_CHANCE = 0.25;
+
+export type VoteReceipt = { targetId: string | null; shifted: boolean };
+
+/** Role-blind: a body's reporter can miscast one ballot, not detect a Hollow. */
+export function resolveReporterVote(voterId: string, requestedTargetId: string | null, livingIds: readonly string[], bodyReporterId: string | null | undefined, random: () => number = Math.random): VoteReceipt {
+  const unchanged = { targetId: requestedTargetId, shifted: false };
+  if (voterId !== bodyReporterId || requestedTargetId === null || !livingIds.includes(voterId) || !livingIds.includes(requestedTargetId)) return unchanged;
+  const alternatives = livingIds.filter(id => id !== voterId && id !== requestedTargetId);
+  if (!alternatives.length || random() >= REPORTER_VOTE_DRIFT_CHANCE) return unchanged;
+  return { targetId: alternatives[Math.min(alternatives.length - 1, Math.floor(random() * alternatives.length))], shifted: true };
+}
 
 export function clampHollowCount(value: number | undefined, players: number): number {
   return Math.max(1, Math.min(Math.floor(Math.max(2, players) / 2), Number.isFinite(value) ? Math.floor(value!) : 1));

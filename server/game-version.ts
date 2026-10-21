@@ -1,5 +1,19 @@
+import packageInfo from "../package.json" with { type: "json" };
+
+/** package.json is the single source of truth for the player-facing release. */
+export const GAME_RELEASE_VERSION = packageInfo.version;
+export const GAME_RELEASE_CHANNEL = "beta";
+export const GAME_RELEASE_LABEL = `v${GAME_RELEASE_VERSION} · BETA`;
+
 /** Bump when world geometry or shared gameplay state becomes incompatible. */
-export const GAME_WORLD_VERSION = "silverpine-seeded-hollows-stealth-v3";
+export const GAME_WORLD_VERSION = "silverpine-moonsway-v4";
+
+export const GAME_RELEASE_INFO = Object.freeze({
+  name: "Moonwarden",
+  version: GAME_RELEASE_VERSION,
+  channel: GAME_RELEASE_CHANNEL,
+  worldVersion: GAME_WORLD_VERSION,
+});
 
 export const GAME_VERSION_MISMATCH = "The game page and room server use different map versions. Refresh the page and reconnect. For local testing, start the matching local room server; production needs both the site and room server updated together.";
 

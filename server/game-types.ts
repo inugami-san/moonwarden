@@ -102,7 +102,7 @@ export type C2SMessage =
   | { type: "LEAVE_ROOM" };
 
 export type S2CMessage =
-  | { type: "SERVER_INFO"; worldVersion: string; compatible: boolean }
+  | { type: "SERVER_INFO"; worldVersion: string; compatible: boolean; version?: string }
   | { type: "PONG"; sentAt: number }
   | { type: "ABILITY_STATE"; accepted: boolean; used: boolean; sightRemainingMs: number; roundId: number }
   | { type: "SOUND_CUE"; cue: SoundCue }
@@ -155,10 +155,12 @@ export type S2CMessage =
       type: "MEETING_CALLED";
       reason: string;
       reporter: string;
+      bodyReporterId?: string | null;
       candidates: NetPlayer[];
     }
   | { type: "CHAT_MESSAGE"; message: NetChatMessage }
   | { type: "VOTE_CAST_ACK"; voterId: string }
+  | { type: "VOTE_RECEIPT"; accepted: boolean; targetId: string | null; shifted: boolean }
   | {
       type: "MEETING_CONCLUDED";
       tally: NetVoteTally[];

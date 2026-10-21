@@ -145,7 +145,7 @@
 .moon-studio .mp-hat-btn { background: #f1f5ea; border-color: #d6e1c9; color: #5b6f4c; font-size: 8px; padding: 8px 4px 7px; gap: 6px; }
 .moon-studio .mp-hat-btn:hover { background: #e8f0dc; border-color: #b8cca3; color: #3d5432; }
 .moon-studio .mp-hat-btn.active { background: #e2eed1; border-color: #7ea362; color: #365428; box-shadow: 0 0 0 1px #7ea36244; }
-.moon-studio .mp-hat-btn .hat-btn-preview { width: 32px; height: 20px; }
+.moon-studio .mp-hat-btn .hat-btn-preview { width: min(72px, 100%); height: 54px; }
 .moon-studio .mp-random-btn { margin-top: 11px; background: #eff5e6; border-color: #c8d9b5; color: #4e6b3d; font-size: 9px; font-weight: 700; padding: 9px; }
 .moon-studio .mp-random-btn:hover { background: #e1eed0; border-color: #9ebc82; color: #354f27; }
 .moon-studio .mp-open-rooms { padding: 11px; background: #f5f7ef; border-color: #e1e7d8; }

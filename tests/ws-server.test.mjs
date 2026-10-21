@@ -5,7 +5,7 @@ import { WebSocket } from "ws";
 import { createRoomServer } from "../server/ws-service.ts";
 import { gameRegistry } from "../server/game-room.ts";
 import { STATIONS } from "../server/sanctuary-map.ts";
-import { GAME_WORLD_VERSION } from "../server/game-version.ts";
+import { GAME_RELEASE_VERSION, GAME_WORLD_VERSION } from "../server/game-version.ts";
 import { MultiplayerClient } from "../app/network.ts";
 import { resolveObstaclePosition } from "../server/ordeal-rules.ts";
 
@@ -32,6 +32,7 @@ async function fixture(t) {
     const info = await waitFor(socket, "SERVER_INFO");
     assert.equal(info.compatible, true);
     assert.equal(info.worldVersion, GAME_WORLD_VERSION);
+    assert.equal(info.version, GAME_RELEASE_VERSION);
     return socket;
   }
   return { url, connect, wss };
@@ -106,6 +107,52 @@ test("a cached legacy WebSocket page is rejected before a room is created", asyn
   socket.terminate();
 });
 
+test("real sockets keep Moonsway receipts private and count the redirected ballot once", async t => {
+  const { connect } = await fixture(t);
+  const sockets = await Promise.all(Array.from({ length: 5 }, () => connect()));
+  send(sockets[0], { type: "CREATE_ROOM", playerName: "Host", color: "#20d8ed", hat: "hood" });
+  const created = await waitFor(sockets[0], "ROOM_STATE");
+  for (let i = 1; i < sockets.length; i++) {
+    send(sockets[i], { type: "JOIN_ROOM", roomCode: created.roomCode, playerName: `Guest ${i}`, color: "#20d8ed", hat: "hood" });
+    await waitFor(sockets[i], "ROOM_STATE");
+  }
+  send(sockets[0], { type: "START_MATCH", botFill: false, targetPlayers: 5, hollowCount: 1 });
+  await Promise.all(sockets.map(socket => waitFor(socket, "MATCH_STARTED")));
+  const room = gameRegistry.getRoom(created.roomCode);
+  const players = [...room.players.values()];
+  const killer = players.find(player => player.role === "IMPOSTOR");
+  const wardens = players.filter(player => player.role === "CREWMATE");
+  const reporter = wardens[0], victim = wardens[3];
+  const socketFor = player => sockets[players.indexOf(player)];
+  for (const player of players) { player.x = 960; player.y = 573; }
+  room.phase = "ORDEAL";
+  room.phaseTime = 8;
+  room.executeKill(victim, killer);
+  await waitFor(socketFor(victim), "DEATH_EVENT");
+  send(socketFor(reporter), { type: "TRIGGER_REPORT" });
+  const meeting = await waitFor(socketFor(reporter), "MEETING_CALLED");
+  assert.equal(meeting.bodyReporterId, reporter.id);
+  t.mock.method(Math, "random", () => 0);
+  send(socketFor(reporter), { type: "CAST_VOTE", targetId: killer.id });
+  const receipt = await waitFor(socketFor(reporter), "VOTE_RECEIPT");
+  assert.equal(receipt.accepted, true);
+  assert.equal(receipt.shifted, true);
+  assert.notEqual(receipt.targetId, killer.id);
+  assert.notEqual(receipt.targetId, reporter.id);
+  assert.notEqual(receipt.targetId, victim.id);
+  const otherVoters = players.filter(player => player.alive && player.id !== reporter.id);
+  for (const player of otherVoters) send(socketFor(player), { type: "CAST_VOTE", targetId: null });
+  const concluded = await waitFor(socketFor(reporter), "MEETING_CONCLUDED");
+  assert.equal(concluded.tally.find(entry => entry.targetId === receipt.targetId).votes, 1);
+  assert.equal(concluded.tally.find(entry => entry.targetId === killer.id).votes, 0);
+  assert.equal(concluded.tally.reduce((total, entry) => total + entry.votes, 0), 4);
+  for (const player of otherVoters) {
+    const ownReceipt = await waitFor(socketFor(player), "VOTE_RECEIPT");
+    assert.equal(ownReceipt.targetId, null);
+    assert.equal(ownReceipt.shifted, false);
+  }
+});
+
 test("matching browser clients negotiate the expanded WebSocket world before co-op movement", async t => {
   const { url } = await fixture(t);
   const previous = { window: globalThis.window, WebSocket: globalThis.WebSocket, wsUrl: process.env.NEXT_PUBLIC_WS_URL };
@@ -160,6 +207,7 @@ test("room server health supports the configured frontend and rejects unrelated 
     const info = await health.json();
     assert.equal(info.service, "moonwarden-ws");
     assert.equal(info.worldVersion, GAME_WORLD_VERSION);
+    assert.equal(info.version, GAME_RELEASE_VERSION);
     await connect(origin);
   }
   assert.equal((await fetch(`${url}/health`, { headers: { Origin: "https://unrelated.example" } })).status, 403);

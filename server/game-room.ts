@@ -38,7 +38,7 @@ import {
 import { planRoute } from "./sanctuary-paths";
 import { ejectionVerdict } from "./role-presentation";
 import { createMatchLayout } from "./match-layout";
-import { clampHollowCount, hollowVictory, ritualProgress, WARD_SETTLE_SECONDS, STEALTH_BODY_DELAY_SECONDS, STEALTH_COOLDOWN_SECONDS, STEALTH_ORDEAL_LOCKOUT } from "./match-rules";
+import { clampHollowCount, hollowVictory, ritualProgress, resolveReporterVote, type VoteReceipt, WARD_SETTLE_SECONDS, STEALTH_BODY_DELAY_SECONDS, STEALTH_COOLDOWN_SECONDS, STEALTH_ORDEAL_LOCKOUT } from "./match-rules";
 
 export interface IWebSocketClient {
   send(data: string): void;
@@ -117,6 +117,8 @@ export class GameRoom {
 
   meetingReason: string = "";
   meetingReporter: string = "";
+  private meetingBodyReporterId: string | null = null;
+  private voteReceipts = new Map<string, VoteReceipt>();
   meetingTally: NetVoteTally[] | null = null;
   votes = new Map<string, string | null>();
   chatHistory: NetChatMessage[] = [];
@@ -197,8 +199,16 @@ export class GameRoom {
     this.abilityUsed.delete(playerId);
     this.sightUntil.delete(playerId);
     this.votes.delete(playerId);
+    this.voteReceipts.delete(playerId);
+    if (this.meetingBodyReporterId === playerId) this.meetingBodyReporterId = null;
     for (const [voter, target] of this.votes) {
-      if (target === playerId) this.votes.set(voter, null);
+      if (target === playerId) {
+        this.votes.set(voter, null);
+        const receipt = { targetId: null, shifted: false };
+        this.voteReceipts.set(voter, receipt);
+        const client = this.clients.get(voter);
+        if (client) this.sendTo(client, { type: "VOTE_RECEIPT", accepted: true, ...receipt });
+      }
     }
 
     let newHostId: string | undefined;
@@ -389,7 +399,7 @@ export class GameRoom {
           const nearbyBody = this.bodies.find((b) => dist(player, b) < 96);
           const atBell = dist(player, CENTER) < 92 && this.phase === "CALM";
           if (nearbyBody) {
-            this.startMeeting(`${nearbyBody.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, player.name);
+            this.startMeeting(`${nearbyBody.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, player.name, player.id);
           } else if (atBell) {
             this.startMeeting("EMERGENCY MEETING CALLED", player.name);
           }
@@ -416,12 +426,7 @@ export class GameRoom {
         break;
 
       case "CAST_VOTE":
-        if (this.phase === "DISCUSSION" && player.alive && !this.meetingTally) {
-          if (this.votes.has(player.id) || (msg.targetId !== null && !this.players.get(msg.targetId)?.alive)) break;
-          this.votes.set(player.id, msg.targetId);
-          this.broadcast({ type: "VOTE_CAST_ACK", voterId: player.id });
-          this.checkVotesComplete();
-        }
+        this.castVote(player.id, msg.targetId);
         break;
 
       case "RESOLVE_MEETING":
@@ -703,14 +708,16 @@ export class GameRoom {
     this.checkWinConditions();
   }
 
-  private startMeeting(reason: string, reporter: string) {
+  private startMeeting(reason: string, reporter: string, bodyReporterId: string | null = null) {
     this.clearMeetingTimers();
     this.restoreTrueColors();
     this.phase = "DISCUSSION";
     this.meetingReason = reason;
     this.meetingReporter = reporter;
+    this.meetingBodyReporterId = bodyReporterId;
     this.meetingTally = null;
     this.votes.clear();
+    this.voteReceipts.clear();
     for (const player of this.players.values()) {
       player.vx = 0;
       player.vy = 0;
@@ -727,6 +734,7 @@ export class GameRoom {
       type: "MEETING_CALLED",
       reason,
       reporter,
+      bodyReporterId,
       candidates,
     });
 
@@ -737,9 +745,7 @@ export class GameRoom {
         if (this.phase === "DISCUSSION" && !this.meetingTally) {
           const candidatesToVote = Array.from(this.players.values()).filter((p) => p.alive && p.id !== bot.id);
           const votePick = Math.random() < 0.25 ? null : choose(candidatesToVote)?.id || null;
-          this.votes.set(bot.id, votePick);
-          this.broadcast({ type: "VOTE_CAST_ACK", voterId: bot.id });
-          this.checkVotesComplete();
+          this.castVote(bot.id, votePick);
         }
       }, 2500 + Math.random() * 3000);
     }
@@ -750,6 +756,30 @@ export class GameRoom {
       }
       this.concludeMeeting();
     }, 45_000);
+  }
+
+  private castVote(playerId: string, targetId: string | null) {
+    const player = this.players.get(playerId);
+    const client = this.clients.get(playerId);
+    const reply = (accepted: boolean, receipt: VoteReceipt) => {
+      if (client) this.sendTo(client, { type: "VOTE_RECEIPT", accepted, ...receipt });
+    };
+    if (this.phase !== "DISCUSSION" || !player?.alive || this.meetingTally) return;
+    if (this.votes.has(playerId)) {
+      reply(true, this.voteReceipts.get(playerId) ?? { targetId: this.votes.get(playerId) ?? null, shifted: false });
+      return; // A repeated click or packet cannot reroll a ballot.
+    }
+    if (targetId !== null && !this.players.get(targetId)?.alive) {
+      reply(false, { targetId: null, shifted: false });
+      return;
+    }
+    const livingIds = [...this.players.values()].filter(candidate => candidate.alive).map(candidate => candidate.id);
+    const receipt = resolveReporterVote(playerId, targetId, livingIds, this.meetingBodyReporterId);
+    this.votes.set(playerId, receipt.targetId);
+    this.voteReceipts.set(playerId, receipt);
+    reply(true, receipt); // Private; public acknowledgements never disclose targets.
+    this.broadcast({ type: "VOTE_CAST_ACK", voterId: playerId });
+    this.checkVotesComplete();
   }
 
   private scheduleMeeting(callback: () => void, delay: number) {
@@ -828,6 +858,8 @@ export class GameRoom {
 
   private resolveMeeting() {
     this.clearMeetingTimers();
+    this.meetingBodyReporterId = null;
+    this.voteReceipts.clear();
     this.bodies = [];
     this.pendingBodies = [];
     this.flares = [];
