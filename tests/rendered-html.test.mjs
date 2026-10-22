@@ -196,11 +196,11 @@ test("includes the complete social-deduction simulation", async () => {
   assert.match(source, /WARDEN/);
   assert.match(source, /IMPOSTOR/);
   assert.match(source, /YOUR RITUAL IS COMPLETE/);
-  assert.match(source, /YOUR RITE IS COMPLETE/);
+  assert.match(source, /All done here!/);
   assert.match(source, /MOON SIGHT AWAKENED/);
   assert.match(source, /KILL_COOLDOWN_SECONDS/);
   assert.match(source, /killUsedThisOrdeal/);
-  assert.match(source, /one strike per Ordeal/);
+  assert.match(source, /one strike per Ordeal/i);
   assert.match(source, /completeStation/);
   assert.match(source, /resumeAfterDeathReveal/);
   assert.match(source, /KILLED BY/);
@@ -210,7 +210,8 @@ test("includes the complete social-deduction simulation", async () => {
   assert.match(source, /hostile-moon\.mp3/);
   assert.match(source, /moonlit-deduction\.mp3/);
   assert.match(source, /crossfadeTo/);
-  assert.match(source, /BGM ON/);
+  assert.match(source, /<GameplaySettings/);
+  assert.match(source, /onMusicToggle=\{toggleBackgroundMusic\}/);
   assert.match(source, /WARDENS GATHERED/);
 });
 

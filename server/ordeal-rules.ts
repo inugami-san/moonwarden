@@ -1,5 +1,5 @@
 import type { Hazard } from "./game-types";
-import { CENTER, SANCTUARY_OBSTACLES } from "./sanctuary-map";
+import { CENTER, SANCTUARY_OBSTACLES, type SanctuaryObstacle } from "./sanctuary-map";
 export { SANCTUARY_OBSTACLES, sanctuaryZoneName } from "./sanctuary-map";
 export type { SanctuaryObstacle, ObstacleKind } from "./sanctuary-map";
 
@@ -98,7 +98,7 @@ export function resolveObstacleMovement(x: number, y: number, vx: number, vy: nu
 }
 
 /** Returns true if the line-of-sight segment between `a` and `b` is blocked by a sanctuary obstacle trunk/pillar. */
-export function isOccludedByObstacle(a: { x: number; y: number }, b: { x: number; y: number }, obstacles = SANCTUARY_OBSTACLES) {
+export function isOccludedByObstacle(a: { x: number; y: number }, b: { x: number; y: number }, obstacles: readonly SanctuaryObstacle[] = SANCTUARY_OBSTACLES) {
   const abx = b.x - a.x;
   const aby = b.y - a.y;
   const lenSq = abx * abx + aby * aby;

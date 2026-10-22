@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cameraViewport, cameraTarget, followCamera, viewportToWorld } from "../app/world-camera.ts";
+import { cameraViewport, cameraTarget, followCamera, viewportToWorld, GAMEPLAY_ZOOM } from "../app/world-camera.ts";
 import { ORDEAL_PREPARATION, preparationStation, restorationMilestone } from "../app/warden-objectives.ts";
 import { WORLD_WIDTH, WORLD_HEIGHT, VIEW_WIDTH, VIEW_HEIGHT, CENTER, STATIONS } from "../server/sanctuary-map.ts";
 import { HAZARDS } from "../server/ordeal-rules.ts";
@@ -11,8 +11,10 @@ const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 test("the following camera centers its player rather than fitting the whole forest", () => {
   const viewport = cameraViewport(1280, 760);
-  assert.deepEqual(viewport, { width: VIEW_WIDTH, height: VIEW_HEIGHT });
-  assert.deepEqual(cameraTarget(CENTER, viewport), { x: 320, y: 193 });
+  assert.deepEqual(viewport, { width: VIEW_WIDTH / GAMEPLAY_ZOOM, height: VIEW_HEIGHT / GAMEPLAY_ZOOM });
+  nearPoint(cameraTarget(CENTER, viewport), { x: CENTER.x - viewport.width / 2, y: CENTER.y - viewport.height / 2 });
+  assert.equal(GAMEPLAY_ZOOM, 1.4);
+  assert.ok(viewport.width < 920, "desktop no longer surveys two-thirds of the forest");
   assert.ok(viewport.width < WORLD_WIDTH && viewport.height < WORLD_HEIGHT);
   const position = { x: 1040, y: 620 }, camera = cameraTarget(position, viewport);
   nearPoint(viewportToWorld({ x: viewport.width / 2, y: viewport.height / 2 }, camera, viewport), position);
@@ -37,7 +39,7 @@ test("phone and wide-screen viewports fill their canvas aspect without stretchin
     near(viewport.width / viewport.height, width / height, `${width}×${height} aspect`);
     assert.ok(viewport.width <= VIEW_WIDTH + 1e-8 && viewport.height <= VIEW_HEIGHT + 1e-8);
     near(width / viewport.width, height / viewport.height, "equal horizontal and vertical pixel scale");
-    assert.ok(viewport.width === VIEW_WIDTH || viewport.height === VIEW_HEIGHT);
+    assert.ok(viewport.width === VIEW_WIDTH / GAMEPLAY_ZOOM || viewport.height === VIEW_HEIGHT / GAMEPLAY_ZOOM);
   }
   assert.ok(cameraViewport(390, 844).width < 400, "portrait crops horizontally instead of squeezing the whole forest into the phone");
 });

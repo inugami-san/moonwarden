@@ -62,7 +62,11 @@ checks, package bumps, and Git tags do not deploy anything by themselves.
 - Private death reveal identifying the killer before the eliminated player spectates
 - AI navigation to actual shrines, on-site ritual dwell, hunting, earned item use, body discovery, self-reporting,
   and weighted voting
-- Responsive keyboard, mouse, and touch controls
+- Responsive keyboard, mouse, and landscape-first touch controls. Portrait phones
+  show rotation guidance and clear held input; solo practice pauses while live
+  multiplayer remains server-driven. The lobby still works in portrait
+- A compact midnight-indigo HUD with mist-blue information, antique-gold actions,
+  crimson danger cues, tactile buttons, reduced-motion support and in-game settings
 - **Multiplayer**: WebSocket transport with an HTTP relay fallback, 4-letter room codes, unique room-wide slime colors (including bots), waiting room chat and roster, host controls, a 20Hz room tick, buffered movement interpolation, and synchronized voting
 - Cached translucent slime materials and shared, cached gameplay accessories in both customization and the arena; offscreen actor/prop drawing is culled without disabling simulation. Identity-concealing Ordeals retain anonymous silhouettes
 
@@ -80,6 +84,22 @@ or change the existing completed/personal/shared shrine rules.
 
 Run `npm run test:art` for material, animation, caching, shrine state, and map
 rendering checks. This is a 2D rendering update, not a 3D engine migration.
+
+### Local sight and camera
+
+The v0.3.1 camera uses 1.4× zoom without shrinking the world or stretching input.
+Players and puddles have a 280-unit Calm sight radius, reduced during Ordeals;
+nearby light can extend inspection to 330 units but cannot see through trunks.
+Fog and Mirror Pool hide distant identities; Glare and Phantoms retain anonymous
+shapes. Terrain stays readable, and the minimap still has no player/body tracking.
+Kill effects require sight at the time of the attack and while rendering. Hidden
+kills leave no visible particles or shake, and arriving later never replays them.
+Moon Sight and the Echo Bell remain explicit, temporary perception exceptions.
+
+`npm run test:sight` covers occlusion, lights, each Ordeal, real renderer/witness
+methods, kill-effect leaks, and zoom/input resolution. This limits information in
+the normal game UI; it does not filter all entity positions out of server packets
+and must not be treated as an anti-cheat system. The wire protocol is unchanged.
 
 ## Run locally
 

@@ -154,7 +154,11 @@ test("Multiplayer GameRoom: Lifecycle, Input Sync, Tasks, Meetings, and Voting",
   assert.equal(updatedA.flashlight, true);
 
   // 5. Task Progress & Shared Station Completion Sync
-  playerA.role = "CREWMATE";
+  // Keep a real Hollow when assigning the fixture's human Wardens. Randomly
+  // assigning the host as Hollow, then changing only that role, ended the match
+  // during ward settlement and made the guest's otherwise valid rite fail.
+  const fixtureHollow = [...room.players.values()].find(player => player.isAi);
+  for (const player of room.players.values()) player.role = player.id === fixtureHollow.id ? "IMPOSTOR" : "CREWMATE";
   atStation(room, playerA, "FROST FONT");
   clientB.sent.length = 0;
   const initialTask = room.taskProgress;

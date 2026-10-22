@@ -3,13 +3,14 @@ import { WORLD_WIDTH, WORLD_HEIGHT, VIEW_WIDTH, VIEW_HEIGHT } from "../server/sa
 export type CameraPoint = { x: number; y: number };
 export type CameraViewport = { width: number; height: number };
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+export const GAMEPLAY_ZOOM = 1.4;
 
 /** Fill the arena's real aspect ratio without shrinking the whole forest to fit. */
 export function cameraViewport(width: number, height: number): CameraViewport {
   const aspect = Math.max(0.2, Math.min(5, width / Math.max(1, height)));
   return aspect > VIEW_WIDTH / VIEW_HEIGHT
-    ? { width: VIEW_WIDTH, height: VIEW_WIDTH / aspect }
-    : { width: VIEW_HEIGHT * aspect, height: VIEW_HEIGHT };
+    ? { width: VIEW_WIDTH / GAMEPLAY_ZOOM, height: VIEW_WIDTH / aspect / GAMEPLAY_ZOOM }
+    : { width: VIEW_HEIGHT * aspect / GAMEPLAY_ZOOM, height: VIEW_HEIGHT / GAMEPLAY_ZOOM };
 }
 
 export function cameraTarget(position: CameraPoint, viewport: CameraViewport): CameraPoint {

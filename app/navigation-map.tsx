@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ROOM, SANCTUARY_TRAILS, WORLD_HEIGHT, WORLD_WIDTH } from "../server/sanctuary-map";
 import { mapTitle, navigationStationState, navigationView, type NavigationStation, type NavigationView } from "./navigation-data";
 import "./navigation-map.css";
@@ -21,24 +21,15 @@ function MapIcon() {
   return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true"><path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2V5Z M9 3v16 M15 5v16" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /></svg>;
 }
 
-const COMPACT_MAP_MEDIA = "(max-width: 760px), (pointer: coarse)";
-function subscribeMapPreference(notify: () => void) {
-  const media = window.matchMedia(COMPACT_MAP_MEDIA);
-  media.addEventListener("change", notify);
-  return () => media.removeEventListener("change", notify);
-}
-function getMapPreference() { return !window.matchMedia(COMPACT_MAP_MEDIA).matches; }
-function serverMapPreference() { return false; }
-
 function ForestDiagram({ view, id, expanded = false }: { view: NavigationView; id: string; expanded?: boolean }) {
   const { cell, rootLocked } = view;
   return (
     <svg className={`forest-map-diagram${expanded ? " is-expanded" : ""}`} viewBox={`0 0 ${WORLD_WIDTH} ${WORLD_HEIGHT}`} aria-hidden="true" focusable="false">
       <defs>
-        <radialGradient id={`${id}-floor`}><stop offset="0" stopColor="#406268" /><stop offset="1" stopColor="#18373d" /></radialGradient>
+        <radialGradient id={`${id}-floor`}><stop offset="0" stopColor="#4c647c" /><stop offset="1" stopColor="#263c54" /></radialGradient>
         <clipPath id={`${id}-visible`}><rect x={cell?.x ?? ROOM.left} y={cell?.y ?? ROOM.top} width={cell?.w ?? ROOM.right - ROOM.left} height={cell?.h ?? ROOM.bottom - ROOM.top} rx={cell ? 8 : 90} /></clipPath>
       </defs>
-      <rect x="45" y="45" width={WORLD_WIDTH - 90} height={WORLD_HEIGHT - 90} rx="130" fill="#11292f" stroke="#77978c" strokeWidth="8" />
+      <rect x="45" y="45" width={WORLD_WIDTH - 90} height={WORLD_HEIGHT - 90} rx="130" fill="#14263c" stroke="#839bb8" strokeWidth="8" />
       {rootLocked ? <text x="960" y="1080" textAnchor="middle" className="forest-map-veiled-label">BEYOND YOUR CHAMBER · VEILED BY ROOTS</text> : null}
       <g clipPath={`url(#${id}-visible)`}>
         <rect x={ROOM.left} y={ROOM.top} width={ROOM.right - ROOM.left} height={ROOM.bottom - ROOM.top} fill={`url(#${id}-floor)`} />
@@ -70,9 +61,8 @@ function ForestDiagram({ view, id, expanded = false }: { view: NavigationView; i
 }
 
 export function NavigationMap({ position, phase, hazard, stations, destinationId, layoutSeed, onDestinationChange, enabled, onExpandedChange }: NavigationMapProps) {
-  const preferredCompactOpen = useSyncExternalStore(subscribeMapPreference, getMapPreference, serverMapPreference);
-  const [compactOverride, setCompactOverride] = useState<boolean | null>(null);
-  const compactOpen = compactOverride ?? preferredCompactOpen;
+  // Keep the forest unobstructed on every screen; the minimap is opt-in.
+  const [compactOpen, setCompactOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [previousEnabled, setPreviousEnabled] = useState(enabled);
   // A new gameplay context must not reopen a map left open before a meeting.
@@ -128,7 +118,7 @@ export function NavigationMap({ position, phase, hazard, stations, destinationId
     <aside className={`forest-map-dock${compactOpen ? " is-open" : ""}`} aria-label="Forest navigation" onPointerDown={event => event.stopPropagation()}>
       <div className="forest-map-dock-header">
         <button type="button" className="forest-map-open" onClick={() => setExpanded(true)} aria-label="Open forest map" aria-haspopup="dialog"><MapIcon /><span>Forest map</span><kbd>M</kbd></button>
-        <button type="button" className="forest-map-collapse" onClick={() => setCompactOverride(open => !(open ?? preferredCompactOpen))} aria-expanded={compactOpen} aria-controls={`${id}-compact`} aria-label={compactOpen ? "Collapse minimap" : "Show minimap"}>{compactOpen ? "−" : "+"}</button>
+        <button type="button" className="forest-map-collapse" onClick={() => setCompactOpen(open => !open)} aria-expanded={compactOpen} aria-controls={`${id}-compact`} aria-label={compactOpen ? "Collapse minimap" : "Show minimap"}>{compactOpen ? "−" : "+"}</button>
       </div>
       <div id={`${id}-compact`} className="forest-map-compact" hidden={!compactOpen}>
         <button type="button" className="forest-map-preview" onClick={() => setExpanded(true)} aria-label="Expand forest map to choose a shrine"><ForestDiagram view={view} id={`${id}-small`} /></button>

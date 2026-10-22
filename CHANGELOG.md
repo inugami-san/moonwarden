@@ -6,6 +6,38 @@ source releases, not proof that a particular server has been deployed.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-22
+
+Release prepared from the tested camera, visibility, and gameplay UI updates.
+Deployment status is tracked separately by Vercel.
+
+### Changed
+
+- Gameplay UI refreshed with midnight-indigo, mist-blue and antique-gold controls, compact
+  progress cards, opt-in minimap and collapsible Ordeal/role guidance. Shrine,
+  meeting, map and reward screens share the new palette.
+- Raised buttons respond with a press/spring effect and existing UI sound cues.
+  Keyboard focus and reduced-motion alternatives remain available.
+- Audio, glare and control tips live in a focus-trapped settings dialog. Opening
+  it clears movement and disables the joystick; the match itself keeps running.
+- Mobile gameplay is landscape-first, with a focused rotate prompt in portrait
+  and a compact horizontal HUD. Rotation clears held inputs. Solo practice pauses
+  while rotating; connected multiplayer continues on its room server.
+
+### Fixed
+
+- A 1.4× closer following camera replaces the broad desktop overview while
+  preserving world geometry, joystick/mouse mapping, and native render resolution.
+- Players, puddles, kill animations and particles share local distance, cover,
+  light and Rootwake visibility rules. Terrain stays readable. Light no longer
+  identifies actors through cover; fog/glare/phantom identities stay concealed.
+- Hidden attacks no longer produce visible particles or camera shake, nor replay
+  when a player approaches afterward. Nearby clear witnesses still see attacks.
+- Solo AI testimony and local body-report prompts use the same sight rules.
+  Moon Sight and anonymous Sonar contacts retain their explicit exceptions.
+- Visibility is a client rendering rule, not a server-side anti-cheat boundary.
+  Network packets and multiplayer compatibility remain `silverpine-harmony-v5`.
+
 ## [0.3.0] - 2026-10-22
 
 Prepared locally for the next beta release; this entry is not a deployment claim.

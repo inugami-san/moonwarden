@@ -10,6 +10,7 @@ import { planRoute } from "../server/sanctuary-paths.ts";
 import { preparationStation } from "../app/warden-objectives.ts";
 import { GameRoom } from "../server/game-room.ts";
 import { movementVector } from "../app/joystick-input.ts";
+import { sightAt } from "../server/visibility.ts";
 
 const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("page.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -17,7 +18,7 @@ const node = ast.statements.find(statement => ts.isClassDeclaration(statement) &
 const js = ts.transpileModule(node.getText(ast), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 function fixture() {
   const Engine = runInNewContext(`${js}\nOrdealEngine`, {
-    ...world, ...rules, ...matchRules, W: world.WORLD_WIDTH, H: world.WORLD_HEIGHT, planRoute, preparationStation, movementVector,
+    ...world, ...rules, ...matchRules, W: world.WORLD_WIDTH, H: world.WORLD_HEIGHT, planRoute, preparationStation, movementVector, sightAt,
     dist: (a, b) => Math.hypot(a.x - b.x, a.y - b.y),
     clamp: (n, min, max) => Math.max(min, Math.min(max, n)),
     rootwakeStrength: (phase, hazard, time) => phase === "ORDEAL" && hazard === "ROOTWAKE" ? Math.min((10 - time) / .75, time / .55, 1) : 0,
@@ -41,6 +42,28 @@ function fixture() {
   engine.makeStations();
   return { engine, human, cues, cancelled };
 }
+
+test("native navigation/settings and notebook dialogs retain Escape and never enqueue movement", () => {
+  // Class-field handlers live on constructed instances, not the prototype fixture.
+  const field = node.members.find(member => member.name?.getText(ast) === "keyDown");
+  const factoryJs = ts.transpileModule(`function handlerFactory() { return ${field.initializer.getText(ast)}; }`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const makeHandler = runInNewContext(`${factoryJs}\nhandlerFactory`);
+  for (const gate of ["navigationOpen", "notebookOpen"]) {
+    const { engine } = fixture();
+    engine.keyDown = makeHandler.call(engine);
+    engine[gate] = true;
+    let prevented = false;
+    for (const code of ["Escape", "KeyD", "KeyQ"]) engine.keyDown({ code, target: null, preventDefault() { prevented = true; } });
+    assert.equal(prevented, false, "the browser retains native dialog keys");
+    assert.equal(engine.keys.size, 0);
+  }
+  for (const tagName of ["BUTTON", "SUMMARY"]) {
+    const { engine } = fixture();
+    engine.keyDown = makeHandler.call(engine);
+    engine.keyDown({ code: "Space", target: { tagName }, preventDefault() { assert.fail("native activation must not be cancelled"); } });
+    assert.equal(engine.keys.size, 0, "opening role guidance cannot enqueue a strike");
+  }
+});
 
 test("a peer's team seal does not cancel your puzzle or consume your gear ritual", () => {
   const { engine, cancelled } = fixture();
@@ -129,6 +152,31 @@ test("opening navigation clears the real analog handler and held keyboard moveme
   assert.equal(engine.keys.size, 0);
   assert.deepEqual({ ...engine.moveVector }, { vx: 0, vy: 0 });
   assert.equal(human.vx, 0); assert.equal(human.vy, 0);
+});
+
+test("rotation clears analog/keyboard input and pauses solo clocks without pausing live multiplayer", () => {
+  const field = node.members.find(member => member.name?.getText(ast) === "loop");
+  const factoryJs = ts.transpileModule(`function makeLoop() { return ${field.initializer.getText(ast)}; }`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const makeLoop = runInNewContext(`${factoryJs}\nmakeLoop`, { followCamera: value => value, viewportToWorld: value => value, requestAnimationFrame: () => 1 });
+  for (const multiplayer of [false, true]) {
+    const { engine, human } = fixture();
+    let updates = 0;
+    Object.assign(engine, { running: true, last: 1000, elapsed: 10, particles: [], camera: { x: 0, y: 0 }, pointerViewport: { x: 0, y: 0 }, viewWidth: 844, viewHeight: 390,
+      updateDevourEffects() {}, update() { updates++; }, draw() {}, emit() {} });
+    if (multiplayer) engine.multiplayerClient = {};
+    engine.loop = makeLoop.call(engine);
+    engine.moveVector = { vx: .6, vy: .8 }; engine.keys.add("KeyD"); human.vx = 80; human.vy = 20;
+    engine.setOrientationBlocked(true);
+    assert.equal(engine.keys.size, 0);
+    assert.deepEqual({ ...engine.moveVector }, { vx: 0, vy: 0 });
+    assert.equal(human.vx, 0);
+    engine.loop(1016);
+    assert.equal(updates, multiplayer ? 1 : 0);
+    assert.equal(engine.elapsed > 10, multiplayer);
+    engine.setOrientationBlocked(false);
+    engine.loop(1032);
+    assert.equal(updates, multiplayer ? 2 : 1, "landscape resumes the same match without a reset");
+  }
 });
 
 test("an incorrect shrine answer shows a short notice without blocking movement or a fresh attempt", () => {

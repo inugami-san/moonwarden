@@ -64,13 +64,15 @@ test("matching HTTP clients share the expanded authority instead of old invisibl
   const player = room.players.get(host.playerId);
   const trace = [[1500, 800], [450, 225]];
   for (const [x, y] of trace) {
-    const expected = resolveObstaclePosition(x, y);
+    // Match layouts add visible seeded shrine props. Compare with the same
+    // colliders used by this room, not just the unseeded base map.
+    const expected = resolveObstaclePosition(x, y, 22, room.obstacles);
     host.sendInput(x, y, 0, 0, 0, false);
     await host.flushHttp();
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual({ x: player.x, y: player.y }, expected, "authority resolves the drawn map's bases, not retired invisible props or bounds");
     if (x === 1500) assert.ok(player.x > 1168 && player.y > 658, "the small visible column must not become the retired arena boundary");
-    else assert.deepEqual(expected, { x, y }, "the retired monolith location is open floor in the expanded map");
+    else assert.deepEqual(resolveObstaclePosition(x, y), { x, y }, "the retired monolith is absent from the base map; only visible seeded props may block it");
   }
   assert.notDeepEqual({ x: Math.min(1168, trace[0][0]), y: Math.min(658, trace[0][1]) }, { x: trace[0][0], y: trace[0][1] }, "the retired authority would have clamped this move against an invisible edge");
   assert.equal(guest.connected, true);

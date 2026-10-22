@@ -29,7 +29,6 @@ import {
   MIRROR_BUMP_DISTANCE,
   MOON_SIGHT_SECONDS,
   SANCTUARY_OBSTACLES,
-  isOccludedByObstacle,
   nextHazard,
   ordealDuration,
   phantomPaths,
@@ -49,12 +48,16 @@ import { trackGameEvent } from "./analytics";
 import { GameAnalyticsLifecycle } from "./analytics-game";
 import { AnalyticsSettingsButton } from "./analytics-consent";
 import { NavigationMap } from "./navigation-map";
+import { GameGlyph, GameplaySettings } from "./gameplay-controls";
+import { LandscapeGuard, useLandscapeRequired } from "./gameplay-orientation";
 import { WORLD_WIDTH, WORLD_HEIGHT, VIEW_WIDTH, VIEW_HEIGHT, ROOM, PLAYER_BOUNDS, CENTER, CALM_SECONDS, ROOT_BARRIERS, STATIONS, getRootCell, sharesRootCell, clampWorldPoint, keepInRootCell } from "../server/sanctuary-map";
 import { planRoute } from "../server/sanctuary-paths";
 import { cameraViewport, cameraTarget, followCamera, viewportToWorld } from "./world-camera";
+import { sightAt, type Sight, type SightPoint, type SightKind } from "../server/visibility";
 import { ORDEAL_PREPARATION, preparationStation, restorationMilestone } from "./warden-objectives";
 import "./warden-exploration.css";
 import "./next-chapter.css";
+import "./gameplay-hud.css";
 
 type Role = "CREWMATE" | "IMPOSTOR";
 type RoleChoice = Role | "RANDOM";
@@ -160,6 +163,7 @@ type DeathReveal = {
 };
 
 type DevourEvent = DevourVisual & {
+  witnessed: SightKind;
   id: string;
   killerId?: string;
   startedAt: number;
@@ -205,7 +209,7 @@ type Meeting = {
   accusations: Record<string, string | null>;
 };
 
-type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; color: string };
+type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; color: string; sourceX: number; sourceY: number };
 const W = WORLD_WIDTH;
 const H = WORLD_HEIGHT;
 const NAMES = ["Bubbles", "Mochi", "Gloop", "Pebble", "Nori", "Fizz", "Wobble", "Pip"];
@@ -418,12 +422,16 @@ class OrdealEngine {
   camera = { x: 0, y: 0 };
   private pointerViewport = { x: VIEW_WIDTH * 0.72, y: VIEW_HEIGHT * 0.45 };
   navigationOpen = false;
+  orientationBlocked = false;
   private destinationId: string | null = null;
   private botRites = new Map<string, Set<string>>();
   private botWork = new Map<string, { station: string; duration: number }>();
   private botRoutes = new Map<string, { targetX: number; targetY: number; root: boolean; points: { x: number; y: number }[] }>();
 
   burst(x: number, y: number, color: string, count = 20) {
+    // Never create a hidden event's particles for a later-arriving observer.
+    const sight = this.visibilityFor({ x, y }, this.human, false);
+    if (sight.kind === "HIDDEN") return;
     for (let i = 0; i < count; i += 1) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 40 + Math.random() * 120;
@@ -435,7 +443,9 @@ class OrdealEngine {
         life: 0.6 + Math.random() * 0.5,
         max: 1.1,
         size: 2 + Math.random() * 3.5,
-        color,
+        color: sight.kind === "SHAPE" ? "#b5c1c4" : color,
+        sourceX: x,
+        sourceY: y,
       });
     }
   }
@@ -450,6 +460,7 @@ class OrdealEngine {
         existing.killerColor = killerColor;
         existing.startX = killer?.x ?? existing.startX;
         existing.startY = killer?.y ?? existing.startY;
+        if (killerId === this.localPlayerId || bodyId === this.localPlayerId || bodyId === `body-${this.localPlayerId}`) existing.witnessed = "IDENTIFIED";
       }
       return;
     }
@@ -460,7 +471,11 @@ class OrdealEngine {
     // Do not guess another player's role from proximity or move their collider.
     const resolvedKillerId = killerId ?? (isKiller ? this.localPlayerId : undefined);
     const resolvedKiller = resolvedKillerId ? this.players.find((p) => p.id === resolvedKillerId) : undefined;
+    const sight = this.visibilityFor({ x, y }, this.human, false);
+    const killerSight = resolvedKiller ? this.visibilityFor(resolvedKiller, this.human, false) : sight;
+    const witnessed: SightKind = isDirect ? "IDENTIFIED" : sight.kind === "HIDDEN" || killerSight.kind === "HIDDEN" ? "HIDDEN" : sight.kind === "SHAPE" || killerSight.kind === "SHAPE" ? "SHAPE" : "IDENTIFIED";
     this.devourEvents.push({
+      witnessed,
       id: bodyId,
       x,
       y,
@@ -473,8 +488,8 @@ class OrdealEngine {
       duration: DEVOUR_SECONDS,
       lastChomp: 0,
     });
-    if (!this.reducedMotion) this.burst(x, y + 4, "#d9edc4", 8);
-    if (!this.reducedMotion && (isDirect || dist(this.human, { x, y }) < 280)) {
+    if (!this.reducedMotion && witnessed !== "HIDDEN") this.burst(x, y + 4, "#d9edc4", 8);
+    if (!this.reducedMotion && (isDirect || witnessed !== "HIDDEN")) {
       this.devourShakeUntil = this.elapsed + 0.32;
       this.devourShakePower = isDirect ? 3 : 1.2;
     }
@@ -1049,8 +1064,9 @@ class OrdealEngine {
     const viewport = cameraViewport(this.canvas.clientWidth, this.canvas.clientHeight);
     this.viewWidth = viewport.width;
     this.viewHeight = viewport.height;
-    this.canvas.width = Math.round(this.viewWidth * dpr);
-    this.canvas.height = Math.round(this.viewHeight * dpr);
+    // Zoom changes world units, not render resolution or pointer coordinates.
+    this.canvas.width = Math.max(1, Math.round(this.canvas.clientWidth * dpr));
+    this.canvas.height = Math.max(1, Math.round(this.canvas.clientHeight * dpr));
     this.mask.width = Math.ceil(this.viewWidth);
     this.mask.height = Math.ceil(this.viewHeight);
     this.camera = cameraTarget(this.human, viewport);
@@ -1062,8 +1078,11 @@ class OrdealEngine {
     const tag = target?.tagName;
     // Never steal keystrokes from text entry (e.g. the meeting chat).
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return;
-    // Let focused buttons keep their native Space/Enter activation.
-    if (tag === "BUTTON" && (event.code === "Space" || event.code === "Enter" || event.code === "NumpadEnter")) return;
+    // Focused controls keep native activation; opening a disclosure must not bite.
+    if ((tag === "BUTTON" || tag === "SUMMARY") && (event.code === "Space" || event.code === "Enter" || event.code === "NumpadEnter")) return;
+    // Native dialogs own their keyboard events, including Escape to dismiss.
+    // Input has already been cleared when the map, notebook or settings opened.
+    if (this.navigationOpen || this.notebookOpen) return;
     void this.audio.unlock();
     if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyE", "KeyF", "KeyR", "KeyQ", "KeyV", "KeyC", "Space", "Escape"].includes(event.code)) {
       event.preventDefault();
@@ -1115,6 +1134,11 @@ class OrdealEngine {
     this.navigationOpen = open;
     this.resetInput();
     if (this.human) { this.human.vx = 0; this.human.vy = 0; this.human.working = false; }
+  }
+
+  setOrientationBlocked(blocked: boolean) {
+    this.orientationBlocked = blocked;
+    this.resetInput();
   }
 
   contextMenu = (event: MouseEvent) => {
@@ -1394,7 +1418,7 @@ class OrdealEngine {
 
   report() {
     if (!this.human.alive || this.paused) return;
-    const nearby = this.bodies.find((body) => dist(this.human, body) < 96);
+    const nearby = this.bodies.find((body) => dist(this.human, body) < 96 && this.visibilityFor(body, this.human, false).kind !== "HIDDEN");
     const atEmergency = dist(this.human, CENTER) < 92 && this.phase === "CALM";
     if (this.multiplayerClient) {
       if (nearby || atEmergency) {
@@ -1424,6 +1448,7 @@ class OrdealEngine {
         && player.id !== this.human.id
         && player.role !== "IMPOSTOR"
         && dist(player, this.human) < 84
+        && this.visibilityFor(player).kind !== "HIDDEN"
       );
       const victim = victims.sort((a, b) => dist(a, this.human) - dist(b, this.human))[0];
       if (!victim) {
@@ -1442,6 +1467,7 @@ class OrdealEngine {
       player.alive
       && player.role === "CREWMATE"
       && dist(player, this.human) < 84
+      && this.visibilityFor(player).kind !== "HIDDEN"
     );
     const victim = victims.sort((a, b) => dist(a, this.human) - dist(b, this.human))[0];
     if (!victim) {
@@ -1488,34 +1514,40 @@ class OrdealEngine {
     ledger.set(suspectId, (ledger.get(suspectId) || 0) + amount);
   }
 
-  /** Can `observer` make out `target` right now, given the hazard and light sources? */
+  /** One sight rule drives actors, puddles, witnesses and event effects. */
+  visibilityFor(point: SightPoint, observer: Player = this.human, allowMoonSight = true): Sight {
+    const local = observer.id === this.localPlayerId;
+    const beamOn = observer.flashlight || (local && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil);
+    const beamAngle = beamOn ? local && this.mouse
+      ? Math.atan2(this.mouse.y - observer.y, this.mouse.x - observer.x)
+      : observer.angle ?? Math.atan2(observer.vy, observer.vx) : undefined;
+    const ambientLit = this.phase === "ORDEAL" && this.hazard === "BLACKOUT" && this.obstacles.some(obs =>
+      obs.kind === "CRYSTAL_SPIRE" && this.getCrystalBlink(obs.x) > .25 && dist(point, obs) < 118 * this.getCrystalBlink(obs.x));
+    return sightAt(point, {
+      observer, phase: this.phase, hazard: this.hazard, obstacles: this.obstacles, flares: this.flares ?? [], beamAngle, ambientLit,
+      moonSight: allowMoonSight && local && observer.role === "IMPOSTOR" && this.elapsed < this.moonSightUntil,
+    });
+  }
+
+  /** A shape or sound is not enough evidence to identify a killer. */
   canSee(observer: Player, target: Player) {
-    const d = dist(observer, target);
-    const flareLit = this.flares.some((flare) => dist(flare, target) < 146);
-    if (!flareLit && isOccludedByObstacle(observer, target, this.obstacles)) return false;
-    if (this.phase !== "ORDEAL") return d < 420;
-    if (this.hazard === "ROOTWAKE") return sharesRootCell(observer, target) && d < 420;
-    if (this.hazard === "PHANTOMS") return d < 58;
-    if (flareLit) return d < 420;
-    if (observer.flashlight) {
-      const aim = Math.atan2(observer.vy, observer.vx);
-      const toward = Math.atan2(target.y - observer.y, target.x - observer.x);
-      const delta = Math.atan2(Math.sin(toward - aim), Math.cos(toward - aim));
-      if (Math.abs(delta) < Math.PI / 8 && d < 330) return true;
-    }
-    return d < (this.hazard === "BLACKOUT" ? 104 : this.hazard === "MOONGLARE" ? 72 : 140);
+    return this.visibilityFor(target, observer, false).kind === "IDENTIFIED";
+  }
+
+  canRenderDevour(event: DevourEvent) {
+    return (event.witnessed === "IDENTIFIED" || event.witnessed === "SHAPE") && this.visibilityFor(event, this.human, false).kind !== "HIDDEN";
   }
 
   recordWitnesses(victim: Player, killer: Player) {
     for (const observer of this.players) {
       if (!observer.ai || !observer.alive || observer.id === killer.id) continue;
-      if (this.canSee(observer, killer)) this.suspect(observer, killer.id, 4);
+      if (this.canSee(observer, killer) && this.canSee(observer, victim)) this.suspect(observer, killer.id, 4);
       // Anyone else lingering near the body is mildly suspicious too.
       for (const other of this.players) {
         if (!other.alive || other.id === observer.id || other.id === killer.id) continue;
-        if (dist(other, victim) < 170) this.suspect(observer, other.id, 0.8);
+        if (dist(other, victim) < 170 && this.canSee(observer, other) && this.canSee(observer, victim)) this.suspect(observer, other.id, 0.8);
       }
-      if (dist(killer, victim) < 170) this.suspect(observer, killer.id, 0.8);
+      if (dist(killer, victim) < 170 && this.canSee(observer, killer) && this.canSee(observer, victim)) this.suspect(observer, killer.id, 0.8);
     }
   }
 
@@ -1758,7 +1790,7 @@ class OrdealEngine {
   }
 
   snapshot(): Snapshot {
-    const nearbyBody = this.bodies.some((body) => dist(body, this.human) < 96);
+    const nearbyBody = this.bodies.some((body) => dist(body, this.human) < 96 && this.visibilityFor(body, this.human, false).kind !== "HIDDEN");
     const nearButton = this.phase === "CALM" && dist(this.human, CENTER) < 92;
     const nearestStation = this.stations.find((station) => dist(station, this.human) < 84);
     const victimNear = this.players.some(
@@ -1766,7 +1798,8 @@ class OrdealEngine {
         player.alive
         && player.id !== this.human.id
         && player.role === "CREWMATE"
-        && dist(player, this.human) < 84,
+        && dist(player, this.human) < 84
+        && this.visibilityFor(player).kind !== "HIDDEN",
     );
     const rawKillCooldown = Math.max(0, this.killCooldownUntil - this.elapsed);
     const killCooldown = Math.round(rawKillCooldown * 10) / 10;
@@ -1825,9 +1858,12 @@ class OrdealEngine {
     if (!this.running) return;
     const dt = this.last ? Math.min((now - this.last) / 1000, 0.035) : 0;
     this.last = now;
-    this.elapsed += dt;
-    this.updateDevourEffects(dt);
-    if (!this.paused && (!this.roleRevealActive || this.multiplayerClient)) {
+    const rotationPaused = this.orientationBlocked && !this.multiplayerClient;
+    if (!rotationPaused) {
+      this.elapsed += dt;
+      this.updateDevourEffects(dt);
+    }
+    if (!rotationPaused && !this.paused && (!this.roleRevealActive || this.multiplayerClient)) {
       this.update(dt);
     } else if (dt > 0) {
       for (const p of this.particles) {
@@ -1854,7 +1890,7 @@ class OrdealEngine {
       const progress = (this.elapsed - event.startedAt) / event.duration;
       if (!this.reducedMotion && progress >= 0.65 && event.lastChomp < 1) {
         event.lastChomp = 1;
-        this.burst(event.x, event.y + 8, "#e7f1d3", 10);
+        if (this.canRenderDevour(event)) this.burst(event.x, event.y + 8, "#e7f1d3", 10);
       }
     }
     this.devourEvents = this.devourEvents.filter((event) => this.elapsed - event.startedAt < event.duration);
@@ -2119,7 +2155,7 @@ class OrdealEngine {
       if (!player.ai || !player.alive) continue;
       let personalRites = this.botRites.get(player.id);
       if (!personalRites) { personalRites = new Set(); this.botRites.set(player.id, personalRites); }
-      const discoveredBody = this.bodies.find((body) => dist(player, body) < 72);
+      const discoveredBody = this.bodies.find((body) => dist(player, body) < 72 && this.visibilityFor(body, player, false).kind !== "HIDDEN");
       if (discoveredBody && Math.random() < dt * (player.role === "IMPOSTOR" ? 0.18 : 0.7)) {
         this.startMeeting(`${discoveredBody.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, player.name.toUpperCase(), player.id);
         return;
@@ -2226,7 +2262,7 @@ class OrdealEngine {
               && entry.role === "CREWMATE"
             )
             .sort((a, b) => dist(a, player) - dist(b, player))[0];
-          if (victim && dist(victim, player) < 66) {
+          if (victim && dist(victim, player) < 66 && this.visibilityFor(victim, player, false).kind !== "HIDDEN") {
             this.eliminate(victim, player);
             this.killCooldownUntil = this.elapsed + KILL_COOLDOWN_SECONDS;
           }
@@ -2307,44 +2343,32 @@ class OrdealEngine {
         continue;
       }
       const { player } = entry;
+      const sight = this.visibilityFor(player);
+      if (sight.kind === "HIDDEN") continue;
       if (entry.phantom) {
-        this.drawSlime(ctx, player, true, false, false, moonSightActive ? 0.25 : 0.78);
+        this.drawSlime(ctx, player, true, false, false, sight.alpha * (moonSightActive ? .25 : .65));
         if (moonSightActive || (sonarActive && dist(this.human, player) <= HEARING_RANGE)) this.drawPhantomMarker(ctx, player);
         continue;
       }
       const isLocal = player.id === this.localPlayerId;
-      const occludedBehindCover = !isLocal && !moonSightActive && isOccludedByObstacle(this.human, player, this.obstacles) && !this.flares.some((f) => dist(f, player) < 146);
-      const revealed = isLocal || moonSightActive || (!occludedBehindCover && this.isRevealed(player));
-      if (this.phase === "ORDEAL" && this.hazard === "BLACKOUT" && !revealed) continue;
-      const silhouette = !moonSightActive && (moonGlareActive || phantomProcessionActive || occludedBehindCover || (this.phase === "ORDEAL" && (this.hazard === "FOG" || this.hazard === "MIRROR_POOL") && !revealed));
+      const silhouette = sight.kind === "SHAPE";
       const colorMuted = !moonSightActive && this.phase === "ORDEAL" && !silhouette && (this.hazard === "BLACKOUT" || this.hazard === "FOG" || this.hazard === "MIRROR_POOL");
-      const baseAlpha = moonSightActive || this.phase !== "ORDEAL"
-        ? 1
-        : this.hazard === "BLACKOUT"
-          ? 0.56
-          : this.hazard === "FOG" || this.hazard === "MIRROR_POOL"
-            ? silhouette ? 0.48 : 0.78
-            : this.hazard === "PHANTOMS"
-              ? 0.78
-            : 1;
-      const visibilityAlpha = occludedBehindCover ? Math.min(baseAlpha, 0.34) : baseAlpha;
-      this.drawSlime(ctx, player, silhouette, moonSightActive && !isLocal, colorMuted, visibilityAlpha);
+      const materialAlpha = colorMuted ? this.hazard === "BLACKOUT" ? .56 : .78 : silhouette && this.hazard === "FOG" ? .48 : 1;
+      this.drawSlime(ctx, player, silhouette, moonSightActive && !isLocal, colorMuted, sight.alpha * materialAlpha);
     }
     for (const event of this.devourEvents) {
-      // Known actors animate inside drawSlime, inheriting the same visibility.
-      if (event.killerId) continue;
-      const isParticipant = event.killerId === this.localPlayerId || event.id === this.localPlayerId || event.id === `body-${this.localPlayerId}`;
-      if (isParticipant || moonSightActive || this.isRevealed({ ...this.human, id: event.id, x: event.x, y: event.y, flashlight: false })) {
-        this.drawDevourEffect(ctx, event, !moonSightActive && this.phase === "ORDEAL");
-      }
+      // A late arrival must find a puddle, not a replay of a kill they missed.
+      if (event.killerId || !this.canRenderDevour(event)) continue;
+      const sight = this.visibilityFor(event, this.human, false);
+      this.drawDevourEffect(ctx, event, event.witnessed !== "IDENTIFIED" || sight.kind === "SHAPE", undefined, false, sight.alpha);
     }
     // Draw state badges above actors, but beneath visibility masks so a sealed
     // shrine stays readable without exposing other Rootwake chambers.
     for (const station of this.stations) {
       drawSanctumStatus(ctx, station, this.elapsed, this.phase === "DISCUSSION", dist(station, this.human) < 128);
     }
-    if (!moonGlareActive) this.drawLighting(ctx);
     this.drawParticles(ctx);
+    if (!moonGlareActive) this.drawLighting(ctx);
     this.drawSonarEchoes(ctx);
     if (rootwakeActive) {
       this.drawRootwakeOcclusion(ctx);
@@ -2661,6 +2685,7 @@ class OrdealEngine {
       const isLocal = player.id === this.localPlayerId;
       const humanActive = isLocal && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil;
       if (!player.flashlight && !humanActive) continue;
+      if (!isLocal && this.visibilityFor(player, this.human, false).kind === "HIDDEN") continue;
       const angle = isLocal
         ? Math.atan2(this.mouse.y - player.y, this.mouse.x - player.x)
         : (typeof player.angle === "number" ? player.angle : Math.atan2(player.vy, player.vx));
@@ -2728,8 +2753,9 @@ class OrdealEngine {
 
   drawSlime(ctx: CanvasRenderingContext2D, player: Player, silhouette = false, moonSightMarked = false, colorMuted = false, visibilityAlpha = 1) {
     const consumption = this.devourEvents.find((event) => event.killerId === player.id);
-    if (consumption) {
-      this.drawDevourEffect(ctx, consumption, silhouette, player, colorMuted, visibilityAlpha);
+    if (consumption && this.canRenderDevour(consumption)) {
+      const victimSight = this.visibilityFor(consumption, this.human, false);
+      this.drawDevourEffect(ctx, consumption, silhouette || consumption.witnessed !== "IDENTIFIED" || victimSight.kind === "SHAPE", player, colorMuted, Math.min(visibilityAlpha, victimSight.alpha));
       return;
     }
     const speed = Math.hypot(player.vx, player.vy);
@@ -2841,6 +2867,9 @@ class OrdealEngine {
   }
 
   drawBody(ctx: CanvasRenderingContext2D, body: Body) {
+    const sight = this.visibilityFor(body, this.human, false);
+    if (sight.kind === "HIDDEN") return;
+    const color = sight.kind === "SHAPE" ? "#809097" : body.color;
     const activeDevour = this.devourEvents.find((e) => e.id === body.id);
     const devourProgress = activeDevour ? (this.elapsed - activeDevour.startedAt) / activeDevour.duration : 1;
     if (activeDevour && devourProgress < .72) return;
@@ -2851,6 +2880,7 @@ class OrdealEngine {
     const wobble2 = Math.cos(t * 0.85) * 2.1;
 
     ctx.save();
+    ctx.globalAlpha = sight.alpha;
     ctx.translate(body.x, body.y + 26);
     ctx.scale(puddleScale, puddleScale);
 
@@ -2873,7 +2903,7 @@ class OrdealEngine {
       { x: 15, y: 23, rx: 6.8, ry: 3.8, rot: 0.12 },
       { x: -19, y: 22, rx: 5.2, ry: 3.2, rot: -0.18 },
     ];
-    ctx.fillStyle = `${body.color}c4`;
+    ctx.fillStyle = `${color}c4`;
     ctx.strokeStyle = "#0d1520";
     ctx.lineWidth = 2.6;
     for (const [idx, d] of droplets.entries()) {
@@ -2885,7 +2915,7 @@ class OrdealEngine {
     }
 
     // 3. Outer spreading slime puddle (multi-lobed organic shape)
-    ctx.fillStyle = `${body.color}b8`;
+    ctx.fillStyle = `${color}b8`;
     ctx.strokeStyle = "#0d1520";
     ctx.lineWidth = 4.5;
     ctx.beginPath();
@@ -2900,8 +2930,8 @@ class OrdealEngine {
     ctx.stroke();
 
     // 4. Inner thicker slime core pool
-    ctx.fillStyle = body.color;
-    ctx.globalAlpha = 0.88;
+    ctx.fillStyle = color;
+    ctx.globalAlpha = sight.alpha * 0.88;
     ctx.beginPath();
     ctx.moveTo(-33, 3);
     ctx.bezierCurveTo(-35, -8, -18, -13 - wobble * 0.6, -4, -10);
@@ -2910,7 +2940,7 @@ class OrdealEngine {
     ctx.bezierCurveTo(-14, 16, -31, 12, -33, 3);
     ctx.closePath();
     ctx.fill();
-    ctx.globalAlpha = 1;
+    ctx.globalAlpha = sight.alpha;
 
     // 5. Glossy wet liquid highlights
     ctx.fillStyle = "rgba(255, 255, 255, 0.58)";
@@ -2931,7 +2961,7 @@ class OrdealEngine {
       const r = b.baseR * (0.55 + cycle * 0.65);
       const alpha = cycle < 0.85 ? 0.75 : (1 - cycle) * 5;
       ctx.save();
-      ctx.globalAlpha = alpha;
+      ctx.globalAlpha = sight.alpha * alpha;
       ctx.fillStyle = "rgba(255, 255, 255, 0.28)";
       ctx.strokeStyle = "#0d1520";
       ctx.lineWidth = 1.6;
@@ -2950,7 +2980,7 @@ class OrdealEngine {
     if (devourProgress >= 0.6) {
       const eyeAlpha = clamp((devourProgress - 0.6) / 0.25, 0, 1);
       ctx.save();
-      ctx.globalAlpha = eyeAlpha * 0.9;
+      ctx.globalAlpha = sight.alpha * eyeAlpha * 0.9;
       ctx.fillStyle = "#11161f";
       ctx.beginPath();
       ctx.ellipse(-9, 1 + wobble * 0.25, 4.2, 3.0, -0.35, 0, Math.PI * 2);
@@ -2987,24 +3017,7 @@ class OrdealEngine {
   }
 
   isRevealed(player: Player) {
-    if (player.id === this.localPlayerId) return true;
-    if (player.flashlight) return true;
-    if (dist(player, this.human) < (this.hazard === "BLACKOUT" ? 66 : 92)) return true;
-    if (this.flares.some((flare) => dist(player, flare) < 146)) return true;
-    if (this.phase === "ORDEAL" && this.hazard === "BLACKOUT") {
-      for (const obs of this.obstacles) {
-        if (obs.kind !== "CRYSTAL_SPIRE") continue;
-        const blink = this.getCrystalBlink(obs.x);
-        if (blink > 0.25 && dist(player, obs) < 118 * blink) return true;
-      }
-    }
-    if (this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil) {
-      const aim = Math.atan2(this.mouse.y - this.human.y, this.mouse.x - this.human.x);
-      const target = Math.atan2(player.y - this.human.y, player.x - this.human.x);
-      const delta = Math.atan2(Math.sin(target - aim), Math.cos(target - aim));
-      if (Math.abs(delta) < Math.PI / 8 && dist(player, this.human) < 330) return true;
-    }
-    return false;
+    return this.visibilityFor(player).kind === "IDENTIFIED";
   }
 
   cutRadial(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
@@ -3052,6 +3065,7 @@ class OrdealEngine {
       ctx.beginPath();
       for (const player of this.players) {
         if (!player.alive) continue;
+        if (this.visibilityFor(player, this.human, false).kind === "HIDDEN") continue;
         const ripple = ((this.elapsed * 42) % 44) + 18;
         ctx.moveTo(player.x + ripple, player.y + 28);
         ctx.ellipse(player.x, player.y + 28, ripple, ripple * 0.36, 0, 0, Math.PI * 2);
@@ -3138,8 +3152,11 @@ class OrdealEngine {
     if (this.particles.length > 0) {
       ctx.save();
       for (const p of this.particles) {
-        ctx.globalAlpha = Math.max(0, p.life / p.max);
-        ctx.fillStyle = p.color;
+        const origin = this.visibilityFor({ x: p.sourceX, y: p.sourceY }, this.human, false);
+        const sight = this.visibilityFor(p, this.human, false);
+        if (origin.kind === "HIDDEN" || sight.kind === "HIDDEN") continue;
+        ctx.globalAlpha = Math.max(0, p.life / p.max) * Math.min(origin.alpha, sight.alpha);
+        ctx.fillStyle = origin.kind === "SHAPE" || sight.kind === "SHAPE" ? "#b5c1c4" : p.color;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fill();
@@ -3820,7 +3837,7 @@ function Lobby({
           <details className="studio-guide-steps">
             <summary>How to Play</summary>
             <div><span>01</span><p><b>Gather your circle</b><small>Create a room. Share your ward code.</small></p></div>
-            <div><span>02</span><p><b>Brave the Ordeals</b><small>Restore shrines. Earn gear. Stay close.</small></p></div>
+            <div><span>02</span><p><b>Brave the Ordeals</b><small>Restore shrines. Earn gear. Your sight is local; trees block your view. Use the forest map to navigate.</small></p></div>
             <div><span>03</span><p><b>Discuss. Vote. Repeat.</b><small>Uncover The Hollow hiding in your circle.</small></p></div>
           </details>
           <div className="home-game-tags" aria-label="About the game">
@@ -4690,6 +4707,8 @@ function Game({
   const [chatDraft, setChatDraft] = useState("");
   const [networkState, setNetworkState] = useState<MultiplayerState | null>(() => multiplayerClient?.getSnapshot() ?? null);
   const [navigationExpanded, setNavigationExpanded] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const landscapeRequired = useLandscapeRequired();
   const [notebookOpen, setNotebookOpen] = useState(false);
   const [observations, setObservations] = useState<ObservationNote[]>([]);
   const [knownNames, setKnownNames] = useState<KnownName[]>([]);
@@ -4882,7 +4901,7 @@ function Game({
     if (chatLog) chatLog.scrollTop = chatLog.scrollHeight;
   }, [chatMessages]);
 
-  const phaseLabel = snapshot.phase === "ORDEAL" ? HAZARD_LABELS[snapshot.hazard] : snapshot.phase;
+  const phaseLabel = snapshot.phase === "ORDEAL" ? HAZARD_LABELS[snapshot.hazard] : snapshot.phase === "CALM" ? "Forest calm" : snapshot.phase === "COUNTDOWN" ? "Moon rising" : "Circle time";
   const primeBackgroundMusic = () => {
     const normalMusic = normalMusicRef.current;
     const ordealMusic = ordealMusicRef.current;
@@ -4971,7 +4990,11 @@ function Game({
   };
   const handleMoveVector = useCallback((vector: MoveVector) => engineRef.current?.setMoveVector(vector), []);
   const handleDestinationChange = useCallback((id: string) => engineRef.current?.setNavigationDestination(id), []);
-  const handleNavigationExpanded = useCallback((open: boolean) => { setNavigationExpanded(open); engineRef.current?.setNavigationOpen(open); }, []);
+  const handleNavigationExpanded = useCallback((open: boolean) => setNavigationExpanded(open), []);
+  useEffect(() => {
+    engineRef.current?.setNavigationOpen(navigationExpanded || settingsOpen || landscapeRequired);
+    engineRef.current?.setOrientationBlocked(landscapeRequired);
+  }, [navigationExpanded, settingsOpen, landscapeRequired]);
   const handleNotebookOpen = useCallback((open: boolean) => { setNotebookOpen(open); engineRef.current?.setNotebookOpen(open); }, []);
   const recordObservation = useCallback((note: ObservationNote) => setObservations(previous => [note, ...previous].slice(0, 8)), []);
   const toggleBackgroundMusic = () => {
@@ -4984,24 +5007,20 @@ function Game({
   };
 
   return (
-    <main className="game-shell" onPointerDownCapture={() => { void engineRef.current?.audio.unlock(); }} onKeyDownCapture={() => { void engineRef.current?.audio.unlock(); }}>
+    <main className="game-shell playful-game" data-phase={snapshot.phase} onPointerDownCapture={() => { void engineRef.current?.audio.unlock(); }} onKeyDownCapture={() => { void engineRef.current?.audio.unlock(); }}
+      onClickCapture={event => { const target = event.target; if (target instanceof Element && target.closest("button:not(:disabled), summary")) engineRef.current?.audio.cue("ui"); }}>
       <header className="game-nav">
         <Logo />
-        <div className={`phase-chip phase-${snapshot.phase.toLowerCase()}`}><span />{phaseLabel}<b>{Math.ceil(snapshot.time).toString().padStart(2, "0")}</b></div>
+        <div className={`phase-chip phase-${snapshot.phase.toLowerCase()}`}><GameGlyph name="moon" /><span className="phase-name">{phaseLabel}</span><b>{Math.ceil(snapshot.time).toString().padStart(2, "0")}<small>s</small></b></div>
         <div className="game-nav-actions">
-          <button className="music-button" aria-pressed={soundEnabled} onClick={async () => setSoundEnabled(await engineRef.current?.audio.toggle() ?? false)}>{soundEnabled ? "SFX ON" : "ENABLE SFX"}</button>
-          <button className="music-button" aria-pressed={lowGlare} onClick={() => { const next = !lowGlare; setLowGlare(next); if (engineRef.current) engineRef.current.lowGlare = next; }}>{lowGlare ? "SOFT GLARE ON" : "SOFT GLARE"}</button>
-          <button
-            className={`music-button ${musicEnabled ? "active" : ""}`}
-            onClick={toggleBackgroundMusic}
-            aria-pressed={musicEnabled}
-            aria-label={`${musicEnabled ? "Disable" : "Enable"} background music`}
-          >
-            <span aria-hidden="true">♪</span>{musicEnabled ? "BGM ON" : "BGM OFF"}
-          </button>
-          <button className="leave-button" onClick={onExit}>LEAVE SIM</button>
+          <button type="button" className="play-settings-open" aria-label="Open game settings" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)} disabled={!!meeting || !!puzzle || !!roleReveal || !!deathReveal || !!result}><GameGlyph name="settings" /><span>Settings</span></button>
+          <button type="button" className="leave-button" onClick={onExit}><GameGlyph name="exit" /><span>Leave</span></button>
         </div>
       </header>
+      <GameplaySettings open={settingsOpen} onOpenChange={setSettingsOpen} enabled={!meeting && !puzzle && !roleReveal && !deathReveal && !result && !landscapeRequired}
+        soundEnabled={soundEnabled} musicEnabled={musicEnabled} lowGlare={lowGlare}
+        onSoundToggle={async () => setSoundEnabled(await engineRef.current?.audio.toggle() ?? false)} onMusicToggle={toggleBackgroundMusic}
+        onGlareToggle={() => { const next = !lowGlare; setLowGlare(next); if (engineRef.current) engineRef.current.lowGlare = next; }} onExit={onExit} />
 
       <section className="game-stage" ref={stageRef}>
         <canvas ref={canvasRef} aria-label="Top-down view of the Moonwarden mountain sanctuary" />
@@ -5014,9 +5033,9 @@ function Game({
           destinationId={snapshot.navigation.destinationId}
           onDestinationChange={handleDestinationChange}
           onExpandedChange={handleNavigationExpanded}
-          enabled={!meeting && !puzzle && !roleReveal && !deathReveal && !result && (!networkState || networkState.connected)}
+          enabled={!meeting && !puzzle && !roleReveal && !deathReveal && !result && !settingsOpen && !notebookOpen && !landscapeRequired && (!networkState || networkState.connected)}
         />
-        <FieldNotebook roster={knownNames} notes={observations} onRecord={recordObservation} open={notebookOpen} onOpenChange={handleNotebookOpen} enabled={snapshot.humanAlive && !meeting && !puzzle && !roleReveal && !deathReveal && !result && !navigationExpanded && (!networkState || networkState.connected)} />
+        <FieldNotebook roster={knownNames} notes={observations} onRecord={recordObservation} open={notebookOpen} onOpenChange={handleNotebookOpen} enabled={snapshot.humanAlive && !meeting && !puzzle && !roleReveal && !deathReveal && !result && !navigationExpanded && !settingsOpen && !landscapeRequired && (!networkState || networkState.connected)} />
         {networkState && !networkState.connected && (
           <div className="connection-lost" role="alert">
             <b>CONNECTION LOST</b>
@@ -5026,31 +5045,30 @@ function Game({
         )}
 
         <div className="task-hud">
-          <div className="task-label"><span>RESTORE THE WARDS TO WIN</span><b>{Math.floor(snapshot.taskProgress)}%</b></div>
-          <div className="task-track"><i style={{ width: `${snapshot.taskProgress}%` }} /></div>
+          <div className="task-label"><span><GameGlyph name="spark" /> Restore the moonwards</span><b>{Math.floor(snapshot.taskProgress)}<small>%</small></b></div>
+          <div className="task-track" role="progressbar" aria-label="Moonward restoration" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.floor(snapshot.taskProgress)}><i style={{ width: `${snapshot.taskProgress}%` }} /></div>
           <div className="ward-milestones" aria-label="Forest restoration milestones">{[25, 50, 75, 100].map(value => <span key={value} className={snapshot.taskProgress >= value ? "is-restored" : ""}>{snapshot.taskProgress >= value ? "✦" : "◇"}<small>{value}%</small></span>)}</div>
-          <div className="ward-restoration-caption">{restorationMilestone(snapshot.taskProgress)}</div>
+          <div className="ward-restoration-caption"><span>{restorationMilestone(snapshot.taskProgress)}</span><b>{snapshot.navigation.personalCompleted.length}/6 rites</b></div>
         </div>
 
         {snapshot.phase === "CALM" && snapshot.humanAlive && snapshot.role === "CREWMATE" ? (
-          <aside className={`warden-preparation${snapshot.stationStatus ? " is-at-shrine" : ""}`} aria-label="Prepare for the next Ordeal">
-            <small>NEXT · {HAZARD_LABELS[snapshot.hazard]}</small>
-            <b>{ORDEAL_PREPARATION[snapshot.hazard].title}</b>
+          <details className="warden-preparation" data-no-joystick aria-label="Prepare for the next Ordeal">
+            <summary><GameGlyph name="moon" /><span><small>UP NEXT</small><b>{HAZARD_LABELS[snapshot.hazard]}</b></span><span className="prep-chevron" aria-hidden="true">⌄</span></summary>
+            <strong>{ORDEAL_PREPARATION[snapshot.hazard].title}</strong>
             <p>{ORDEAL_PREPARATION[snapshot.hazard].reason}</p>
             <span>{snapshot.navigation.destinationId ? `Head to ${snapshot.navigation.destinationId.toLowerCase()}` : "Your ritual kit is complete for this round"}</span>
-            <em>YOUR RITES {snapshot.navigation.personalCompleted.length}/6 · M FOR MAP</em>
-          </aside>
+          </details>
         ) : null}
 
-        <div className="crew-count"><span className="crew-dot" />{snapshot.living}<small> / {snapshot.total} ALIVE</small></div>
+        <div className="crew-count"><GameGlyph name="people" /><b>{snapshot.living}<small> / {snapshot.total}</small></b><span>in the circle</span></div>
         <div className="current-landmark" aria-label="Your current landmark">⌖ {snapshot.locationName}</div>
         {chaosMoonsway && <div className="chaos-match-badge">CHAOS · MOONSWAY ON</div>}
 
         {snapshot.role === "IMPOSTOR" && (
-          <div className="private-role"><small>PRIVATE ROLE</small><b>{ROLE_LABELS.IMPOSTOR.toUpperCase()}</b><span>Sight V OR Echo C • one special action</span><span>one strike per Ordeal · Veiled Bite X</span><span>{(hollowAllies ?? []).filter(id => id !== snapshot.localPlayerId).map(id => initialPlayers?.find(p => p.id === id)?.name).filter(Boolean).join(", ") || (hollowCount > 1 && !multiplayerClient ? "Other Hollows share your side" : "You hunt alone")}</span></div>
+          <details className="private-role" data-no-joystick><summary><GameGlyph name="veil" /><span><small>YOUR SECRET</small><b>{ROLE_LABELS.IMPOSTOR}</b></span><i aria-hidden="true">⌄</i></summary><p>One strike per Ordeal. Choose Sight or Echo for your special action.</p><span>{(hollowAllies ?? []).filter(id => id !== snapshot.localPlayerId).map(id => initialPlayers?.find(p => p.id === id)?.name).filter(Boolean).join(", ") || (hollowCount > 1 && !multiplayerClient ? "Other Hollows share your side" : "You hunt alone")}</span></details>
         )}
 
-        {snapshot.message && <div className="toast-message">{snapshot.message}</div>}
+        {snapshot.message && !(snapshot.phase === "COUNTDOWN" && snapshot.message.startsWith(`${HAZARD_LABELS[snapshot.hazard]} INCOMING`)) && <div className="toast-message">{snapshot.message}</div>}
         {snapshot.soundCaption && <div className="sound-caption" role="status" aria-live="polite">♬ {snapshot.soundCaption}</div>}
         {snapshot.phase === "COUNTDOWN" && <div className="ordeal-preparation" role="status"><b>{HAZARD_LABELS[snapshot.hazard]} INCOMING</b><span>{snapshot.hazard === "ROOTWAKE" ? "Choose your chamber before the roots seal." : snapshot.hazard === "PHANTOMS" ? "Ready your Echo Bell. Not every shape is real." : snapshot.hazard === "MOONGLARE" ? "Memorize nearby wardens. Identities will disappear." : snapshot.hazard === "MIRROR_POOL" ? "Controls will invert for 25s! Bumping another warden swaps your colors." : "Ready your Glowing Mushroom or Moonblossom."}</span></div>}
         {!snapshot.humanAlive && <div className="spectator-chip">SPECTATING • YOU ARE JELLY</div>}
@@ -5063,7 +5081,7 @@ function Game({
         )}
 
         <div className="item-dock">
-          <div className="dock-title"><span>TASK-EARNED GEAR</span><small>COMPLETE A MARKED SHRINE • USE F</small></div>
+          <div className="dock-title"><span>Your little kit</span><small>Earn at shrines</small></div>
           <div className="dock-items">
             {(["FLASHLIGHT", "FLARE", "SONAR"] as ItemKind[]).map((item, index) => (
               <button
@@ -5071,21 +5089,22 @@ function Game({
                 className={`${snapshot.selectedItem === item ? "selected" : ""} ${snapshot.charges[item] <= 0 ? "locked" : "acquired"}`}
                 onClick={() => engineRef.current?.selectItem(item)}
                 aria-label={`Select ${ITEM_LABELS[item]}, ${snapshot.charges[item]} charges`}
+                aria-pressed={snapshot.selectedItem === item}
                 title={ITEM_DESCRIPTIONS[item]}
               >
-                <kbd>{index + 1}</kbd><ItemIcon item={item} /><span>{ITEM_LABELS[item]}</span><b>{snapshot.charges[item] > 0 ? `×${snapshot.charges[item]}` : "LOCKED"}</b>
+                <kbd>{index + 1}</kbd><ItemIcon item={item} /><span>{ITEM_LABELS[item]}</span><b>{snapshot.charges[item] > 0 ? `×${snapshot.charges[item]}` : "Find"}</b>
               </button>
             ))}
           </div>
         </div>
 
-        <div className="action-dock">
-          <button className={`action report ${snapshot.canReport ? "ready" : ""}`} onClick={() => engineRef.current?.report()}><kbd>R</kbd><span>REPORT</span></button>
-          {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight || snapshot.moonSightActive ? "ready" : ""}`} onClick={() => engineRef.current?.useMoonSight()} disabled={snapshot.phase !== "ORDEAL" || !snapshot.canUseMoonSight}><kbd>V</kbd><span>{snapshot.moonSightActive ? "SEEING" : "SIGHT"}</span></button>}
-          {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight ? "ready" : ""}`} title="Aim, then create a two-second false rustle. Shares one charge with Sight." onClick={() => engineRef.current?.useEchoLure()} disabled={!snapshot.canUseMoonSight}><kbd>C</kbd><span>ECHO</span></button>}
-          {snapshot.role === "IMPOSTOR" && <button className={`action kill ${snapshot.canKill ? "ready" : ""}`} onClick={() => engineRef.current?.kill()} disabled={snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.killCooldown > 0}><kbd>Q</kbd><span>{snapshot.killSpent ? "SPENT" : snapshot.killCooldown > 0 ? snapshot.killCooldown.toFixed(1) : "KILL"}</span></button>}
-          {snapshot.role === "IMPOSTOR" && <button className={`action kill ${snapshot.canKill && !snapshot.stealthCooldown && !snapshot.stealthOrdealsLeft ? "ready" : ""}`} title="Veiled Bite: uses your strike; puddle appears 8s later. Cooldown: 45s and two Ordeal starts." onClick={() => engineRef.current?.kill(true)} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.stealthCooldown > 0 || snapshot.stealthOrdealsLeft > 0}><kbd>X</kbd><span>{snapshot.stealthCooldown ? `${snapshot.stealthCooldown}s` : snapshot.stealthOrdealsLeft ? `${snapshot.stealthOrdealsLeft} ORDEALS` : "VEILED BITE"}</span></button>}
-          <button className={`action use ${snapshot.charges[snapshot.selectedItem] > 0 ? "ready" : ""}`} onClick={() => engineRef.current?.useItem()}><kbd>F</kbd><span>USE</span></button>
+        <div className="action-dock" aria-label="Game actions">
+          <button className={`action report ${snapshot.canReport ? "ready" : ""}`} title="Report a nearby puddle, or ring the bell from the center" onClick={() => engineRef.current?.report()}><kbd>R</kbd><GameGlyph name="report" /><span>Report</span></button>
+          {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight || snapshot.moonSightActive ? "ready" : ""}`} onClick={() => engineRef.current?.useMoonSight()} disabled={snapshot.phase !== "ORDEAL" || !snapshot.canUseMoonSight} title="Moon Sight: briefly reveal living slimes during an Ordeal"><kbd>V</kbd><GameGlyph name="sight" /><span>{snapshot.moonSightActive ? "Seeing" : "Sight"}</span></button>}
+          {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight ? "ready" : ""}`} title="Aim, then create a two-second false rustle. Shares one charge with Sight." onClick={() => engineRef.current?.useEchoLure()} disabled={!snapshot.canUseMoonSight}><kbd>C</kbd><GameGlyph name="echo" /><span>Echo</span></button>}
+          {snapshot.role === "IMPOSTOR" && <button className={`action kill ${snapshot.canKill ? "ready" : ""}`} onClick={() => engineRef.current?.kill()} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.killCooldown > 0} title="Bite a nearby slime. One strike per Ordeal."><kbd>Q</kbd><GameGlyph name="bite" /><span>{snapshot.killSpent ? "Spent" : snapshot.killCooldown > 0 ? `${Math.ceil(snapshot.killCooldown)}s` : "Bite"}</span></button>}
+          {snapshot.role === "IMPOSTOR" && <button className={`action kill veiled ${snapshot.canKill && !snapshot.stealthCooldown && !snapshot.stealthOrdealsLeft ? "ready" : ""}`} title="Veiled Bite: uses your strike; puddle appears 8s later. Cooldown: 45s and two Ordeal starts." onClick={() => engineRef.current?.kill(true)} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.stealthCooldown > 0 || snapshot.stealthOrdealsLeft > 0}><kbd>X</kbd><GameGlyph name="veil" /><span>{snapshot.stealthCooldown ? `${snapshot.stealthCooldown}s` : snapshot.stealthOrdealsLeft ? `${snapshot.stealthOrdealsLeft} rounds` : "Veiled bite"}</span></button>}
+          <button className={`action use ${snapshot.charges[snapshot.selectedItem] > 0 ? "ready" : ""}`} onClick={() => engineRef.current?.useItem()} disabled={!snapshot.humanAlive || snapshot.charges[snapshot.selectedItem] <= 0} aria-label={`Use ${ITEM_LABELS[snapshot.selectedItem]}`}><kbd>F</kbd><GameGlyph name="spark" /><span>Use</span></button>
         </div>
 
         {snapshot.taskPrompt && (
@@ -5099,13 +5118,13 @@ function Game({
             onPointerLeave={() => engineRef.current?.setTouch("KeyE", false)}
           >
             <kbd>E</kbd>
-            <span>{snapshot.taskMode === "PUZZLE" ? (snapshot.role === "IMPOSTOR" ? "OPEN FAKE PUZZLE" : "OPEN QUICK PUZZLE") : (snapshot.role === "IMPOSTOR" ? "HOLD FAKE CALIBRATION" : "HOLD TO CALIBRATE")} • {snapshot.stationStatus?.teamRestored ? "PERSONAL GEAR RITE" : "RESTORE WARD + EARN GEAR"}</span>
+            <span><b>{snapshot.taskMode === "PUZZLE" ? (snapshot.role === "IMPOSTOR" ? "Fake a ritual" : "Begin ritual") : (snapshot.role === "IMPOSTOR" ? "Hold to fake a ritual" : "Hold to attune")}</b><small>{snapshot.stationStatus?.label} · {snapshot.stationStatus?.teamRestored ? "Earn your gear" : "Restore ward + earn gear"}</small></span><GameGlyph name="spark" />
           </button>
         )}
 
         {snapshot.stationStatus?.completed && snapshot.phase !== "DISCUSSION" && (
           <div className="station-sealed-prompt" role="status">
-            <span>✓</span><div><b>YOUR RITE IS COMPLETE</b><small>{snapshot.stationStatus.label} reopens next round • your earned gear stays with you</small></div>
+            <span>✓</span><div><b>All done here!</b><small>{snapshot.stationStatus.label} reopens next round. Your gear stays.</small></div>
           </div>
         )}
 
@@ -5114,10 +5133,10 @@ function Game({
           onPointerUp={() => engineRef.current?.setPairRitual(false)} onPointerCancel={() => engineRef.current?.setPairRitual(false)} onLostPointerCapture={() => engineRef.current?.setPairRitual(false)} onBlur={() => engineRef.current?.setPairRitual(false)}
           onKeyDown={event => { if (["Space", "Enter"].includes(event.code)) { event.preventDefault(); engineRef.current?.setPairRitual(true); } }}
           onKeyUp={event => { if (["Space", "Enter"].includes(event.code)) { event.preventDefault(); engineRef.current?.setPairRitual(false); } }}>
-          <span><kbd>H</kbd> HOLD TO HARMONIZE</span><small>{snapshot.pairRitual ? `${snapshot.pairRitual.participants}/2 SLIMES · ${Math.round(snapshot.pairRitual.progress * 100)}%` : "Optional paired rite · 2 slimes · makes noise"}</small>
+          <span><kbd>H</kbd> Hold to harmonize</span><small>{snapshot.pairRitual ? `${snapshot.pairRitual.participants}/2 slimes · ${Math.round(snapshot.pairRitual.progress * 100)}%` : "Optional · bring a friend · makes noise"}</small>
           <i style={{ width: `${(snapshot.pairRitual?.progress ?? 0) * 100}%` }} />
         </button>}
-        <FloatingJoystick surfaceRef={stageRef} onVector={handleMoveVector} enabled={snapshot.humanAlive && !meeting && !puzzle && !roleReveal && !deathReveal && !result && !navigationExpanded && !notebookOpen && (!networkState || networkState.connected)} />
+        <FloatingJoystick surfaceRef={stageRef} onVector={handleMoveVector} enabled={snapshot.humanAlive && !meeting && !puzzle && !roleReveal && !deathReveal && !result && !navigationExpanded && !notebookOpen && !settingsOpen && !landscapeRequired && (!networkState || networkState.connected)} />
       </section>
 
       <footer className="game-footer">
@@ -5130,7 +5149,7 @@ function Game({
         {multiplayerClient ? (
           <span className="latency"><i style={{ background: networkState?.connected ? "#43efba" : "#ff687c" }} /> {networkState?.connected ? networkState.transport === "HTTP" ? "HTTP RELAY" : "REALTIME" : "DISCONNECTED"} • ROOM {multiplayerClient.roomCode} • {networkState?.ping || "—"}ms</span>
         ) : (
-          <span className="latency"><i /> AI LINK 12ms</span>
+          <span className="latency"><i /> Practice with AI</span>
         )}
       </footer>
 
@@ -5341,6 +5360,7 @@ function Game({
           </div>
         </div>
       )}
+      <LandscapeGuard active={landscapeRequired} multiplayer={!!multiplayerClient} onExit={onExit} />
     </main>
   );
 }

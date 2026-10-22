@@ -6,6 +6,7 @@ import ts from "typescript";
 import { ejectionVerdict } from "../server/role-presentation.ts";
 import * as matchRules from "../server/match-rules.ts";
 import { sanctuaryZoneName } from "../server/sanctuary-map.ts";
+import { sightAt } from "../server/visibility.ts";
 
 // Exercise the real engine methods without starting RAF, audio hardware, or a
 // network connection. Extracting the class avoids adding test exports/routes
@@ -29,6 +30,7 @@ function fixture() {
     ejectionVerdict,
     ...matchRules,
     sanctuaryZoneName,
+    sightAt,
     Math,
     choose: items => items[0],
   });
@@ -123,6 +125,7 @@ test("sealed badges render above players but below blackout and Rootwake visibil
   for (const name of ["drawRoom", "drawBeams", "drawParticles", "drawRootwake", "drawCanvasLabels"]) engine[name] = () => {};
   engine.isRevealed = () => true;
   engine.drawSlime = () => layers.push("player");
+  engine.visibilityFor = () => ({ kind: "IDENTIFIED", alpha: 1 });
   engine.drawLighting = () => layers.push("lighting");
   engine.drawRootwakeOcclusion = () => layers.push("roots");
   engine.draw();
