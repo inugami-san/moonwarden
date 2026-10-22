@@ -40,6 +40,7 @@ import {
 import { ForestAudio, soundDirection } from "./forest-audio";
 import { drawMoonGlade } from "./moon-glade";
 import { drawForestObstacle, drawGroundResponse } from "./forest-art";
+import { ForestAtmosphere } from "./forest-atmosphere";
 import { fittedCanvasBounds } from "./canvas-bounds";
 import { HomeAtmosphere, HomeFieldGuide, HomeGrove } from "./home-field-guide";
 import { DEVOUR_SECONDS, drawSlimeConsumption, type DevourVisual } from "./slime-devour";
@@ -364,6 +365,7 @@ class OrdealEngine {
   maskCtx: CanvasRenderingContext2D;
   bgCanvas: HTMLCanvasElement;
   bgCtx: CanvasRenderingContext2D;
+  private forestAtmosphere = new ForestAtmosphere();
   players: Player[] = [];
   stations: Station[] = [];
   stationRound = 1;
@@ -1150,6 +1152,7 @@ class OrdealEngine {
     this.resetInput();
     this.audio.destroy();
     this.slimeAnimator.clear();
+    this.forestAtmosphere.clear();
     this.motionPreference?.removeEventListener("change", this.onMotionPreferenceChange);
     this.running = false;
     cancelAnimationFrame(this.frame);
@@ -2317,6 +2320,7 @@ class OrdealEngine {
       ctx.translate(shakeX, shakeY);
     }
     this.drawRoom(ctx);
+    this.forestAtmosphere.drawGround(ctx, this.obstacles);
     this.drawBeams(ctx);
     for (const body of this.bodies) this.drawBody(ctx, body);
     const moonGlareActive = this.phase === "ORDEAL" && this.hazard === "MOONGLARE";
@@ -2354,7 +2358,8 @@ class OrdealEngine {
       const silhouette = sight.kind === "SHAPE";
       const colorMuted = !moonSightActive && this.phase === "ORDEAL" && !silhouette && (this.hazard === "BLACKOUT" || this.hazard === "FOG" || this.hazard === "MIRROR_POOL");
       const materialAlpha = colorMuted ? this.hazard === "BLACKOUT" ? .56 : .78 : silhouette && this.hazard === "FOG" ? .48 : 1;
-      this.drawSlime(ctx, player, silhouette, moonSightActive && !isLocal, colorMuted, sight.alpha * materialAlpha);
+      const identityFade = isLocal || moonSightActive ? 1 : clamp((sight.alpha - .2) / .7, 0, 1);
+      this.drawSlime(ctx, player, silhouette, moonSightActive && !isLocal, colorMuted, sight.alpha * materialAlpha, identityFade * identityFade * (3 - 2 * identityFade));
     }
     for (const event of this.devourEvents) {
       // A late arrival must find a puddle, not a replay of a kill they missed.
@@ -2368,7 +2373,16 @@ class OrdealEngine {
       drawSanctumStatus(ctx, station, this.elapsed, this.phase === "DISCUSSION", dist(station, this.human) < 128);
     }
     this.drawParticles(ctx);
+    const atmosphereView = {
+      observer: this.human, camera: this.camera, width: this.viewWidth, height: this.viewHeight,
+      phase: this.phase, hazard: this.hazard, elapsed: this.elapsed, reducedMotion: this.reducedMotion,
+      moonSight: moonSightActive, flares: this.flares, stations: this.stations, obstacles: this.obstacles,
+      beamAngle: this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil
+        ? Math.atan2(this.mouse.y - this.human.y, this.mouse.x - this.human.x) : undefined,
+    };
+    this.forestAtmosphere.drawVeil(ctx, atmosphereView);
     if (!moonGlareActive) this.drawLighting(ctx);
+    this.forestAtmosphere.drawMist(ctx, atmosphereView);
     this.drawSonarEchoes(ctx);
     if (rootwakeActive) {
       this.drawRootwakeOcclusion(ctx);
@@ -2751,7 +2765,7 @@ class OrdealEngine {
     ctx.restore();
   }
 
-  drawSlime(ctx: CanvasRenderingContext2D, player: Player, silhouette = false, moonSightMarked = false, colorMuted = false, visibilityAlpha = 1) {
+  drawSlime(ctx: CanvasRenderingContext2D, player: Player, silhouette = false, moonSightMarked = false, colorMuted = false, visibilityAlpha = 1, identityAlpha = 1) {
     const consumption = this.devourEvents.find((event) => event.killerId === player.id);
     if (consumption && this.canRenderDevour(consumption)) {
       const victimSight = this.visibilityFor(consumption, this.human, false);
@@ -2795,7 +2809,7 @@ class OrdealEngine {
     ctx.ellipse(x, player.y + 31, 40 * pose.shadowScale, 11 * pose.shadowScale, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = visibilityAlpha;
-    if (this.phase === "CALM" && !silhouette && !colorMuted) {
+    if (this.phase === "CALM" && !silhouette && !colorMuted && identityAlpha > .8) {
       drawGroundResponse(ctx, x, player.y, speed, this.elapsed, this.reducedMotion);
     }
 
@@ -2804,7 +2818,7 @@ class OrdealEngine {
     ctx.translate(x, y + 31);
     ctx.transform(scaleX, 0, pose.shear, scaleY, 0, 0);
     ctx.translate(0, -31);
-    if (silhouette) {
+    if (silhouette || identityAlpha < 1) {
       slimeOutline(ctx);
       const gradient = ctx.createLinearGradient(-25, -38, 28, 38);
       gradient.addColorStop(0, "rgba(137,150,157,.94)");
@@ -2814,6 +2828,8 @@ class OrdealEngine {
       ctx.lineWidth = 1.3;
       ctx.fill();
       ctx.stroke();
+    }
+    if (silhouette) {
       ctx.restore();
       if (player.working && player.alive) {
         this.drawWorkingStatus(ctx, x, Math.max(18, player.y - 76));
@@ -2821,6 +2837,9 @@ class OrdealEngine {
       ctx.restore();
       return;
     }
+    // Identity recedes ahead of the body: a neutral outline remains briefly
+    // inside the mist boundary. No ghost trail survives a failed sight check.
+    ctx.globalAlpha = visibilityAlpha * identityAlpha;
     ctx.drawImage(slimeSkin(baseColor, !colorMuted), -48, -54, 96, 112);
     const blink = !this.reducedMotion && (this.elapsed + seed * 0.037) % 6.3 < 0.16;
     ctx.save();
@@ -2833,6 +2852,7 @@ class OrdealEngine {
     this.drawHat(ctx, player.hat, 0, 0, colorMuted);
     ctx.restore();
     ctx.restore();
+    ctx.globalAlpha = visibilityAlpha * identityAlpha * identityAlpha;
     ctx.font = "900 12px ui-monospace, monospace";
     ctx.textAlign = "center";
     ctx.lineWidth = 4;

@@ -6,6 +6,23 @@ source releases, not proof that a particular server has been deployed.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-22
+
+### Changed
+
+- Moonlit night shading, cached long canopy shadows, warm shrine light pools,
+  and softly feathered observer-relative shadows make cover visually apparent.
+- Scenery now recedes into a blue-grey mist boundary alongside player visibility.
+  Slime colors, accessories and labels fade before the remaining anonymous outline
+  disappears; distance fades use a wider eased transition without ghost trails.
+- Slow world-anchored ground mist gains density during Thick Sea Fog. Reduced
+  motion holds wisps still; the HUD stays clear and Moon Glare stays bright.
+- Existing cover, Rootwake, light-item, Moon Sight and hidden-kill rules remain
+  in place. Atmosphere never consumes hidden player/body positions. Cached ground
+  shadows and a reduced-resolution mask limit additional rendering work.
+- Client-only update; multiplayer compatibility remains `silverpine-harmony-v5`.
+  Tests and playtesting skipped at the user's request; deployment build only.
+
 ## [0.3.1] - 2026-10-22
 
 Release prepared from the tested camera, visibility, and gameplay UI updates.

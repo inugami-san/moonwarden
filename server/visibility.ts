@@ -44,7 +44,11 @@ export function sightAt(target: SightPoint, context: SightContext): Sight {
   const lit = beamLit || flareLit || context.ambientLit || target.flashlight;
   const radius = lit ? SIGHT_RANGES.light : !ordeal ? SIGHT_RANGES.calm : hazard === "BLACKOUT" ? SIGHT_RANGES.blackout : hazard === "FOG" ? SIGHT_RANGES.fog : SIGHT_RANGES.ordeal;
   if (distance >= radius) return hidden;
-  const alpha = Math.min(1, (radius - distance) / 28);
+  // A broad, eased distance transition avoids popping at the sight boundary.
+  // Cover/chamber rejection above stays immediate: never retain hidden actors
+  // for a temporal fade that could reveal movement behind an obstacle.
+  const fade = Math.min(1, (radius - distance) / Math.min(76, radius * .42));
+  const alpha = fade * fade * (3 - 2 * fade);
   if (anonymous) return { kind: "SHAPE", alpha };
   const obscured = ordeal && (hazard === "FOG" || hazard === "MIRROR_POOL");
   return { kind: obscured && !lit && distance >= SIGHT_RANGES.identity ? "SHAPE" : "IDENTIFIED", alpha };
