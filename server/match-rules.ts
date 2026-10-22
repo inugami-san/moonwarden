@@ -8,9 +8,9 @@ export const REPORTER_VOTE_DRIFT_CHANCE = 0.25;
 export type VoteReceipt = { targetId: string | null; shifted: boolean };
 
 /** Role-blind: a body's reporter can miscast one ballot, not detect a Hollow. */
-export function resolveReporterVote(voterId: string, requestedTargetId: string | null, livingIds: readonly string[], bodyReporterId: string | null | undefined, random: () => number = Math.random): VoteReceipt {
+export function resolveReporterVote(voterId: string, requestedTargetId: string | null, livingIds: readonly string[], bodyReporterId: string | null | undefined, random: () => number = Math.random, chaosMoonsway = false): VoteReceipt {
   const unchanged = { targetId: requestedTargetId, shifted: false };
-  if (voterId !== bodyReporterId || requestedTargetId === null || !livingIds.includes(voterId) || !livingIds.includes(requestedTargetId)) return unchanged;
+  if (!chaosMoonsway || voterId !== bodyReporterId || requestedTargetId === null || !livingIds.includes(voterId) || !livingIds.includes(requestedTargetId)) return unchanged;
   const alternatives = livingIds.filter(id => id !== voterId && id !== requestedTargetId);
   if (!alternatives.length || random() >= REPORTER_VOTE_DRIFT_CHANCE) return unchanged;
   return { targetId: alternatives[Math.min(alternatives.length - 1, Math.floor(random() * alternatives.length))], shifted: true };

@@ -38,13 +38,13 @@ async function fixture(t) {
   return { url, connect, wss };
 }
 
-function waitFor(socket, type) {
-  const existing = socket.messages.findIndex(msg => msg.type === type);
+function waitFor(socket, type, predicate = () => true) {
+  const existing = socket.messages.findIndex(msg => msg.type === type && predicate(msg));
   if (existing >= 0) return Promise.resolve(socket.messages.splice(existing, 1)[0]);
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { socket.off("message", check); reject(new Error(`Missing ${type}`)); }, 3000);
     function check() {
-      const index = socket.messages.findIndex(msg => msg.type === type);
+      const index = socket.messages.findIndex(msg => msg.type === type && predicate(msg));
       if (index < 0) return;
       clearTimeout(timer);
       socket.off("message", check);
@@ -116,7 +116,7 @@ test("real sockets keep Moonsway receipts private and count the redirected ballo
     send(sockets[i], { type: "JOIN_ROOM", roomCode: created.roomCode, playerName: `Guest ${i}`, color: "#20d8ed", hat: "hood" });
     await waitFor(sockets[i], "ROOM_STATE");
   }
-  send(sockets[0], { type: "START_MATCH", botFill: false, targetPlayers: 5, hollowCount: 1 });
+  send(sockets[0], { type: "START_MATCH", botFill: false, targetPlayers: 5, hollowCount: 1, chaosMoonsway: true });
   await Promise.all(sockets.map(socket => waitFor(socket, "MATCH_STARTED")));
   const room = gameRegistry.getRoom(created.roomCode);
   const players = [...room.players.values()];
@@ -151,6 +151,37 @@ test("real sockets keep Moonsway receipts private and count the redirected ballo
     assert.equal(ownReceipt.targetId, null);
     assert.equal(ownReceipt.shifted, false);
   }
+});
+
+test("paired rituals cross real WebSockets, award both players, and reject stale-round replays", async t => {
+  const { connect } = await fixture(t);
+  const sockets = await Promise.all(Array.from({ length: 4 }, () => connect()));
+  send(sockets[0], { type: "CREATE_ROOM", playerName: "Pair host", color: "#20d8ed", hat: "hood" });
+  const created = await waitFor(sockets[0], "ROOM_STATE");
+  for (let i = 1; i < sockets.length; i++) {
+    send(sockets[i], { type: "JOIN_ROOM", roomCode: created.roomCode, playerName: `Pair guest ${i}`, color: "#20d8ed", hat: "hood" });
+    await waitFor(sockets[i], "ROOM_STATE");
+  }
+  send(sockets[0], { type: "START_MATCH", botFill: false, targetPlayers: 4 });
+  const started = await Promise.all(sockets.map(socket => waitFor(socket, "MATCH_STARTED")));
+  assert.ok(started.every(message => message.chaosMoonsway === false));
+  const room = gameRegistry.getRoom(created.roomCode), station = room.stations[0];
+  const players = [...room.players.values()];
+  for (const player of players.slice(0, 2)) { player.x = station.x; player.y = station.y; player.vx = 0; player.vy = 0; }
+  const accepted = sockets.slice(0, 2).map(socket => waitFor(socket, "GEAR_SYNC", message => message.accepted && message.stationId === station.id));
+  const hold = () => { for (const socket of sockets.slice(0, 2)) send(socket, { type: "PAIR_RITUAL", active: true, stationId: station.id, roundId: room.roundId }); };
+  hold(); const timer = setInterval(hold, 200);
+  t.after(() => clearInterval(timer));
+  const rewards = await Promise.all(accepted);
+  clearInterval(timer);
+  assert.ok(rewards.every(message => message.charges[station.reward] === 1));
+  assert.ok(sockets[0].messages.some(message => message.type === "PAIR_RITUAL_STATE" && message.ritual.participants === 2));
+  assert.ok(sockets.slice(2).every(socket => !socket.messages.some(message => message.type === "PAIR_RITUAL_STATE")));
+  const round = room.roundId; room.resetStationsForRound();
+  send(sockets[0], { type: "PAIR_RITUAL", active: true, stationId: station.id, roundId: round });
+  send(sockets[0], { type: "PING", sentAt: 77 });
+  await waitFor(sockets[0], "PONG", message => message.sentAt === 77);
+  assert.equal(room.pairedRituals.intents.size, 0);
 });
 
 test("matching browser clients negotiate the expanded WebSocket world before co-op movement", async t => {

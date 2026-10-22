@@ -25,13 +25,13 @@ function paintAccessory(ctx: CanvasRenderingContext2D, hat: Hat, muted: boolean)
   ctx.save(); ctx.translate(0, 5); ctx.scale(.82, .82);
   const color = (normal: string, subdued: string) => muted ? subdued : normal;
   const gold = color("#e9cc95", "#a7abaa");
-  const edge = color("#33334c", "#4b555b");
+  const edge = color("#565365", "#4b555b");
   const cloth = ctx.createLinearGradient(-18, -23, 18, 22);
-  cloth.addColorStop(0, color("#8b80ae", "#8a959b"));
-  cloth.addColorStop(.48, color("#555273", "#69767e"));
-  cloth.addColorStop(1, color("#303950", "#4b5962"));
+  cloth.addColorStop(0, color("#a69ab4", "#8a959b"));
+  cloth.addColorStop(.48, color("#726a85", "#69767e"));
+  cloth.addColorStop(1, color("#444c64", "#4b5962"));
   ctx.lineJoin = "round"; ctx.lineCap = "round";
-  ctx.lineWidth = 1.4; ctx.strokeStyle = edge;
+  ctx.lineWidth = .9; ctx.strokeStyle = edge;
 
   if (hat === "antlers") {
     // A woven circlet seats the branches on the gel instead of a flat black disk.
@@ -46,6 +46,12 @@ function paintAccessory(ctx: CanvasRenderingContext2D, hat: Hat, muted: boolean)
       ctx.strokeStyle = color("#c2a37b", "#a1aaaa"); ctx.lineWidth = 2.8; ctx.stroke();
       ctx.beginPath(); ctx.moveTo(15, 11); ctx.quadraticCurveTo(21, -1, 21, -11);
       ctx.strokeStyle = color("#ecd7ae", "#bcc1c0"); ctx.lineWidth = .8; ctx.stroke();
+      // Fine broken bark ridges follow the branch, baked with the accessory.
+      ctx.strokeStyle = color("#65564a80", "#62707880"); ctx.lineWidth = .6;
+      for (let ridge = 0; ridge < 6; ridge++) {
+        const y = 6 - ridge * 5;
+        ctx.beginPath(); ctx.moveTo(19, y); ctx.lineTo(21.5, y - 1.2); ctx.stroke();
+      }
       leaf(ctx, 27, -14, .9, color("#8eb7a2", "#8f9da0"));
       leaf(ctx, 16, 3, -.8, color("#b7d2ae", "#aab4b2"));
       ctx.restore();
@@ -62,6 +68,13 @@ function paintAccessory(ctx: CanvasRenderingContext2D, hat: Hat, muted: boolean)
     ctx.bezierCurveTo(20, -20, 27, 1, 28, 18);
     ctx.quadraticCurveTo(12, 13, 1, 13); ctx.quadraticCurveTo(-12, 13, -27, 17);
     ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.save(); ctx.clip();
+    for (let thread = 0; thread < 24; thread++) {
+      const y = -23 + thread * 1.8;
+      ctx.strokeStyle = thread % 2 ? "#ded1e31a" : "#343d5526"; ctx.lineWidth = .55;
+      ctx.beginPath(); ctx.moveTo(-25, y); ctx.quadraticCurveTo(0, y + 3, 27, y + 1); ctx.stroke();
+    }
+    ctx.restore();
     // Recessed opening, soft rolled hem, and a fine stitched outer seam.
     ctx.fillStyle = color("#252c42", "#46545c");
     ctx.beginPath(); ctx.moveTo(-20, 15);
@@ -88,6 +101,12 @@ function paintAccessory(ctx: CanvasRenderingContext2D, hat: Hat, muted: boolean)
       ctx.quadraticCurveTo(15, 25, 5, 13); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(1, 4); ctx.bezierCurveTo(7, -14, 25, -20, 34, -11);
       ctx.bezierCurveTo(31, 2, 21, 10, 8, 12); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.save(); ctx.clip();
+      for (let vein = 0; vein < 10; vein++) {
+        ctx.strokeStyle = color("#837e9a45", "#83939c45"); ctx.lineWidth = .5;
+        ctx.beginPath(); ctx.moveTo(5, 8); ctx.quadraticCurveTo(18, -vein * 1.3, 31, -15 + vein * 2); ctx.stroke();
+      }
+      ctx.restore();
       ctx.strokeStyle = color("#8d86aa", "#84949d"); ctx.lineWidth = .8;
       ctx.beginPath(); ctx.moveTo(4, 7); ctx.quadraticCurveTo(15, -5, 29, -11);
       ctx.moveTo(5, 8); ctx.quadraticCurveTo(17, 8, 23, 14); ctx.stroke();
@@ -113,6 +132,15 @@ function paintAccessory(ctx: CanvasRenderingContext2D, hat: Hat, muted: boolean)
     ctx.bezierCurveTo(-19, -3, -8, -28, 8, -27);
     ctx.quadraticCurveTo(12, -18, 22, -15); ctx.quadraticCurveTo(15, -12, 9, -18);
     ctx.quadraticCurveTo(12, -2, 26, 15); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.save(); ctx.clip();
+    for (let thread = 0; thread < 22; thread++) {
+      const y = -26 + thread * 1.8;
+      ctx.strokeStyle = thread % 2 ? "#ded1e326" : "#303d5529"; ctx.lineWidth = .5;
+      ctx.beginPath(); ctx.moveTo(-25, y); ctx.quadraticCurveTo(0, y + 4, 26, y); ctx.stroke();
+    }
+    ctx.restore();
+    ctx.setLineDash([1, 2.6]); ctx.strokeStyle = gold; ctx.lineWidth = .6;
+    ctx.beginPath(); ctx.moveTo(-19, 9); ctx.quadraticCurveTo(-10, -12, 6, -22); ctx.stroke(); ctx.setLineDash([]);
     ctx.strokeStyle = color("#b5a8ca", "#aab7bf"); ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(7, -24); ctx.quadraticCurveTo(-4, -9, 8, 14); ctx.stroke();
     ctx.fillStyle = color("#82789e", "#88959f"); ctx.strokeStyle = edge;

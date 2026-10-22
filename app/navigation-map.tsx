@@ -43,6 +43,9 @@ function ForestDiagram({ view, id, expanded = false }: { view: NavigationView; i
       <g clipPath={`url(#${id}-visible)`}>
         <rect x={ROOM.left} y={ROOM.top} width={ROOM.right - ROOM.left} height={ROOM.bottom - ROOM.top} fill={`url(#${id}-floor)`} />
         {view.clearings.map(clearing => <ellipse key={clearing.label} cx={clearing.x} cy={clearing.y} rx={clearing.rx} ry={clearing.ry} fill={clearing.color} opacity=".09" />)}
+        {view.clearings.map(clearing => <g key={`landmark-${clearing.label}`} transform={`translate(${clearing.x} ${clearing.y - 42})`} stroke={clearing.color} fill="none" strokeWidth="7" opacity=".85">
+          {clearing.label === "MOONWELL" ? <><ellipse rx="32" ry="16" /><path d="M-20-14Q0-40 20-14" /></> : clearing.label === "WILLOW GROVE" ? <><path d="M0 22V-22M-34 12Q-36-42 0-34Q36-42 34 12M-18 12Q-22-30 0-34Q22-30 18 12" /></> : clearing.label === "FALLEN SHRINE" ? <><path d="M-30 20V-10Q-30-34-8-34M8-34Q30-34 30-10V6M14 20h24" /></> : <path d="m0-27 8 18 20 9-20 8-8 19-8-19-20-8 20-9Z" />}
+        </g>)}
         {SANCTUARY_TRAILS.map((trail, index) => <path key={index} d={`M${trail.points[0]} ${trail.points[1]} C${trail.points.slice(2).join(" ")}`} fill="none" stroke="#a9bca1" strokeWidth={trail.width * .5} opacity=".22" strokeLinecap="round" />)}
         <circle cx="960" cy="573" r="127" fill="#9ebdb1" opacity=".13" stroke="#d3d4b0" strokeWidth="5" />
         {!rootLocked ? <text x="960" y="627" textAnchor="middle" className="forest-map-zone">WARDEN COURTYARD</text> : null}

@@ -1,0 +1,24 @@
+.notebook-open { position: absolute; top: 174px; right: 18px; min-height: 40px; border: 1px solid #b6a9c37a; border-radius: 10px; padding: 8px 12px; color: #ede5d5; background: #28343be8; font: 600 11px/1.3 sans-serif; cursor: pointer; }
+.notebook-open kbd { margin-left: 9px; opacity: .6; }
+.field-notebook-dialog { width: min(530px, calc(100% - 28px)); max-height: calc(100dvh - 30px); margin: auto; overflow: auto; padding: 22px; border: 1px solid #b9a9c1; border-radius: 18px; background: #f5f0e8; color: #443e53; box-shadow: 0 20px 100px #0e162b80; }
+.field-notebook-dialog::backdrop { background: #142032a8; }
+.field-notebook-dialog header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.field-notebook-dialog header small { font: 700 9px/1.5 monospace; color: #7b6387; }
+.field-notebook-dialog h2 { font-size: 24px; margin: 4px 0 10px; }
+.field-notebook-dialog header button { width: 44px; height: 44px; border: 1px solid #c5b9cd; background: #e9e0ee; border-radius: 50%; color: inherit; font-size: 25px; cursor: pointer; }
+.field-notebook-dialog > p, .meeting-observations > p { font: 12px/1.65 sans-serif; opacity: .8; }
+.observation-composer { display: grid; gap: 10px; }
+.observation-composer label { display: grid; gap: 5px; font: 600 11px/1.4 sans-serif; }
+.observation-composer select { width: 100%; min-width: 0; min-height: 44px; border: 1px solid #b9adbf; border-radius: 8px; padding: 8px; background: #fffdf7; color: #453e53; font: 13px sans-serif; }
+.observation-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.observation-actions button, .observation-list button { min-height: 40px; padding: 8px 12px; border: 1px solid #b6a0bb; border-radius: 8px; color: #4a3b59; background: #e8ddeb; font: 600 11px sans-serif; cursor: pointer; }
+.observation-list { max-height: 220px; overflow: auto; margin: 16px 0 0; padding: 0; list-style: none; }
+.observation-list li { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid #9d8b9c40; }
+.observation-list p { flex: 1; margin: 0; font: 12px/1.5 sans-serif; overflow-wrap: anywhere; }
+.notebook-empty { opacity: .7; font: 12px/1.5 sans-serif; }
+.meeting-observations { margin: 10px 12px; padding: 8px; border: 1px solid #5b596b; border-radius: 8px; color: #ded9e6; }
+.meeting-observations summary { cursor: pointer; min-height: 28px; font: 600 11px/1.5 sans-serif; }
+.meeting-observations .observation-list { max-height: 140px; }
+.meeting-observations .observation-composer { grid-template-columns: 1fr 1fr; }
+.meeting-observations .observation-composer label:first-child, .meeting-observations .observation-actions { grid-column: 1 / -1; }
+@media (max-width: 760px) { .notebook-open { top: 134px; right: 9px; font-size: 10px; padding: 6px 9px; } .notebook-open kbd { display: none; } }

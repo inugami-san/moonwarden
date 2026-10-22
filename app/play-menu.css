@@ -5,10 +5,10 @@
 .preview-warden:nth-child(3n) .slime-avatar-motion, .waiting-slot:nth-child(3n) .slime-avatar-motion { animation-delay: -1.3s; }
 .slime-avatar .slime-portrait-eyes { transform-box: fill-box; transform-origin: center; animation: slime-eye-blink 5.8s linear infinite; }
 @keyframes slime-idle-hop {
-  0%, 100% { transform: translateY(0) scale(1.015, .985); }
-  22% { transform: translateY(-.8%) scale(.995, 1.005); }
-  46% { transform: translateY(-2.2%) scale(.983, 1.017); }
-  72% { transform: translateY(-.4%) scale(1.022, .978); }
+  0%, 100% { transform: translateY(0) scale(1.01, .99); }
+  22% { transform: translateY(-.5%) scale(.997, 1.003); }
+  46% { transform: translateY(-1.4%) scale(.989, 1.011); }
+  72% { transform: translateY(-.3%) scale(1.014, .986); }
 }
 @keyframes slime-eye-blink {
   0%, 94%, 98%, 100% { transform: scaleY(1); }

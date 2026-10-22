@@ -63,10 +63,10 @@ export const SANCTUARY_OBSTACLES: readonly SanctuaryObstacle[] = [
 
 export const SANCTUARY_CLEARINGS = [
   { label: "FROST HOLLOW", x: 375, y: 292, rx: 246, ry: 169, color: "#a9d8d7" },
-  { label: "STARLIGHT ARCHIVE", x: 960, y: 300, rx: 240, ry: 171, color: "#b6c5df" },
+  { label: "FALLEN SHRINE", x: 960, y: 300, rx: 240, ry: 171, color: "#c9b8df" },
   { label: "OWL WATCH", x: 1557, y: 290, rx: 224, ry: 164, color: "#d8c98c" },
-  { label: "DEEP ROOT GROTTO", x: 347, y: 760, rx: 208, ry: 227, color: "#9cc9ac" },
-  { label: "MOONWELL SPRINGS", x: 1190, y: 914, rx: 251, ry: 114, color: "#a9d5d0" },
+  { label: "WILLOW GROVE", x: 347, y: 790, rx: 208, ry: 200, color: "#b7c4a1" },
+  { label: "MOONWELL", x: 1060, y: 854, rx: 230, ry: 150, color: "#9cc6e0" },
   { label: "SUNKEN CLOISTER", x: 1622, y: 690, rx: 166, ry: 220, color: "#b7c7ac" },
 ] as const;
 
@@ -139,10 +139,10 @@ export function sanctuaryZoneName(x: number, y: number): string {
   if (Math.hypot(x - CENTER.x, y - CENTER.y) < 190) return "WARDEN COURTYARD";
   if (y < 543) {
     if (x < 675) return "FROST HOLLOW";
-    if (x < 1245) return "STARLIGHT ARCHIVE";
+    if (x < 1245) return "FALLEN SHRINE";
     return "OWL WATCH";
   }
-  if (x < 675) return "DEEP ROOT GROTTO";
-  if (x < 1380) return "MOONWELL SPRINGS";
+  if (x < 675) return "WILLOW GROVE";
+  if (x < 1380) return "MOONWELL";
   return "SUNKEN CLOISTER";
 }

@@ -148,7 +148,7 @@ test("zone callouts agree with the enlarged forest landmarks", () => {
 
 test("expanded background draws finite geometry and restores all Canvas state", () => {
   const stack = [], calls = [], state = { globalAlpha: 1 };
-  const methods = new Set(["translate", "scale", "beginPath", "closePath", "clip", "ellipse", "arc", "fillRect", "roundRect", "moveTo", "lineTo", "quadraticCurveTo", "bezierCurveTo", "fill", "stroke", "fillText"]);
+  const methods = new Set(["translate", "scale", "rotate", "beginPath", "closePath", "clip", "ellipse", "arc", "fillRect", "roundRect", "moveTo", "lineTo", "quadraticCurveTo", "bezierCurveTo", "fill", "stroke", "fillText"]);
   const record = (method, args) => {
     for (const value of args) if (typeof value === "number") assert.ok(Number.isFinite(value), `${method} uses finite geometry`);
     if (method === "ellipse") assert.ok(args[2] > 0 && args[3] > 0);

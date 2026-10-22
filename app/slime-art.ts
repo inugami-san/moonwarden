@@ -6,16 +6,18 @@ const skins = new Map<string, HTMLCanvasElement>();
 /** Shared SVG/Canvas geometry: a soft bell, not a humanoid capsule. */
 export const SLIME_PATH = "M-35 24 C-39 12-28-13-14-26 C-3-37 8-37 19-25 C31-12 40 11 36 24 C32 34-29 35-35 24Z";
 export const SLIME_CORE_PATH = "M-27 22 C-26 11-16 2-2 2 C15 0 28 12 29 23 C17 29-15 30-27 22Z";
+/** Keep every expression, but seat smaller eyes inside the translucent material. */
+export const SLIME_EYE_SCALE = .84;
 
 export function slimePalette(color: string) {
   const rgb = [1, 3, 5].map((start) => parseInt(color.slice(start, start + 2), 16));
   const mix = (target: number[], amount: number) => `rgb(${rgb.map((channel, index) => Math.round(channel * (1 - amount) + target[index] * amount)).join(",")})`;
   return {
-    body: mix([225, 255, 215], .23),
-    rim: mix([222, 255, 184], .67),
-    edge: mix([26, 171, 145], .3),
-    core: mix([22, 70, 66], .46),
-    shine: mix([255, 255, 192], .87),
+    body: mix([210, 224, 236], .20),
+    rim: mix([224, 229, 250], .57),
+    edge: mix([52, 78, 106], .36),
+    core: mix([33, 53, 79], .53),
+    shine: mix([244, 239, 225], .91),
   };
 }
 
@@ -41,7 +43,7 @@ function referenceSkin(color: string): HTMLCanvasElement {
   ctx.lineCap = "round";
   // Small botanical curl, common to every role and hidden by concealment.
   ctx.strokeStyle = palette.edge;
-  ctx.lineWidth = 3.2;
+  ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(4, -32);
   ctx.bezierCurveTo(14, -48, 29, -44, 35, -36);
@@ -61,38 +63,41 @@ function referenceSkin(color: string): HTMLCanvasElement {
   ctx.save();
   ctx.clip();
   ctx.fillStyle = palette.core;
-  ctx.globalAlpha = .55;
-  ctx.beginPath();
-  ctx.moveTo(-27, 22);
-  ctx.bezierCurveTo(-26, 11, -16, 2, -2, 2);
-  ctx.bezierCurveTo(15, 0, 28, 12, 29, 23);
-  ctx.bezierCurveTo(17, 29, -15, 30, -27, 22);
-  ctx.fill();
-  ctx.globalAlpha = .85;
-  ctx.strokeStyle = palette.rim;
-  ctx.lineWidth = 7;
-  slimeOutline(ctx);
-  ctx.stroke();
-  ctx.globalAlpha = .88;
-  ctx.fillStyle = palette.shine;
-  ctx.beginPath();
-  ctx.ellipse(-10, -22, 12, 6.5, -.5, 0, Math.PI * 2);
-  ctx.fill();
-  for (const [x, y, radius] of [[-24, -8, 3.6], [13, -18, 2.4], [18, -21, 1.1], [24, -14, 3.4]]) {
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fill();
+  // Layered, feathered pigment replaces the flat face patch and hard candy rim.
+  const core = ctx.createRadialGradient(6, 23, 2, 5, 16, 36);
+  core.addColorStop(0, palette.core); core.addColorStop(1, `${color}00`);
+  ctx.globalAlpha = .56; ctx.fillStyle = core; ctx.fillRect(-40, -32, 80, 72);
+  const subsurface = ctx.createRadialGradient(-18, -15, 1, -15, -9, 37);
+  subsurface.addColorStop(0, palette.rim); subsurface.addColorStop(1, `${color}00`);
+  ctx.globalAlpha = .32; ctx.fillStyle = subsurface; ctx.fillRect(-40, -40, 80, 80);
+  ctx.globalAlpha = .7;
+  ctx.save(); ctx.translate(-12, -24); ctx.rotate(-.43); ctx.scale(1, .3);
+  const reflection = ctx.createRadialGradient(0, 0, 1, 0, 0, 18);
+  reflection.addColorStop(0, palette.shine); reflection.addColorStop(.4, `${color}50`); reflection.addColorStop(1, `${color}00`);
+  ctx.fillStyle = reflection; ctx.fillRect(-19, -19, 38, 38); ctx.restore();
+  ctx.globalAlpha = .52; ctx.strokeStyle = palette.shine; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(-28, 3); ctx.bezierCurveTo(-26, -11, -18, -25, -7, -29); ctx.stroke();
+  ctx.globalAlpha = .36; ctx.strokeStyle = palette.rim; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(-28, 27); ctx.quadraticCurveTo(0, 33, 29, 26); ctx.stroke();
+  // Stable grain is baked once; no per-frame noise, filters, or extra canvases.
+  for (let i = 0; i < 190; i++) {
+    const x = (i * 37 % 73) - 36, y = (i * 53 % 71) - 35;
+    ctx.globalAlpha = i % 3 ? .045 : .075;
+    ctx.fillStyle = i % 2 ? palette.shine : palette.core;
+    ctx.beginPath(); ctx.ellipse(x, y, .45 + i % 3 * .12, .25, -.4, 0, Math.PI * 2); ctx.fill();
   }
   ctx.restore();
   slimeOutline(ctx);
   ctx.strokeStyle = palette.edge;
-  ctx.lineWidth = 1.4;
+  ctx.lineWidth = .8;
   ctx.stroke();
   return canvas;
 }
 
 /** Soft, tapered white eyes; every role has the same expression. */
 export function slimeEyes(ctx: CanvasRenderingContext2D, blink: boolean, muted = false, style: EyeStyle = "FIERCE") {
+  ctx.save();
+  ctx.translate(0, 1.5); ctx.scale(SLIME_EYE_SCALE, SLIME_EYE_SCALE);
   ctx.fillStyle = muted ? "rgba(173,187,190,.3)" : "#f5ffef";
   ctx.beginPath();
   if (blink) {
@@ -102,6 +107,7 @@ export function slimeEyes(ctx: CanvasRenderingContext2D, blink: boolean, muted =
     drawEyeShape(ctx, style);
   }
   ctx.fill();
+  ctx.restore();
 }
 
 /** Bake translucent material, surface grain, and reflected light once per color. */

@@ -59,6 +59,8 @@ export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?
     if (msg.type === "UPDATE_ROOM_CONFIG" && !Number.isFinite(msg.targetPlayers)) return;
     if (msg.type === "START_MATCH" && msg.targetPlayers !== undefined && !Number.isFinite(msg.targetPlayers)) return;
     if ((msg.type === "START_MATCH" || msg.type === "UPDATE_ROOM_CONFIG") && msg.hollowCount !== undefined && !Number.isFinite(msg.hollowCount)) return;
+    if ((msg.type === "START_MATCH" || msg.type === "UPDATE_ROOM_CONFIG") && msg.chaosMoonsway !== undefined && typeof msg.chaosMoonsway !== "boolean") return;
+    if (msg.type === "PAIR_RITUAL" && (typeof msg.stationId !== "string" || typeof msg.active !== "boolean" || !Number.isSafeInteger(msg.roundId))) return;
     if (msg.type === "TRIGGER_KILL" && (typeof msg.victimId !== "string" || (msg.style !== undefined && !["NORMAL", "STEALTH"].includes(msg.style)))) return;
     if (msg.type === "CAST_VOTE" && msg.targetId !== null && typeof msg.targetId !== "string") return;
     if (msg.type === "USE_ITEM" && !["FLASHLIGHT", "FLARE", "SONAR"].includes(msg.item)) return;

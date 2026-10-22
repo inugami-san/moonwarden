@@ -8,7 +8,8 @@ export type ItemKind = "FLASHLIGHT" | "FLARE" | "SONAR";
 export type Hat = "antlers" | "hood" | "moth" | "mooncap";
 export type OrdealAbility = "MOON_SIGHT" | "ECHO_LURE";
 export type KillStyle = "NORMAL" | "STEALTH";
-export type SoundCue = { id: string; x: number; y: number; expiresAt: number };
+export type SoundCue = { id: string; x: number; y: number; expiresAt: number; kind?: "RITUAL" };
+export type PairRitualState = { stationId: string; progress: number; participants: number; roundId: number };
 
 export type NetPlayer = {
   id: string;
@@ -43,6 +44,7 @@ export type RoomSummary = {
   targetPlayers: number;
   botFill: boolean;
   hollowCount?: number;
+  chaosMoonsway?: boolean;
 };
 
 export type NetBody = {
@@ -87,15 +89,16 @@ export type C2SMessage =
   | { type: "JOIN_ROOM"; roomCode: string; playerName: string; color: string; hat: Hat; eyeStyle?: EyeStyle }
   | { type: "UPDATE_PROFILE"; playerName: string; color: string; hat: Hat; eyeStyle?: EyeStyle }
   | { type: "TOGGLE_READY"; ready?: boolean }
-  | { type: "UPDATE_ROOM_CONFIG"; targetPlayers: number; botFill: boolean; hollowCount?: number }
+  | { type: "UPDATE_ROOM_CONFIG"; targetPlayers: number; botFill: boolean; hollowCount?: number; chaosMoonsway?: boolean }
   | { type: "LIST_ROOMS" }
-  | { type: "START_MATCH"; botFill?: boolean; targetPlayers?: number; hollowCount?: number }
+  | { type: "START_MATCH"; botFill?: boolean; targetPlayers?: number; hollowCount?: number; chaosMoonsway?: boolean }
   | { type: "PLAYER_INPUT"; x: number; y: number; vx: number; vy: number; angle: number; flashlight: boolean; working?: boolean; seq?: number }
   | { type: "TRIGGER_KILL"; victimId: string; style?: KillStyle }
   | { type: "TRIGGER_REPORT"; bodyId?: string }
   | { type: "USE_ITEM"; item: ItemKind; x: number; y: number }
   | { type: "USE_ABILITY"; ability: OrdealAbility; x: number; y: number; roundId: number }
   | { type: "TASK_UPDATE"; stationId: string; reward: ItemKind; roundId?: number }
+  | { type: "PAIR_RITUAL"; stationId: string; active: boolean; roundId: number }
   | { type: "SEND_CHAT"; text: string }
   | { type: "CAST_VOTE"; targetId: string | null }
   | { type: "RESOLVE_MEETING" }
@@ -106,6 +109,7 @@ export type S2CMessage =
   | { type: "PONG"; sentAt: number }
   | { type: "ABILITY_STATE"; accepted: boolean; used: boolean; sightRemainingMs: number; roundId: number }
   | { type: "SOUND_CUE"; cue: SoundCue }
+  | { type: "PAIR_RITUAL_STATE"; ritual: PairRitualState }
   | { type: "KILL_RESULT"; accepted: boolean; spent: boolean; stealthRemainingMs?: number; stealthOrdealsLeft?: number }
   | { type: "STRIKE_STATE"; spent: boolean; stealthRemainingMs: number; stealthOrdealsLeft: number }
   | { type: "GEAR_SYNC"; charges: Record<ItemKind, number>; accepted: boolean; item?: ItemKind; stationId?: string; stationCompleted?: boolean; completedStations?: string[]; wardProgressGain?: number; roundId?: number }
@@ -120,6 +124,7 @@ export type S2CMessage =
       targetPlayers?: number;
       botFill?: boolean;
       hollowCount?: number;
+      chaosMoonsway?: boolean;
       chatHistory?: NetChatMessage[];
     }
   | {
@@ -128,12 +133,13 @@ export type S2CMessage =
       targetPlayers: number;
       botFill: boolean;
       hollowCount?: number;
+      chaosMoonsway?: boolean;
       hostId: string;
     }
   | { type: "ROOMS_LIST"; rooms: RoomSummary[] }
   | { type: "PLAYER_JOINED"; player: NetPlayer }
   | { type: "PLAYER_LEFT"; playerId: string; newHostId?: string }
-  | { type: "MATCH_STARTED"; role: Role; players: NetPlayer[]; layoutSeed?: number; hollowCount?: number; hollowAllies?: string[] }
+  | { type: "MATCH_STARTED"; role: Role; players: NetPlayer[]; layoutSeed?: number; hollowCount?: number; hollowAllies?: string[]; chaosMoonsway?: boolean }
   | { type: "SYNC_PLAYERS"; players: NetPlayer[] }
   | { type: "SYNC_MOVEMENT"; players: NetMovement[]; serverTime: number }
   | {

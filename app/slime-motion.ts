@@ -37,7 +37,7 @@ export class SlimeAnimator {
       motion.phase = (motion.phase + dt * (2.5 + pace * 9)) % (Math.PI * 2);
       const contact = Math.cos(motion.phase);
       const rise = Math.pow((1 - contact) * .5, 2);
-      const width = 1 + contact * (.018 + pace * .095) - rise * pace * .025;
+      const width = 1 + contact * (.012 + pace * .067) - rise * pace * .018;
       const bodyBlend = 1 - Math.exp(-dt * 24);
       const gazeBlend = 1 - Math.exp(-dt * 14);
       const approach = (current: number, target: number, blend: number) => current + (target - current) * blend;
@@ -46,13 +46,13 @@ export class SlimeAnimator {
       if (reset) motion.pose = restingPose();
       const scaleX = approach(motion.pose.scaleX, width, bodyBlend);
       Object.assign(motion.pose, {
-        offsetY: approach(motion.pose.offsetY, -rise * (1.8 + pace * 5.8), bodyBlend),
+        offsetY: approach(motion.pose.offsetY, -rise * (1.1 + pace * 4.8), bodyBlend),
         scaleX,
         scaleY: 1 / scaleX,
         shear: reset ? 0 : approach(motion.pose.shear, -travelX * .10, gazeBlend),
         gazeX: reset ? 0 : approach(motion.pose.gazeX, travelX * 1.5, gazeBlend),
         gazeY: reset ? 0 : approach(motion.pose.gazeY, travelY * 1.2, gazeBlend),
-        hatTilt: approach(motion.pose.hatTilt, Math.sin(motion.phase - .5) * pace * .04 - travelX * .022, bodyBlend),
+        hatTilt: approach(motion.pose.hatTilt, Math.sin(motion.phase - .8) * pace * .033 - travelX * .022, 1 - Math.exp(-dt * 10)),
         shadowScale: approach(motion.pose.shadowScale, 1 - rise * (.025 + pace * .11), bodyBlend),
         shadowAlpha: approach(motion.pose.shadowAlpha, 1 - rise * (.035 + pace * .14), bodyBlend),
       });

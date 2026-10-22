@@ -8,15 +8,15 @@ const living = ["reporter", "suspect", "other", "last"];
 
 test("Moonsway has an exact 25% boundary and uniformly selects a different eligible player", () => {
   assert.equal(REPORTER_VOTE_DRIFT_CHANCE, .25);
-  assert.deepEqual(resolveReporterVote("reporter", "suspect", living, "reporter", () => .25), { targetId: "suspect", shifted: false });
+  assert.deepEqual(resolveReporterVote("reporter", "suspect", living, "reporter", () => .25, true), { targetId: "suspect", shifted: false });
   let draws = [.2499, 0];
-  assert.deepEqual(resolveReporterVote("reporter", "suspect", living, "reporter", () => draws.shift()), { targetId: "other", shifted: true });
+  assert.deepEqual(resolveReporterVote("reporter", "suspect", living, "reporter", () => draws.shift(), true), { targetId: "other", shifted: true });
   draws = [0, .999];
-  assert.equal(resolveReporterVote("reporter", "suspect", living, "reporter", () => draws.shift()).targetId, "last");
+  assert.equal(resolveReporterVote("reporter", "suspect", living, "reporter", () => draws.shift(), true).targetId, "last");
   let shifted = 0;
   for (let i = 0; i < 10000; i++) {
     let draw = 0;
-    if (resolveReporterVote("reporter", "suspect", living, "reporter", () => draw++ === 0 ? i / 10000 : 0).shifted) shifted++;
+    if (resolveReporterVote("reporter", "suspect", living, "reporter", () => draw++ === 0 ? i / 10000 : 0, true).shifted) shifted++;
   }
   assert.equal(shifted, 2500);
 });
@@ -30,7 +30,7 @@ test("skip, emergency, non-reporter, invalid, and no-alternative ballots never r
     ["reporter", "missing", living, "reporter"],
     ["missing", "suspect", living, "missing"],
     ["reporter", "suspect", ["reporter", "suspect"], "reporter"],
-  ]) assert.deepEqual(resolveReporterVote(voter, target, candidates, reporter, never), { targetId: target, shifted: false });
+  ]) assert.deepEqual(resolveReporterVote(voter, target, candidates, reporter, never, true), { targetId: target, shifted: false });
 });
 
 function fixture(t) {
@@ -42,7 +42,7 @@ function fixture(t) {
     room.addClient(id, client, id.toUpperCase(), "#20d8ed", "hood");
   }
   t.after(() => room.destroy());
-  room.handleMessage("a", { type: "START_MATCH", botFill: false, targetPlayers: 5 });
+  room.handleMessage("a", { type: "START_MATCH", botFill: false, targetPlayers: 5, chaosMoonsway: true });
   for (const player of room.players.values()) {
     player.role = player.id === "b" ? "IMPOSTOR" : "CREWMATE";
     player.x = CENTER.x; player.y = CENTER.y;

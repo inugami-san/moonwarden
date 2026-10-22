@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MultiplayerClient, type MultiplayerState } from "./network";
-import type { NetMovement, NetPlayer, S2CMessage } from "../server/game-types";
+import type { NetMovement, NetPlayer, PairRitualState, S2CMessage } from "../server/game-types";
+import { FloatingJoystick } from "./floating-joystick";
+import { movementVector, type MoveVector } from "./joystick-input";
+import { PairedRituals } from "../server/pair-ritual";
+import { FieldNotebook, MeetingObservations } from "./field-notebook";
+import type { KnownName, ObservationNote } from "./field-notes";
 import { ROLE_LABELS, ejectionVerdict, matchResultLabel, meetingVerdictLabel } from "../server/role-presentation";
 import { GAME_RELEASE_LABEL, GAME_RELEASE_VERSION, GAME_WORLD_VERSION } from "../server/game-version";
 import { createMatchLayout } from "../server/match-layout";
@@ -35,6 +40,7 @@ import {
 } from "../server/ordeal-rules";
 import { ForestAudio, soundDirection } from "./forest-audio";
 import { drawMoonGlade } from "./moon-glade";
+import { drawForestObstacle, drawGroundResponse } from "./forest-art";
 import { fittedCanvasBounds } from "./canvas-bounds";
 import { HomeAtmosphere, HomeFieldGuide, HomeGrove } from "./home-field-guide";
 import { DEVOUR_SECONDS, drawSlimeConsumption, type DevourVisual } from "./slime-devour";
@@ -48,6 +54,7 @@ import { planRoute } from "../server/sanctuary-paths";
 import { cameraViewport, cameraTarget, followCamera, viewportToWorld } from "./world-camera";
 import { ORDEAL_PREPARATION, preparationStation, restorationMilestone } from "./warden-objectives";
 import "./warden-exploration.css";
+import "./next-chapter.css";
 
 type Role = "CREWMATE" | "IMPOSTOR";
 type RoleChoice = Role | "RANDOM";
@@ -130,6 +137,8 @@ type Snapshot = {
   humanAlive: boolean;
   message: string;
   localPlayerId: string;
+  pairRitual: PairRitualState | null;
+  locationName: string;
 };
 
 type TaskPuzzle = {
@@ -258,6 +267,8 @@ function initialSnapshot(role: Role = "CREWMATE"): Snapshot {
     humanAlive: true,
     message: "",
     localPlayerId: "you",
+    pairRitual: null,
+    locationName: "WARDEN COURTYARD",
   };
 }
 
@@ -306,6 +317,10 @@ function snapshotsEqual(a: Snapshot, b: Snapshot): boolean {
     && a.humanAlive === b.humanAlive
     && a.message === b.message
     && a.localPlayerId === b.localPlayerId
+    && a.locationName === b.locationName
+    && a.pairRitual?.stationId === b.pairRitual?.stationId
+    && a.pairRitual?.progress === b.pairRitual?.progress
+    && a.pairRitual?.participants === b.pairRitual?.participants
     && a.stationStatus?.label === b.stationStatus?.label
     && a.stationStatus?.completed === b.stationStatus?.completed
     && a.stationStatus?.reward === b.stationStatus?.reward
@@ -358,6 +373,14 @@ class OrdealEngine {
   suspicion = new Map<string, Map<string, number>>();
   keys = new Set<string>();
   touchKeys = new Set<string>();
+  moveVector: MoveVector = { vx: 0, vy: 0 };
+  private joystickAim: { x: number; y: number } | null = null;
+  chaosMoonsway = false;
+  pairRitual: PairRitualState | null = null;
+  private pairedRituals = new PairedRituals();
+  private pairStationId: string | null = null;
+  private pairHeartbeatAt = 0;
+  notebookOpen = false;
   mouse = { x: W * 0.72, y: H * 0.45 };
   phase: Phase = "CALM";
   phaseTime = CALM_SECONDS;
@@ -505,9 +528,10 @@ class OrdealEngine {
     initialPlayers?: NetPlayer[],
     assignedRole?: Role,
     soloProfile?: SoloProfile,
-    matchOptions?: { layoutSeed?: number; hollowCount?: number; hollowAllies?: string[] },
+    matchOptions?: { layoutSeed?: number; hollowCount?: number; hollowAllies?: string[]; chaosMoonsway?: boolean },
   ) {
     this.canvas = canvas;
+    this.resetInput = this.resetInput.bind(this);
     this.motionPreference = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
     this.reducedMotion = this.motionPreference?.matches ?? false;
     this.motionPreference?.addEventListener("change", this.onMotionPreferenceChange);
@@ -540,6 +564,7 @@ class OrdealEngine {
     this.makeStations(layout.stations);
     this.renderStaticBackground();
     this.hollowIds = new Set(matchOptions?.hollowAllies ?? []);
+    this.chaosMoonsway = matchOptions?.chaosMoonsway === true;
     this.initialHollows = clampHollowCount(matchOptions?.hollowCount, count);
     this.initialWardens = count - this.initialHollows;
     this.multiplayerClient = multiplayerClient || null;
@@ -556,6 +581,8 @@ class OrdealEngine {
     window.addEventListener("scroll", this.updateRect, { passive: true });
     window.addEventListener("keydown", this.keyDown);
     window.addEventListener("keyup", this.keyUp);
+    window.addEventListener("blur", this.resetInput);
+    document.addEventListener("visibilitychange", this.visibilityChanged);
     canvas.addEventListener("pointermove", this.pointerMove);
     canvas.addEventListener("pointerdown", this.pointerMove);
     canvas.addEventListener("contextmenu", this.contextMenu);
@@ -600,6 +627,11 @@ class OrdealEngine {
 
   handleNetworkMessage(msg: S2CMessage) {
     switch (msg.type) {
+      case "PAIR_RITUAL_STATE":
+        if (msg.ritual.roundId !== this.stationRound) break;
+        this.pairRitual = msg.ritual.participants ? msg.ritual : null;
+        this.emit(true);
+        break;
       case "ABILITY_STATE":
         if (msg.roundId !== this.stationRound) break;
         this.abilityPending = false;
@@ -609,10 +641,11 @@ class OrdealEngine {
         this.emit(true);
         break;
       case "SOUND_CUE":
-        if (this.phase !== "ORDEAL" || Date.now() > msg.cue.expiresAt || this.heardCueIds.has(msg.cue.id)) break;
+        if ((this.phase !== "ORDEAL" && msg.cue.kind !== "RITUAL") || Date.now() > msg.cue.expiresAt || this.heardCueIds.has(msg.cue.id)) break;
         if (this.heardCueIds.size > 100) this.heardCueIds.clear();
         this.heardCueIds.add(msg.cue.id);
-        this.hearRustle(msg.cue);
+        if (msg.cue.kind === "RITUAL") this.hearRitual(msg.cue);
+        else this.hearRustle(msg.cue);
         break;
       case "KILL_RESULT":
         this.killUsedThisOrdeal = msg.spent;
@@ -821,6 +854,7 @@ class OrdealEngine {
       }
 
       case "MEETING_CALLED": {
+        this.resetInput();
         this.taskFailure = "";
         this.movementBuffer.clear();
         this.pendingInputs.clear();
@@ -891,6 +925,7 @@ class OrdealEngine {
       }
 
       case "DEATH_EVENT": {
+        this.resetInput();
         this.human.alive = false;
         this.human.vx = 0;
         this.human.vy = 0;
@@ -949,6 +984,7 @@ class OrdealEngine {
   }
 
   resetStations(roundId = this.stationRound + 1) {
+    this.setPairRitual(false); this.pairedRituals?.clear();
     this.wardClaims.clear();
     this.stationRound = roundId;
     this.cancelPuzzle("");
@@ -1038,7 +1074,8 @@ class OrdealEngine {
       if (!event.repeat && event.code === "Escape") this.cancelPuzzle();
       return;
     }
-    if (event.repeat || this.paused || this.roleRevealActive || this.navigationOpen) return;
+    if (event.repeat || this.paused || this.roleRevealActive || this.navigationOpen || this.notebookOpen) return;
+    if (event.code === "KeyH") this.setPairRitual(true);
     if (event.code === "KeyE") this.tryOpenPuzzle();
     if (event.code === "KeyF") this.useItem();
     if (event.code === "KeyR") this.report();
@@ -1053,10 +1090,13 @@ class OrdealEngine {
 
   keyUp = (event: KeyboardEvent) => {
     this.keys.delete(event.code);
+    if (event.code === "KeyH") this.setPairRitual(false);
   };
 
   pointerMove = (event: PointerEvent) => {
     if (event.type === "pointerdown") void this.audio.unlock();
+    if (event.pointerType === "touch") return;
+    this.joystickAim = null;
     if (!this.canvasRect || this.canvasRect.width <= 0) this.updateRect();
     const rect = this.canvasRect;
     if (!rect) return;
@@ -1073,7 +1113,7 @@ class OrdealEngine {
 
   setNavigationOpen(open: boolean) {
     this.navigationOpen = open;
-    this.keys.clear(); this.touchKeys.clear();
+    this.resetInput();
     if (this.human) { this.human.vx = 0; this.human.vy = 0; this.human.working = false; }
   }
 
@@ -1083,6 +1123,7 @@ class OrdealEngine {
   };
 
   destroy() {
+    this.resetInput();
     this.audio.destroy();
     this.slimeAnimator.clear();
     this.motionPreference?.removeEventListener("change", this.onMotionPreferenceChange);
@@ -1096,6 +1137,8 @@ class OrdealEngine {
     window.removeEventListener("scroll", this.updateRect);
     window.removeEventListener("keydown", this.keyDown);
     window.removeEventListener("keyup", this.keyUp);
+    window.removeEventListener("blur", this.resetInput);
+    document.removeEventListener("visibilitychange", this.visibilityChanged);
     this.canvas.removeEventListener("pointermove", this.pointerMove);
     this.canvas.removeEventListener("pointerdown", this.pointerMove);
     this.canvas.removeEventListener("contextmenu", this.contextMenu);
@@ -1104,6 +1147,45 @@ class OrdealEngine {
   setTouch(code: string, down: boolean) {
     if (down) { void this.audio.unlock(); this.touchKeys.add(code); }
     else this.touchKeys.delete(code);
+  }
+
+  setMoveVector(vector: MoveVector) {
+    this.moveVector = movementVector(0, 0, vector);
+    if (Math.hypot(this.moveVector.vx, this.moveVector.vy) > .02) {
+      this.joystickAim = { x: this.moveVector.vx, y: this.moveVector.vy };
+    }
+  }
+
+  resetInput() {
+    this.keys.clear(); this.touchKeys.clear();
+    this.moveVector = { vx: 0, vy: 0 };
+    this.setPairRitual(false);
+    if (this.human) { this.human.vx = 0; this.human.vy = 0; this.human.working = false; }
+  }
+  visibilityChanged = () => { if (document.hidden) this.resetInput(); };
+
+  setNotebookOpen(open: boolean) { this.notebookOpen = open; this.resetInput(); }
+
+  setPairRitual(active: boolean) {
+    if (!active) {
+      if (this.pairStationId && this.multiplayerClient?.connected) this.multiplayerClient.pairRitual(this.pairStationId, false, this.stationRound);
+      this.pairedRituals?.release(this.localPlayerId);
+      this.pairStationId = null; this.pairRitual = null;
+      return;
+    }
+    if (this.paused || this.activePuzzle || this.navigationOpen || this.notebookOpen || this.roleRevealActive || !this.human.alive) return;
+    const station = this.stations.find(station => !station.completed && !station.pending && station.cooldown <= 0 && dist(station, this.human) <= 84);
+    if (!station) return;
+    this.pairStationId = station.label; this.pairHeartbeatAt = -1;
+    this.human.vx = 0; this.human.vy = 0;
+    void this.audio.unlock();
+  }
+
+  hearRitual(point: { x: number; y: number }) {
+    if (!this.human.alive || dist(this.human, point) > HEARING_RANGE || (this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && !sharesRootCell(this.human, point))) return;
+    this.audio.ritualHum(this.human, point);
+    this.caption = "A shrine is humming nearby";
+    this.captionUntil = this.elapsed + 1.2;
   }
 
   selectItem(item: ItemKind) {
@@ -1117,6 +1199,7 @@ class OrdealEngine {
     const stationIndex = this.stations.findIndex((station) => dist(station, this.human) < 84 && !station.completed && !station.pending && station.cooldown <= 0 && station.puzzle);
     if (stationIndex < 0) return;
     const station = this.stations[stationIndex];
+    this.setPairRitual(false);
     this.taskFailure = "";
     let puzzle = station.puzzle === "MATH" ? this.createMathPuzzle(station, stationIndex) : this.createLinkPuzzle(station, stationIndex);
     const signature = (question: TaskPuzzle) => `${question.prompt}:${question.sequence?.join() ?? ""}`;
@@ -1489,6 +1572,7 @@ class OrdealEngine {
 
   startMeeting(reason: string, reporter: string, bodyReporterId: string | null = null) {
     if (this.paused) return;
+    this.resetInput(); this.pairedRituals?.clear();
     this.taskFailure = "";
     this.restoreTrueColors();
     this.cancelPuzzle("");
@@ -1519,7 +1603,7 @@ class OrdealEngine {
     const tally = new Map<string, number>();
     const living = this.players.filter((player) => player.alive);
     const cast = (voter: Player, accusedId: string | null) => {
-      const receipt = resolveReporterVote(voter.id, accusedId, living.map(player => player.id), this.activeMeeting?.bodyReporterId);
+      const receipt = resolveReporterVote(voter.id, accusedId, living.map(player => player.id), this.activeMeeting?.bodyReporterId, Math.random, this.chaosMoonsway);
       if (voter.id === this.localPlayerId) this.activeMeeting = { ...this.activeMeeting!, localVote: receipt };
       const tallyId = receipt.targetId || "SKIP";
       tally.set(tallyId, (tally.get(tallyId) || 0) + 1);
@@ -1653,6 +1737,7 @@ class OrdealEngine {
 
   end(result: string) {
     if (this.gameOver) return;
+    this.resetInput();
     this.playResultSound(result);
     this.gameOver = true;
     this.paused = true;
@@ -1704,7 +1789,7 @@ class OrdealEngine {
       taskFailure: this.elapsed < this.taskFailureUntil ? this.taskFailure : "",
       canUseMoonSight: this.human.alive && this.human.role === "IMPOSTOR" && this.phase === "ORDEAL" && !this.moonSightUsedThisOrdeal && !this.abilityPending,
       moonSightActive,
-      soundCaption: this.phase === "ORDEAL" && this.elapsed < this.captionUntil ? this.caption : "",
+      soundCaption: this.elapsed < this.captionUntil ? this.caption : "",
       canReport: this.human.alive && (nearbyBody || nearButton),
       taskPrompt: Boolean(nearestStation && !nearestStation.completed && !nearestStation.pending && nearestStation.cooldown <= 0) && this.phase !== "DISCUSSION" && this.human.alive,
       taskMode: nearestStation && !nearestStation.completed ? (nearestStation.puzzle ? "PUZZLE" : "HOLD") : null,
@@ -1713,6 +1798,8 @@ class OrdealEngine {
       humanAlive: this.human.alive,
       message: this.elapsed < this.messageUntil ? this.message : "",
       localPlayerId: this.human.id,
+      pairRitual: this.pairRitual ?? null,
+      locationName: sanctuaryZoneName(this.human.x, this.human.y),
       navigation: {
         x: Math.round(this.human.x / 12) * 12,
         y: Math.round(this.human.y / 12) * 12,
@@ -1755,6 +1842,7 @@ class OrdealEngine {
     const viewport = { width: this.viewWidth, height: this.viewHeight };
     this.camera = followCamera(this.camera, this.human, viewport, dt, this.reducedMotion);
     this.mouse = viewportToWorld(this.pointerViewport, this.camera, viewport);
+    if (this.joystickAim) this.mouse = { x: this.human.x + this.joystickAim.x * 200, y: this.human.y + this.joystickAim.y * 200 };
     this.draw();
     this.emit();
     this.frame = requestAnimationFrame(this.loop);
@@ -1862,6 +1950,7 @@ class OrdealEngine {
     if (!this.roleRevealActive) {
       this.updateHuman(dt);
     }
+    this.updatePairedRituals(dt);
     // Only the local slime gets a soft movement texture. Remote sounds remain
     // the server's range-limited anonymous cues, never a second location feed.
     const stepDistance = Math.hypot(this.human.x - this.localStep.x, this.human.y - this.localStep.y);
@@ -1924,6 +2013,47 @@ class OrdealEngine {
     }
   }
 
+  updatePairedRituals(dt: number) {
+    if (!this.pairedRituals) return;
+    if (!this.human.alive || this.phase === "DISCUSSION" || this.roleRevealActive || this.navigationOpen || this.notebookOpen || this.activePuzzle || this.paused) {
+      this.setPairRitual(false); this.pairedRituals.clear(); return;
+    }
+    const station = this.stations.find(station => station.label === this.pairStationId && !station.completed && !station.pending);
+    if (this.pairStationId && (!station || dist(station, this.human) > 84)) this.setPairRitual(false);
+    if (station && this.pairStationId && this.elapsed >= this.pairHeartbeatAt) {
+      this.pairHeartbeatAt = this.elapsed + .25;
+      if (this.multiplayerClient) this.multiplayerClient.pairRitual(station.label, true, this.stationRound);
+      else this.pairedRituals.hold(this.human.id, station.label, this.stationRound, this.elapsed * 1000);
+    }
+    if (this.multiplayerClient) return;
+    const result = this.pairedRituals.tick(this.players, this.stations.map(station => ({ ...station, id: station.label })), (id, label) => id === this.human.id ? this.stations.some(station => station.label === label && station.completed) : this.botRites.get(id)?.has(label) ?? false, this.stationRound, this.elapsed * 1000, dt);
+    for (const { playerId, ...ritual } of result.updates) if (playerId === this.human.id) this.pairRitual = ritual.participants ? ritual : null;
+    for (const point of result.sounds) this.hearRitual(point);
+    for (const completion of result.completions) {
+      const actor = this.players.find(player => player.id === completion.playerId), shrine = this.stations.find(station => station.label === completion.stationId);
+      if (!actor || !shrine) continue;
+      if (actor.id === this.human.id) { this.completeStation(shrine, actor.role === "IMPOSTOR"); this.setPairRitual(false); }
+      else this.completeBotRitual(actor, shrine);
+    }
+  }
+
+  private completeBotRitual(player: Player, station: Station) {
+    let rites = this.botRites.get(player.id);
+    if (!rites) { rites = new Set(); this.botRites.set(player.id, rites); }
+    if (rites.has(station.label)) return;
+    rites.add(station.label); this.botWork.delete(player.id);
+    player.working = false;
+    player.gearCharges[station.reward] = Math.min(3, player.gearCharges[station.reward] + 1);
+    station.completedAt = this.elapsed;
+    if (player.role === "IMPOSTOR" || !this.wardClaims.has(station.label)) {
+      if (player.role === "CREWMATE") this.wardClaims.add(station.label);
+      station.teamRestored = true;
+      this.pendingWardDelta += ritualProgress(this.players.filter(p => p.alive && p.role === "CREWMATE").length, this.phase === "ORDEAL", player.role === "IMPOSTOR", this.initialHollows);
+    }
+    player.atStation = (player.atStation + 1) % this.stations.length;
+    player.thinkAt = 0;
+  }
+
   updateHuman(dt: number) {
     const player = this.human;
     if (!player.alive) {
@@ -1931,7 +2061,7 @@ class OrdealEngine {
       return;
     }
     if (this.multiplayerClient && !this.multiplayerClient.connected) { player.vx = 0; player.vy = 0; player.working = false; return; }
-    if (this.navigationOpen) { player.vx = 0; player.vy = 0; player.working = false; return; }
+    if (this.navigationOpen || this.notebookOpen) { player.vx = 0; player.vy = 0; player.working = false; return; }
     player.flashlight = this.phase === "ORDEAL" && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil;
     if (this.activePuzzle) {
       player.vx = 0;
@@ -1940,12 +2070,11 @@ class OrdealEngine {
       return;
     }
     const pressed = (code: string) => this.keys.has(code) || this.touchKeys.has(code);
-    const invert = this.phase === "ORDEAL" && this.hazard === "MIRROR_POOL" ? -1 : 1;
-    let dx = (Number(pressed("KeyD") || pressed("ArrowRight")) - Number(pressed("KeyA") || pressed("ArrowLeft"))) * invert;
-    let dy = (Number(pressed("KeyS") || pressed("ArrowDown")) - Number(pressed("KeyW") || pressed("ArrowUp"))) * invert;
-    const length = Math.hypot(dx, dy) || 1;
-    dx /= length;
-    dy /= length;
+    const invert = this.phase === "ORDEAL" && this.hazard === "MIRROR_POOL";
+    const input = movementVector(Number(pressed("KeyD") || pressed("ArrowRight")) - Number(pressed("KeyA") || pressed("ArrowLeft")), Number(pressed("KeyS") || pressed("ArrowDown")) - Number(pressed("KeyW") || pressed("ArrowUp")), this.moveVector, invert);
+    const dx = input.vx, dy = input.vy;
+    if (this.pairStationId && !dx && !dy) { player.vx = 0; player.vy = 0; player.working = true; return; }
+    if (this.pairStationId && (dx || dy)) this.setPairRitual(false);
     const speed = 184;
     player.vx += (dx * speed - player.vx) * Math.min(1, dt * 12);
     player.vy += (dy * speed - player.vy) * Math.min(1, dt * 12);
@@ -2065,21 +2194,15 @@ class OrdealEngine {
           this.botWork.delete(player.id);
         } else if (dist(player, station) < 84) {
           player.working = true;
+          if (this.pairedRituals?.intents.get(this.human.id)?.stationId === station.label) {
+            this.pairedRituals.hold(player.id, station.label, this.stationRound, this.elapsed * 1000);
+            continue;
+          }
           const work = this.botWork.get(player.id);
           const duration = work?.station === station.label ? work.duration + dt : dt;
           this.botWork.set(player.id, { station: station.label, duration });
           if (duration >= 2.6) {
-            personalRites.add(station.label);
-            this.botWork.delete(player.id);
-            player.gearCharges[station.reward] = Math.min(3, player.gearCharges[station.reward] + 1);
-            station.completedAt = this.elapsed;
-            if (player.role === "IMPOSTOR" || !this.wardClaims.has(station.label)) {
-              if (player.role === "CREWMATE") this.wardClaims.add(station.label);
-              station.teamRestored = true;
-              this.pendingWardDelta += ritualProgress(this.players.filter(p => p.alive && p.role === "CREWMATE").length, this.phase === "ORDEAL", player.role === "IMPOSTOR", this.initialHollows);
-            }
-            player.atStation = (player.atStation + 1 + Math.floor(Math.random() * 3)) % this.stations.length;
-            player.thinkAt = 0;
+            this.completeBotRitual(player, station);
           }
         } else {
           this.botWork.delete(player.id);
@@ -2486,6 +2609,10 @@ class OrdealEngine {
 
   drawStation(ctx: CanvasRenderingContext2D, station: Station) {
     drawForestSanctum(ctx, station, this.elapsed, this.phase === "DISCUSSION", dist(station, this.human) < 128);
+    if (this.pairRitual?.stationId === station.label && this.pairRitual.participants > 0) {
+      ctx.save(); ctx.strokeStyle = "#e4d3f3a0"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(station.x, station.y + 18, 57, 24, 0, -.5 * Math.PI, -.5 * Math.PI + Math.max(.04, this.pairRitual.progress) * Math.PI * 2); ctx.stroke(); ctx.restore();
+    }
   }
 
   drawRestoration(ctx: CanvasRenderingContext2D) {
@@ -2642,13 +2769,8 @@ class OrdealEngine {
     ctx.ellipse(x, player.y + 31, 40 * pose.shadowScale, 11 * pose.shadowScale, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = visibilityAlpha;
-    if (speed > 55 && !silhouette) {
-      ctx.fillStyle = baseColor;
-      ctx.globalAlpha = visibilityAlpha * 0.075;
-      ctx.beginPath();
-      ctx.ellipse(x - clamp(player.vx / speed, -1, 1) * 19, y + 29 - clamp(player.vy / speed, -1, 1) * 10, 18, 3, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = visibilityAlpha;
+    if (this.phase === "CALM" && !silhouette && !colorMuted) {
+      drawGroundResponse(ctx, x, player.y, speed, this.elapsed, this.reducedMotion);
     }
 
     ctx.save();
@@ -3059,501 +3181,7 @@ class OrdealEngine {
   }
 
   drawObstacle(ctx: CanvasRenderingContext2D, obs: SanctuaryObstacle) {
-    const humanBehind =
-      this.human.y < obs.y + 8
-      && Math.abs(this.human.x - obs.x) < obs.canopyRadius + 16
-      && this.human.y > obs.y - obs.canopyHeight - 16;
-    const canopyAlpha = humanBehind ? 0.38 : 1;
-    const sway = Math.sin(this.elapsed * 1.6 + obs.x * 0.03) * 2.2;
-    const pulse = 0.5 + Math.sin(this.elapsed * 2.8 + obs.y * 0.05) * 0.5;
-
-    ctx.save();
-    ctx.translate(obs.x, obs.y);
-
-    // 1. Soft ground shadow & mossy base ring
-    const shadow = ctx.createRadialGradient(0, 6, 4, 0, 6, obs.r * 1.9);
-    shadow.addColorStop(0, "rgba(4, 14, 16, 0.52)");
-    shadow.addColorStop(0.65, "rgba(4, 14, 16, 0.24)");
-    shadow.addColorStop(1, "rgba(4, 14, 16, 0)");
-    ctx.fillStyle = shadow;
-    ctx.beginPath();
-    ctx.ellipse(0, 7, obs.r * 1.9, obs.r * 0.9, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Mossy stone/root base collar
-    ctx.fillStyle = "#2b473f";
-    ctx.strokeStyle = "rgba(164, 198, 168, 0.35)";
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    ctx.ellipse(0, 3, obs.r * 1.15, obs.r * 0.62, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    // 2. Upper 2.5D structure (auto-fades when player walks behind it for a clean POV)
-    ctx.globalAlpha = canopyAlpha;
-
-    if (obs.kind === "CRYSTAL_SPIRE") {
-      // Dormant mineral sapphire cluster by default; blinks randomly ONLY during BLACKOUT Ordeal
-      const blink = this.getCrystalBlink(obs.x);
-
-      // Ambient ground & spire halo ONLY when actively blinking during Blackout
-      if (blink > 0) {
-        const halo = ctx.createRadialGradient(0, -32, 4, 0, -28, 72);
-        halo.addColorStop(0, `rgba(164, 248, 255, ${(0.65 * blink).toFixed(3)})`);
-        halo.addColorStop(0.45, `rgba(54, 214, 255, ${(0.32 * blink).toFixed(3)})`);
-        halo.addColorStop(1, "rgba(18, 118, 168, 0)");
-        ctx.fillStyle = halo;
-        ctx.beginPath();
-        ctx.arc(0, -28, 72, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Carved dark basalt stone socket at the base
-      ctx.fillStyle = "#1c2c36";
-      ctx.strokeStyle = "#0d171e";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(-24, 6);
-      ctx.lineTo(-27, -4);
-      ctx.lineTo(-14, -11);
-      ctx.lineTo(0, -8);
-      ctx.lineTo(15, -12);
-      ctx.lineTo(26, -3);
-      ctx.lineTo(23, 6);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-
-      // Helper to draw a multi-faceted crystal prism shard
-      const drawShard = (
-        cx: number,
-        cy: number,
-        rot: number,
-        w: number,
-        h: number,
-      ) => {
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.rotate(rot);
-
-        // Main crystal body gradient (dormant dark sapphire-slate vs active cyan-ice blink)
-        const bodyGrad = ctx.createLinearGradient(-w, -h, w, 6);
-        if (blink > 0) {
-          bodyGrad.addColorStop(0, `rgba(232, 254, 255, ${0.75 + 0.25 * blink})`);
-          bodyGrad.addColorStop(0.38, "#6ee7ff");
-          bodyGrad.addColorStop(0.75, "#2593ba");
-          bodyGrad.addColorStop(1, "#164863");
-        } else {
-          bodyGrad.addColorStop(0, "#4c7288");
-          bodyGrad.addColorStop(0.38, "#2d4c60");
-          bodyGrad.addColorStop(0.78, "#1c3342");
-          bodyGrad.addColorStop(1, "#11212c");
-        }
-
-        ctx.fillStyle = bodyGrad;
-        ctx.strokeStyle = blink > 0 ? "#b8f7ff" : "#0e1d26";
-        ctx.lineWidth = 2.1;
-        ctx.beginPath();
-        ctx.moveTo(0, -h);
-        ctx.lineTo(w * 0.92, -h * 0.64);
-        ctx.lineTo(w, 0);
-        ctx.lineTo(w * 0.55, 6);
-        ctx.lineTo(-w * 0.55, 6);
-        ctx.lineTo(-w, 0);
-        ctx.lineTo(-w * 0.92, -h * 0.64);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // Left lit bevel plane
-        ctx.fillStyle = blink > 0
-          ? `rgba(255, 255, 255, ${(0.36 + 0.42 * blink).toFixed(2)})`
-          : "rgba(135, 184, 210, 0.18)";
-        ctx.beginPath();
-        ctx.moveTo(0, -h * 0.97);
-        ctx.lineTo(-w * 0.86, -h * 0.62);
-        ctx.lineTo(-w * 0.45, 4);
-        ctx.lineTo(0, 2);
-        ctx.closePath();
-        ctx.fill();
-
-        // Right deep shadow bevel plane
-        ctx.fillStyle = blink > 0
-          ? "rgba(14, 72, 104, 0.28)"
-          : "rgba(7, 16, 24, 0.42)";
-        ctx.beginPath();
-        ctx.moveTo(0, -h * 0.97);
-        ctx.lineTo(w * 0.86, -h * 0.62);
-        ctx.lineTo(w * 0.48, 4);
-        ctx.lineTo(0, 2);
-        ctx.closePath();
-        ctx.fill();
-
-        // Internal crystalline ridge & cross-facet lines
-        ctx.strokeStyle = blink > 0
-          ? `rgba(240, 255, 255, ${(0.65 + 0.35 * blink).toFixed(2)})`
-          : "rgba(116, 162, 186, 0.28)";
-        ctx.lineWidth = blink > 0 ? 1.7 : 1.1;
-        ctx.beginPath();
-        ctx.moveTo(0, -h * 0.96);
-        ctx.lineTo(-w * 0.14, -h * 0.42);
-        ctx.lineTo(0, 4);
-        ctx.moveTo(-w * 0.86, -h * 0.62);
-        ctx.lineTo(-w * 0.14, -h * 0.42);
-        ctx.lineTo(w * 0.86, -h * 0.62);
-        ctx.stroke();
-
-        ctx.restore();
-      };
-
-      // Rear angled secondary shards
-      drawShard(-15, -6, -0.34, 8.5, 42);
-      drawShard(16, -5, 0.31, 8, 39);
-
-      // Central tall prime crystal obelisk
-      drawShard(0, -2, 0.02, 15.5, 80);
-
-      // Foreground flanking shards
-      drawShard(-19, 1, -0.58, 7, 27);
-      drawShard(19, 2, 0.54, 6.8, 25);
-
-      // Base rim rocks overlapping the bottom of the shards
-      ctx.fillStyle = "#263a45";
-      ctx.strokeStyle = "#0e1920";
-      ctx.lineWidth = 1.6;
-      for (const [rx, ry, rw, rh] of [[-13, 3, 9, 5], [2, 4, 11, 5.5], [14, 3, 8, 4.5]]) {
-        ctx.beginPath();
-        ctx.ellipse(rx, ry, rw, rh, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      }
-
-      // Active Blackout blink spark & arcane discharge arcs
-      if (blink > 0) {
-        ctx.fillStyle = `rgba(235, 254, 255, ${(0.85 * blink).toFixed(2)})`;
-        ctx.beginPath();
-        ctx.arc(0, -82, 3.6 * blink, 0, Math.PI * 2);
-        ctx.arc(-22 + sway * 0.6, -46, 2.5 * blink, 0, Math.PI * 2);
-        ctx.arc(24 - sway * 0.6, -38, 2.2 * blink, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    } else if (obs.kind === "RUNED_MONOLITH") {
-      // Weathered sanctuary standing stone with glowing lunar runes
-      const stoneGrad = ctx.createLinearGradient(-16, -74, 18, 6);
-      stoneGrad.addColorStop(0, "#8f9e95");
-      stoneGrad.addColorStop(0.5, "#566862");
-      stoneGrad.addColorStop(1, "#2c3d39");
-      ctx.fillStyle = stoneGrad;
-      ctx.strokeStyle = "#162421";
-      ctx.lineWidth = 2.6;
-      ctx.beginPath();
-      ctx.moveTo(-13, 5);
-      ctx.lineTo(-16, -54);
-      ctx.lineTo(-4, -74);
-      ctx.lineTo(11, -68);
-      ctx.lineTo(16, -46);
-      ctx.lineTo(14, 5);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-
-      // Moss cap on monolith shoulder
-      ctx.fillStyle = "#5f8c6c";
-      ctx.beginPath();
-      ctx.ellipse(-3, -64, 11, 5, -0.25, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Pulsing carved moon rune sigils
-      ctx.strokeStyle = `rgba(164, 245, 212, ${(0.52 + pulse * 0.38).toFixed(2)})`;
-      ctx.lineWidth = 2.2;
-      ctx.beginPath();
-      ctx.arc(0, -42, 7, 0.3, Math.PI * 1.7);
-      ctx.moveTo(0, -31);
-      ctx.lineTo(0, -14);
-      ctx.moveTo(-5, -23);
-      ctx.lineTo(5, -23);
-      ctx.stroke();
-    } else if (obs.kind === "ANCIENT_TREE") {
-      // 1. Deep shadow foliage backdrop behind upper branches
-      ctx.fillStyle = "#17312b";
-      ctx.strokeStyle = "#0d1f1b";
-      ctx.lineWidth = 2.2;
-      for (const [bx, by, brx, bry] of [
-        [-28 + sway * 0.4, -54, 24, 18],
-        [28 + sway * 0.4, -52, 24, 18],
-        [-14 + sway * 0.5, -72, 26, 20],
-        [16 + sway * 0.5, -70, 25, 19],
-      ]) {
-        ctx.beginPath();
-        ctx.ellipse(bx, by, brx, bry, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      }
-
-      // 2. Sculpted gnarled silverwood trunk with flaring root buttresses & 3 forked boughs
-      const trunkGrad = ctx.createLinearGradient(-20, -56, 20, 10);
-      trunkGrad.addColorStop(0, "#7c705b");
-      trunkGrad.addColorStop(0.45, "#554c3d");
-      trunkGrad.addColorStop(1, "#2b261e");
-      ctx.fillStyle = trunkGrad;
-      ctx.strokeStyle = "#17140f";
-      ctx.lineWidth = 2.4;
-      ctx.beginPath();
-      // Left root flare
-      ctx.moveTo(-26, 7);
-      ctx.quadraticCurveTo(-16, 1, -13, -16);
-      // Left forked branch
-      ctx.quadraticCurveTo(-14, -34, -25, -50);
-      ctx.lineTo(-17, -54);
-      ctx.quadraticCurveTo(-8, -38, -5, -34);
-      // Center bough
-      ctx.lineTo(-3, -58);
-      ctx.lineTo(5, -58);
-      ctx.lineTo(6, -35);
-      // Right forked branch
-      ctx.quadraticCurveTo(11, -39, 19, -52);
-      ctx.lineTo(26, -47);
-      ctx.quadraticCurveTo(15, -33, 13, -15);
-      // Right root flare
-      ctx.quadraticCurveTo(16, 1, 27, 7);
-      ctx.quadraticCurveTo(12, 5, 6, 9);
-      ctx.quadraticCurveTo(0, 4, -7, 9);
-      ctx.quadraticCurveTo(-14, 5, -26, 7);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-
-      // Bark grain ridges & moonlit rim highlight on trunk
-      ctx.strokeStyle = "rgba(182, 168, 138, 0.32)";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(-18, 4);
-      ctx.quadraticCurveTo(-10, -14, -10, -34);
-      ctx.moveTo(-4, 6);
-      ctx.quadraticCurveTo(-2, -16, -1, -44);
-      ctx.stroke();
-
-      // Warm amber spirit hollow in the trunk
-      ctx.fillStyle = "#14110c";
-      ctx.beginPath();
-      ctx.ellipse(1, -15, 5.2, 7.8, -0.08, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = `rgba(232, 206, 128, ${(0.28 + pulse * 0.22).toFixed(2)})`;
-      ctx.beginPath();
-      ctx.ellipse(1, -14, 3.1, 4.8, -0.08, 0, Math.PI * 2);
-      ctx.fill();
-
-      // 3. Multi-layered scalloped leaf clusters (mid-tone & moonlit crown puffs)
-      const canopyClusters = [
-        { x: -30 + sway * 0.5, y: -48, rx: 21, ry: 15, c1: "#4d826e", c2: "#24493e" },
-        { x: 30 + sway * 0.5, y: -46, rx: 21, ry: 15, c1: "#497d69", c2: "#21443a" },
-        { x: -17 + sway * 0.65, y: -62, rx: 25, ry: 18, c1: "#669e86", c2: "#2d594c" },
-        { x: 18 + sway * 0.65, y: -60, rx: 24, ry: 17, c1: "#619880", c2: "#2b5548" },
-        { x: sway * 0.6, y: -50, rx: 26, ry: 18, c1: "#5b917b", c2: "#285043" },
-        { x: -8 + sway * 0.8, y: -76, rx: 24, ry: 17, c1: "#8bc2a7", c2: "#3b6e5d" },
-        { x: 10 + sway * 0.8, y: -74, rx: 22, ry: 16, c1: "#82b99e", c2: "#386858" },
-      ];
-      for (const c of canopyClusters) {
-        const g = ctx.createRadialGradient(c.x - c.rx * 0.3, c.y - c.ry * 0.35, 3, c.x, c.y, c.rx);
-        g.addColorStop(0, c.c1);
-        g.addColorStop(1, c.c2);
-        ctx.fillStyle = g;
-        ctx.strokeStyle = "#132b25";
-        ctx.lineWidth = 1.9;
-        ctx.beginPath();
-        ctx.ellipse(c.x, c.y, c.rx, c.ry, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      }
-
-      // Moonlit rim-highlight crescents on top leaf clusters
-      ctx.fillStyle = "rgba(196, 240, 214, 0.32)";
-      for (const [hx, hy, hrx, hry] of [
-        [-11 + sway * 0.8, -82, 14, 6],
-        [-22 + sway * 0.65, -69, 13, 5.5],
-        [15 + sway * 0.7, -68, 12, 5],
-      ]) {
-        ctx.beginPath();
-        ctx.ellipse(hx, hy, hrx, hry, -0.18, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Softly drifting firefly spores
-      ctx.fillStyle = `rgba(226, 250, 184, ${(0.55 + pulse * 0.4).toFixed(2)})`;
-      ctx.beginPath();
-      ctx.arc(-20 + sway, -68, 2.2, 0, Math.PI * 2);
-      ctx.arc(22 - sway, -58, 1.9, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (obs.kind === "WEEPING_WILLOW") {
-      // Redesigned Moonwell Spirit Willow: graceful forked silver-bark trunk,
-      // lush multi-tiered cloud canopy, and tapered hanging leaf ribbons (no flat oval or stick lines)
-
-      // 1. Rear shadow foliage clusters
-      ctx.fillStyle = "#193833";
-      ctx.strokeStyle = "#0e221f";
-      ctx.lineWidth = 2;
-      for (const [bx, by, brx, bry] of [
-        [-28 + sway * 0.4, -50, 22, 16],
-        [28 + sway * 0.4, -48, 22, 16],
-        [sway * 0.5, -66, 28, 19],
-      ]) {
-        ctx.beginPath();
-        ctx.ellipse(bx, by, brx, bry, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      }
-
-      // 2. Soft rear hanging leaf-ribbons (behind the trunk)
-      ctx.fillStyle = "#2b5e54";
-      for (const [lx, ly, len] of [[-32, -44, 24], [31, -42, 23]]) {
-        const s = sway * 0.9;
-        ctx.beginPath();
-        ctx.moveTo(lx - 4 + s * 0.3, ly);
-        ctx.quadraticCurveTo(lx - 6 + s, ly + len * 0.55, lx + s * 1.3, ly + len);
-        ctx.quadraticCurveTo(lx + 5 + s * 0.8, ly + len * 0.55, lx + 4 + s * 0.3, ly);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      // 3. Graceful S-curved silver-ash trunk with flaring roots & 3 sweeping boughs
-      const willowTrunk = ctx.createLinearGradient(-18, -56, 18, 8);
-      willowTrunk.addColorStop(0, "#868272");
-      willowTrunk.addColorStop(0.5, "#5c5749");
-      willowTrunk.addColorStop(1, "#333027");
-      ctx.fillStyle = willowTrunk;
-      ctx.strokeStyle = "#191713";
-      ctx.lineWidth = 2.3;
-      ctx.beginPath();
-      ctx.moveTo(-22, 7);
-      ctx.quadraticCurveTo(-12, 0, -10, -18);
-      ctx.quadraticCurveTo(-11, -34, -24, -48);
-      ctx.lineTo(-16, -52);
-      ctx.quadraticCurveTo(-5, -38, -3, -32);
-      ctx.lineTo(0, -56);
-      ctx.lineTo(7, -55);
-      ctx.lineTo(6, -33);
-      ctx.quadraticCurveTo(12, -38, 23, -49);
-      ctx.lineTo(29, -44);
-      ctx.quadraticCurveTo(14, -32, 11, -16);
-      ctx.quadraticCurveTo(13, 1, 23, 7);
-      ctx.quadraticCurveTo(9, 4, 4, 8);
-      ctx.quadraticCurveTo(-2, 4, -8, 8);
-      ctx.quadraticCurveTo(-14, 4, -22, 7);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-
-      // Silver-bark highlight veins
-      ctx.strokeStyle = "rgba(205, 200, 180, 0.34)";
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.moveTo(-14, 4);
-      ctx.quadraticCurveTo(-7, -14, -7, -32);
-      ctx.moveTo(1, 5);
-      ctx.quadraticCurveTo(2, -14, 3, -42);
-      ctx.stroke();
-
-      // 4. Foreground tapered leaf-ribbons & glowing dewdrop blossoms hanging beneath the boughs
-      for (const [lx, ly, len, tone] of [
-        [-22, -40, 24, "#4b8e7d"],
-        [-9, -38, 21, "#5ca390"],
-        [11, -38, 22, "#4b8e7d"],
-        [23, -40, 25, "#5ca390"],
-      ] as const) {
-        const s = sway * 1.05;
-        ctx.fillStyle = tone;
-        ctx.strokeStyle = "#16352f";
-        ctx.lineWidth = 1.4;
-        ctx.beginPath();
-        ctx.moveTo(lx - 4.5 + s * 0.35, ly);
-        ctx.quadraticCurveTo(lx - 6.5 + s, ly + len * 0.55, lx + s * 1.35, ly + len);
-        ctx.quadraticCurveTo(lx + 5.5 + s * 0.85, ly + len * 0.55, lx + 4.5 + s * 0.35, ly);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // Bioluminescent willow dewdrop bud at the tip of each frond
-        ctx.fillStyle = `rgba(182, 250, 222, ${(0.65 + pulse * 0.3).toFixed(2)})`;
-        ctx.beginPath();
-        ctx.arc(lx + s * 1.35, ly + len + 1.5, 2.2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 5. Lush scalloped willow cloud-canopy (7 overlapping volumetric foliage puffs)
-      const willowPuffs = [
-        { x: -27 + sway * 0.55, y: -46, rx: 19, ry: 13.5, c1: "#589c89", c2: "#275248" },
-        { x: 27 + sway * 0.55, y: -45, rx: 19, ry: 13.5, c1: "#549683", c2: "#254e45" },
-        { x: -14 + sway * 0.65, y: -57, rx: 22, ry: 15.5, c1: "#74b8a3", c2: "#316659" },
-        { x: 15 + sway * 0.65, y: -56, rx: 22, ry: 15.5, c1: "#6eb29d", c2: "#2e6155" },
-        { x: sway * 0.6, y: -48, rx: 23, ry: 15, c1: "#68ab96", c2: "#2c5c50" },
-        { x: -6 + sway * 0.8, y: -69, rx: 21, ry: 14.5, c1: "#9cd9c4", c2: "#417a6b" },
-        { x: 8 + sway * 0.8, y: -67, rx: 19, ry: 13.5, c1: "#92d0ba", c2: "#3d7365" },
-      ];
-      for (const p of willowPuffs) {
-        const g = ctx.createRadialGradient(p.x - p.rx * 0.28, p.y - p.ry * 0.32, 3, p.x, p.y, p.rx);
-        g.addColorStop(0, p.c1);
-        g.addColorStop(1, p.c2);
-        ctx.fillStyle = g;
-        ctx.strokeStyle = "#15302a";
-        ctx.lineWidth = 1.8;
-        ctx.beginPath();
-        ctx.ellipse(p.x, p.y, p.rx, p.ry, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      }
-
-      // Moonlit crown highlights
-      ctx.fillStyle = "rgba(216, 252, 238, 0.36)";
-      ctx.beginPath();
-      ctx.ellipse(-7 + sway * 0.8, -74, 13, 5, -0.15, 0, Math.PI * 2);
-      ctx.ellipse(14 + sway * 0.68, -62, 11, 4.5, 0.18, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      // MOSS_PILLAR: Fluted sanctuary stone column wrapped in ivy & glowing moonblossom vines
-      const colGrad = ctx.createLinearGradient(-15, -66, 15, 6);
-      colGrad.addColorStop(0, "#aebba9");
-      colGrad.addColorStop(0.5, "#6f8274");
-      colGrad.addColorStop(1, "#3b4d44");
-      ctx.fillStyle = colGrad;
-      ctx.strokeStyle = "#192621";
-      ctx.lineWidth = 2.4;
-      ctx.beginPath();
-      ctx.roundRect(-14, -62, 28, 67, 5);
-      ctx.fill();
-      ctx.stroke();
-
-      // Column capital & base plinth
-      ctx.beginPath();
-      ctx.roundRect(-19, -68, 38, 10, 4);
-      ctx.roundRect(-18, -2, 36, 8, 3);
-      ctx.fill();
-      ctx.stroke();
-
-      // Fluted vertical grooves
-      ctx.strokeStyle = "rgba(26, 42, 36, 0.45)";
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      for (const gx of [-7, 0, 7]) {
-        ctx.moveTo(gx, -55);
-        ctx.lineTo(gx, -5);
-      }
-      ctx.stroke();
-
-      // Wrapping ivy vine & glowing moonblossom
-      ctx.strokeStyle = "#4d855c";
-      ctx.lineWidth = 3.2;
-      ctx.beginPath();
-      ctx.moveTo(-14, -12);
-      ctx.bezierCurveTo(16, -24, -16, -42, 13, -54);
-      ctx.stroke();
-      ctx.fillStyle = "#e8f7c8";
-      ctx.beginPath();
-      ctx.arc(4, -34, 3.2, 0, Math.PI * 2);
-      ctx.arc(-5, -20, 2.6, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    ctx.restore();
+    drawForestObstacle(ctx, obs, this.elapsed, this.human, this.reducedMotion, obs.kind === "CRYSTAL_SPIRE" ? this.getCrystalBlink(obs.x) : 0);
   }
 
   drawCanvasLabels(ctx: CanvasRenderingContext2D) {
@@ -3848,7 +3476,7 @@ function Lobby({
   multiplayerClient,
   mpState,
 }: {
-  onLaunch: (count: number, role: RoleChoice, profile: SoloProfile, hollowCount: number) => void;
+  onLaunch: (count: number, role: RoleChoice, profile: SoloProfile, hollowCount: number, chaosMoonsway: boolean) => void;
   multiplayerClient?: MultiplayerClient | null;
   mpState?: MultiplayerState | null;
 }) {
@@ -3877,6 +3505,7 @@ function Lobby({
   const [botFill, setBotFill] = useState(true);
   const [targetPlayers, setTargetPlayers] = useState(6);
   const [hollowCount, setHollowCount] = useState(1);
+  const [chaosMoonsway, setChaosMoonsway] = useState(false);
   const [copied, setCopied] = useState(false);
   const [hideRoomCode, setHideRoomCode] = useState(false);
   const [editingInRoom, setEditingInRoom] = useState(true);
@@ -3892,6 +3521,7 @@ function Lobby({
   const activeTargetPlayers = inRoom && mpState ? mpState.targetPlayers : targetPlayers;
   const activeBotFill = inRoom && mpState ? mpState.botFill : botFill;
   const activeHollowCount = inRoom && mpState ? mpState.hollowCount : hollowCount;
+  const activeChaosMoonsway = inRoom && mpState ? mpState.chaosMoonsway : chaosMoonsway;
   const roomPopulation = activeBotFill ? activeTargetPlayers : mpState?.players.length ?? 4;
   const myNetPlayer = inRoom && mpState ? mpState.players.find((p) => p.id === mpState.playerId) : undefined;
   const readyCount = inRoom && mpState ? mpState.players.filter((p) => p.ready || p.isHost).length : 0;
@@ -4051,7 +3681,7 @@ function Lobby({
       eyeStyle: selectedEyes,
     };
     window.setTimeout(() => {
-      onLaunch(players, role, launchProfile, clampHollowCount(hollowCount, players));
+      onLaunch(players, role, launchProfile, clampHollowCount(hollowCount, players), chaosMoonsway);
     }, 380);
   };
 
@@ -4110,11 +3740,11 @@ function Lobby({
     window.setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleHostConfigUpdate = (nextTarget: number, nextBotFill: boolean, nextHollows = activeHollowCount) => {
+  const handleHostConfigUpdate = (nextTarget: number, nextBotFill: boolean, nextHollows = activeHollowCount, nextChaos = activeChaosMoonsway) => {
     setTargetPlayers(nextTarget);
     setBotFill(nextBotFill);
     if (inRoom && mpState?.isHost && multiplayerClient) {
-      multiplayerClient.updateRoomConfig(nextTarget, nextBotFill, nextHollows);
+      multiplayerClient.updateRoomConfig(nextTarget, nextBotFill, nextHollows, nextChaos);
     }
   };
 
@@ -4436,6 +4066,7 @@ function Lobby({
                 <select id="solo-hollow-count" className="mp-field" value={clampHollowCount(hollowCount, players)} onChange={event => setHollowCount(Number(event.target.value))}>
                   {Array.from({ length: Math.floor(players / 2) }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} {i ? "Hollows" : "Hollow"}</option>)}
                 </select>
+                <label className="chaos-setting"><input type="checkbox" checked={chaosMoonsway} onChange={event => setChaosMoonsway(event.target.checked)} /><span>Chaos · Moonsway<small>Optional: body reporters have a 25% chance of a redirected vote. Off by default.</small></span></label>
                 <div className="role-switch" role="group" aria-label="Choose test role">
                   {(["RANDOM", "CREWMATE", "IMPOSTOR"] as RoleChoice[]).map((value) => (
                     <button key={value} className={role === value ? "active" : ""} onClick={() => { playLobbySfx("switch", 1); setRole(value); }}>{value === "RANDOM" ? "AUTO" : ROLE_LABELS[value].toUpperCase()}</button>
@@ -4730,6 +4361,7 @@ function Lobby({
                       {Array.from({ length: Math.max(1, Math.floor(roomPopulation / 2)) }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} {i ? "Hollows" : "Hollow"}</option>)}
                     </select>
                     {activeHollowCount * 2 === roomPopulation && <p className="role-note">High difficulty: half the circle is Hollow. The opening tie does not end the match.</p>}
+                    <label className="chaos-setting"><input type="checkbox" checked={activeChaosMoonsway} onChange={event => handleHostConfigUpdate(activeTargetPlayers, activeBotFill, activeHollowCount, event.target.checked)} /><span>Chaos · Moonsway<small>Optional vote shifting for body reporters. Off by default; applies to everyone.</small></span></label>
                     <div className="host-config-header">
                       <label className="field-label" htmlFor="mp-player-count">
                         TARGET CIRCLE <span>{activeTargetPlayers} SLOTS</span>
@@ -4769,7 +4401,7 @@ function Lobby({
                     <button
                       className="launch-button"
                       disabled={!mpState.connected}
-                      onClick={() => multiplayerClient?.startMatch(activeBotFill, activeTargetPlayers, activeHollowCount)}
+                      onClick={() => multiplayerClient?.startMatch(activeBotFill, activeTargetPlayers, activeHollowCount, activeChaosMoonsway)}
                     >
                       <span>
                         START MATCH ({mpState.players.length} HUMAN
@@ -4783,6 +4415,7 @@ function Lobby({
                   </div>
                 ) : (
                   <div className="waiting-status">
+                    <p>{activeChaosMoonsway ? "CHAOS MOONSWAY ON · body-reporter votes may shift" : "STANDARD VOTING · your vote stays on your choice"}</p>
                     <span>
                       ✦ Waiting for host to initiate the moonward trial ({activeTargetPlayers} slots
                       {activeBotFill ? " • AI fill enabled" : ""})…
@@ -4922,7 +4555,7 @@ function Lobby({
                               </strong>
                               <small>
                                 {room.playerCount}/{room.targetPlayers} Wardens{" "}
-                                {room.botFill ? "• AI Bot Fill" : "• Humans Only"}
+                                {room.botFill ? "• AI Bot Fill" : "• Humans Only"}{room.chaosMoonsway ? " • Chaos Moonsway" : " • Standard votes"}
                               </small>
                             </div>
                           </div>
@@ -5004,20 +4637,6 @@ function openingChat(m: Meeting): ChatMessage[] {
   return lines;
 }
 
-function TouchButton({ code, children, onTouch }: { code: string; children: React.ReactNode; onTouch: (code: string, down: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      onPointerDown={(event) => { event.preventDefault(); onTouch(code, true); }}
-      onPointerUp={() => onTouch(code, false)}
-      onPointerCancel={() => onTouch(code, false)}
-      onPointerLeave={() => onTouch(code, false)}
-    >
-      {children}
-    </button>
-  );
-}
-
 function Game({
   count,
   roleChoice,
@@ -5028,6 +4647,7 @@ function Game({
   layoutSeed = 0,
   hollowCount = 1,
   hollowAllies,
+  chaosMoonsway = false,
   onExit,
   onMatchComplete,
 }: {
@@ -5040,10 +4660,12 @@ function Game({
   layoutSeed?: number;
   hollowCount?: number;
   hollowAllies?: string[];
+  chaosMoonsway?: boolean;
   onExit: () => void;
   onMatchComplete: (result: string) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const stageRef = useRef<HTMLElement>(null);
   const [mapLayout] = useState(() => createMatchLayout(layoutSeed));
   const engineRef = useRef<OrdealEngine | null>(null);
   const normalMusicRef = useRef<HTMLAudioElement | null>(null);
@@ -5067,6 +4689,10 @@ function Game({
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [networkState, setNetworkState] = useState<MultiplayerState | null>(() => multiplayerClient?.getSnapshot() ?? null);
+  const [navigationExpanded, setNavigationExpanded] = useState(false);
+  const [notebookOpen, setNotebookOpen] = useState(false);
+  const [observations, setObservations] = useState<ObservationNote[]>([]);
+  const [knownNames, setKnownNames] = useState<KnownName[]>([]);
 
   useEffect(() => {
     const unsubscribe = multiplayerClient?.onStateChange(setNetworkState);
@@ -5108,9 +4734,10 @@ function Game({
       initialPlayers,
       assignedRole,
       soloProfile,
-      { layoutSeed, hollowCount, hollowAllies },
+      { layoutSeed, hollowCount, hollowAllies, chaosMoonsway },
     );
     engineRef.current = engine;
+    setKnownNames(engine.players.map(({ id, name }) => ({ id, name })));
     engine.roleRevealActive = true;
     engine.paused = !multiplayerClient;
     setRoleReveal(engine.human.role);
@@ -5142,7 +4769,7 @@ function Game({
       if (unsubChat) unsubChat();
       engine.destroy();
     };
-  }, [count, roleChoice, multiplayerClient, initialPlayers, assignedRole, soloProfile, layoutSeed, hollowCount, hollowAllies, onMatchComplete]);
+  }, [count, roleChoice, multiplayerClient, initialPlayers, assignedRole, soloProfile, layoutSeed, hollowCount, hollowAllies, chaosMoonsway, onMatchComplete]);
 
   useEffect(() => {
     const normalMusic = new Audio("/audio/moonlit-deduction.mp3");
@@ -5342,11 +4969,11 @@ function Game({
       }]);
     }, 650 + Math.random() * 650);
   };
-  const handleTouch = useCallback((code: string, down: boolean) => {
-    engineRef.current?.setTouch(code, down);
-  }, []);
+  const handleMoveVector = useCallback((vector: MoveVector) => engineRef.current?.setMoveVector(vector), []);
   const handleDestinationChange = useCallback((id: string) => engineRef.current?.setNavigationDestination(id), []);
-  const handleNavigationExpanded = useCallback((open: boolean) => engineRef.current?.setNavigationOpen(open), []);
+  const handleNavigationExpanded = useCallback((open: boolean) => { setNavigationExpanded(open); engineRef.current?.setNavigationOpen(open); }, []);
+  const handleNotebookOpen = useCallback((open: boolean) => { setNotebookOpen(open); engineRef.current?.setNotebookOpen(open); }, []);
+  const recordObservation = useCallback((note: ObservationNote) => setObservations(previous => [note, ...previous].slice(0, 8)), []);
   const toggleBackgroundMusic = () => {
     if (musicEnabled) {
       setMusicEnabled(false);
@@ -5376,7 +5003,7 @@ function Game({
         </div>
       </header>
 
-      <section className="game-stage">
+      <section className="game-stage" ref={stageRef}>
         <canvas ref={canvasRef} aria-label="Top-down view of the Moonwarden mountain sanctuary" />
         <NavigationMap
           position={snapshot.navigation}
@@ -5389,6 +5016,7 @@ function Game({
           onExpandedChange={handleNavigationExpanded}
           enabled={!meeting && !puzzle && !roleReveal && !deathReveal && !result && (!networkState || networkState.connected)}
         />
+        <FieldNotebook roster={knownNames} notes={observations} onRecord={recordObservation} open={notebookOpen} onOpenChange={handleNotebookOpen} enabled={snapshot.humanAlive && !meeting && !puzzle && !roleReveal && !deathReveal && !result && !navigationExpanded && (!networkState || networkState.connected)} />
         {networkState && !networkState.connected && (
           <div className="connection-lost" role="alert">
             <b>CONNECTION LOST</b>
@@ -5415,6 +5043,8 @@ function Game({
         ) : null}
 
         <div className="crew-count"><span className="crew-dot" />{snapshot.living}<small> / {snapshot.total} ALIVE</small></div>
+        <div className="current-landmark" aria-label="Your current landmark">⌖ {snapshot.locationName}</div>
+        {chaosMoonsway && <div className="chaos-match-badge">CHAOS · MOONSWAY ON</div>}
 
         {snapshot.role === "IMPOSTOR" && (
           <div className="private-role"><small>PRIVATE ROLE</small><b>{ROLE_LABELS.IMPOSTOR.toUpperCase()}</b><span>Sight V OR Echo C • one special action</span><span>one strike per Ordeal · Veiled Bite X</span><span>{(hollowAllies ?? []).filter(id => id !== snapshot.localPlayerId).map(id => initialPlayers?.find(p => p.id === id)?.name).filter(Boolean).join(", ") || (hollowCount > 1 && !multiplayerClient ? "Other Hollows share your side" : "You hunt alone")}</span></div>
@@ -5479,12 +5109,15 @@ function Game({
           </div>
         )}
 
-        <div className="touch-pad" aria-label="Touch movement controls">
-          <TouchButton code="ArrowUp" onTouch={handleTouch}>▲</TouchButton>
-          <TouchButton code="ArrowLeft" onTouch={handleTouch}>◀</TouchButton>
-          <TouchButton code="ArrowDown" onTouch={handleTouch}>▼</TouchButton>
-          <TouchButton code="ArrowRight" onTouch={handleTouch}>▶</TouchButton>
-        </div>
+        {snapshot.taskPrompt && !puzzle && !roleReveal && <button type="button" className="paired-ritual-button"
+          onPointerDown={event => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); engineRef.current?.setPairRitual(true); }}
+          onPointerUp={() => engineRef.current?.setPairRitual(false)} onPointerCancel={() => engineRef.current?.setPairRitual(false)} onLostPointerCapture={() => engineRef.current?.setPairRitual(false)} onBlur={() => engineRef.current?.setPairRitual(false)}
+          onKeyDown={event => { if (["Space", "Enter"].includes(event.code)) { event.preventDefault(); engineRef.current?.setPairRitual(true); } }}
+          onKeyUp={event => { if (["Space", "Enter"].includes(event.code)) { event.preventDefault(); engineRef.current?.setPairRitual(false); } }}>
+          <span><kbd>H</kbd> HOLD TO HARMONIZE</span><small>{snapshot.pairRitual ? `${snapshot.pairRitual.participants}/2 SLIMES · ${Math.round(snapshot.pairRitual.progress * 100)}%` : "Optional paired rite · 2 slimes · makes noise"}</small>
+          <i style={{ width: `${(snapshot.pairRitual?.progress ?? 0) * 100}%` }} />
+        </button>}
+        <FloatingJoystick surfaceRef={stageRef} onVector={handleMoveVector} enabled={snapshot.humanAlive && !meeting && !puzzle && !roleReveal && !deathReveal && !result && !navigationExpanded && !notebookOpen && (!networkState || networkState.connected)} />
       </section>
 
       <footer className="game-footer">
@@ -5654,6 +5287,7 @@ function Game({
                         </div>
                       ))}
                     </div>
+                    <MeetingObservations roster={knownNames} notes={observations} onRecord={recordObservation} onDraft={setChatDraft} disabled={!snapshot.humanAlive} />
                     <form className="chat-composer" onSubmit={sendChatMessage}>
                       <input
                         value={chatDraft}
@@ -5670,7 +5304,7 @@ function Game({
 
                   <section className="vote-panel" aria-label="Cast your vote">
                     <p>Discuss first, then select the slime you distrust. The next screen shows the final tally.</p>
-                    {meeting.bodyReporterId && <p className="moonsway-rule">☾ Moonsway: the body reporter’s player vote has a {Math.round(REPORTER_VOTE_DRIFT_CHANCE * 100)}% chance to drift to another living slime. Skip votes are safe.</p>}
+                    {chaosMoonsway && meeting.bodyReporterId ? <p className="moonsway-rule">☾ Chaos Moonsway: the body reporter’s player vote has a {Math.round(REPORTER_VOTE_DRIFT_CHANCE * 100)}% chance to drift. Skip votes are safe.</p> : <p className="moonsway-rule">Standard voting: your vote stays on the player you choose.</p>}
                     {meeting.votePending && <p className="vote-receipt" role="status">Sealing your vote…</p>}
                     <div className="vote-grid">
                       {meeting.candidates.map((player, idx) => {
@@ -5713,8 +5347,8 @@ function Game({
 
 export default function Home() {
   const [match, setMatch] = useState<
-    | { mode: "SOLO"; count: number; role: RoleChoice; profile: SoloProfile; hollowCount: number; layoutSeed: number }
-    | { mode: "MULTI"; client: MultiplayerClient; initialPlayers: NetPlayer[]; assignedRole: Role; hollowCount: number; layoutSeed: number; hollowAllies?: string[] }
+    | { mode: "SOLO"; count: number; role: RoleChoice; profile: SoloProfile; hollowCount: number; layoutSeed: number; chaosMoonsway: boolean }
+    | { mode: "MULTI"; client: MultiplayerClient; initialPlayers: NetPlayer[]; assignedRole: Role; hollowCount: number; layoutSeed: number; hollowAllies?: string[]; chaosMoonsway: boolean }
     | null
   >(null);
 
@@ -5739,6 +5373,7 @@ export default function Home() {
           layoutSeed: msg.layoutSeed ?? 0,
           hollowCount: msg.hollowCount ?? 1,
           hollowAllies: msg.hollowAllies,
+          chaosMoonsway: msg.chaosMoonsway === true,
         });
       }
     });
@@ -5768,15 +5403,16 @@ export default function Home() {
       assignedRole={match.mode === "MULTI" ? match.assignedRole : undefined}
       layoutSeed={match.layoutSeed}
       hollowCount={match.hollowCount}
+      chaosMoonsway={match.chaosMoonsway}
       hollowAllies={match.mode === "MULTI" ? match.hollowAllies : undefined}
       onExit={handleExit}
       onMatchComplete={handleMatchComplete}
     />
   ) : (
     <Lobby
-      onLaunch={(count, role, profile, hollowCount) => {
+      onLaunch={(count, role, profile, hollowCount, chaosMoonsway) => {
         gameAnalytics.start("solo", count);
-        setMatch({ mode: "SOLO", count, role, profile, hollowCount, layoutSeed: Math.floor(Math.random() * 4294967296) });
+        setMatch({ mode: "SOLO", count, role, profile, hollowCount, chaosMoonsway, layoutSeed: Math.floor(Math.random() * 4294967296) });
       }}
       multiplayerClient={client}
       mpState={mpState}

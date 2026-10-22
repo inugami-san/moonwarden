@@ -66,6 +66,21 @@ checks, package bumps, and Git tags do not deploy anything by themselves.
 - **Multiplayer**: WebSocket transport with an HTTP relay fallback, 4-letter room codes, unique room-wide slime colors (including bots), waiting room chat and roster, host controls, a 20Hz room tick, buffered movement interpolation, and synchronized voting
 - Cached translucent slime materials and shared, cached gameplay accessories in both customization and the arena; offscreen actor/prop drawing is culled without disabling simulation. Identity-concealing Ordeals retain anonymous silhouettes
 
+### Painterly forest art
+
+The local v0.3.0 visual pass uses lavender moonlight, amber shrine reflections,
+translucent gel shading, smaller expressions, restrained squash/stretch, and
+textured woodland materials. Gameplay and wardrobe use the same accessory
+artwork and eye scale. Trees and stone props bake two layers per shape variant
+into a bounded cache rather than repainting their texture every frame. The
+floor is baked once per layout. Subtle grass and water reactions only run for
+visible actors during Calm, and are disabled with reduced motion. They leave
+no persistent trails. The art does not add colliders, reveal hidden identities,
+or change the existing completed/personal/shared shrine rules.
+
+Run `npm run test:art` for material, animation, caching, shrine state, and map
+rendering checks. This is a 2D rendering update, not a 3D engine migration.
+
 ## Run locally
 
 Node.js 22.13 or newer is required.
@@ -167,6 +182,11 @@ No deployment is performed by the local checks below.
 
 ### Moonsway voting
 
+Standard matches keep every vote on the selected destination. Moonsway is **off
+by default**. A host may enable **Chaos · Moonsway** in the lobby before starting;
+all guests see the setting, and it cannot change mid-match. Solo practice has
+the same optional switch. The following rules apply only when Chaos is enabled.
+
 Only the player who reports a slime puddle is affected: when they cast a player
 vote, it has a **25% chance** to drift to another living player, excluding the
 reporter and their original choice. This happens regardless of either player's
@@ -180,8 +200,37 @@ its destination privately to that voter. Repeated clicks/packets cannot reroll
 it. The same role-blind rule applies in solo play and to AI body reporters. The
 meeting explains the risk before voting; a small Moonsway confirmation names
 the actual destination, and the public tally counts that vote only once. Chat
-is preserved when a vote receipt arrives. Protocol `silverpine-moonsway-v4`
+is preserved when a vote receipt arrives. Protocol `silverpine-harmony-v5`
 requires matching frontend and room-server deployments.
+
+### Paired rites, field notes, and mobile movement (v0.3.0)
+
+- At an available shrine, hold **H** or **HOLD TO HARMONIZE**. Two living slimes
+  must deliberately hold the action, stand still within the shrine's radius,
+  and remain together for 1.25 seconds. This is optional; ordinary puzzles still
+  work alone. Both roles may participate. Each earns their own normal gear claim,
+  with no doubled team restoration or extra immediate gauge signal.
+- The rite makes a soft, range-limited hum. Nearby players can investigate;
+  the sound and progress never name a participant or disclose their role. Moving,
+  releasing, opening a dialog, disconnecting, dying, or a new round cancels a hold.
+  Nearby AI performing the same shrine can cooperate in solo and multiplayer.
+- **Field notes / N** opens a private, match-only notebook. Select a name,
+  landmark, and time from memory. These are unverified player claims, not tracking.
+  During meetings, **Draft message** copies a claim to the composer; only **SEND**
+  shares it. Notes are not persisted or sent to analytics. Dead players cannot share.
+- On mobile, touch any unobstructed part of the **left half of the gameplay area**
+  and drag to spawn a floating joystick. A small drag walks slowly, a full drag
+  reaches normal speed, and circular clamping prevents faster diagonals. Your
+  movement also aims your light. A second finger may use the right-hand actions.
+  Release/cancel, focus loss, rotation/resize, dialogs, or disconnection reset it.
+  Desktop WASD/arrows remain available; Mirror Pool reverses both input types.
+- Landmarks include Fallen Shrine, Willow Grove, and Moonwell, with shared map
+  symbols, floor motifs, location callouts, and two checked approaches per shrine.
+  Generated trees/stones never become invisible collision on the navigation routes.
+
+The v0.3.0 source is prepared locally. Deployment still requires an explicit
+release of **both** the site and persistent room server; pushing Git alone does
+not promote production. No beginner preset or expanded analytics is included.
 
 ### Expanded forest and Warden preparation
 

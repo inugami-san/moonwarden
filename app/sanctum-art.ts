@@ -22,6 +22,48 @@ export type Sanctum = {
   reward: "FLASHLIGHT" | "FLARE" | "SONAR";
 };
 
+/** Distinct carved silhouettes, with the same readable ritual/seal in front. */
+function drawShrineCrown(ctx: CanvasRenderingContext2D, station: Sanctum, locked: boolean, restored: boolean) {
+  ctx.save();
+  ctx.strokeStyle = locked ? "#79818a" : "#c7c1cd"; ctx.lineWidth = 1.8;
+  ctx.fillStyle = locked ? "#606971" : "#9b9caa";
+  if (station.label === "OWL TOTEM") {
+    ctx.beginPath(); ctx.moveTo(-20, -37); ctx.lineTo(-23, -55); ctx.lineTo(-10, -49);
+    ctx.quadraticCurveTo(0, -55, 10, -49); ctx.lineTo(23, -55); ctx.lineTo(20, -37);
+    ctx.quadraticCurveTo(0, -28, -20, -37); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = locked ? "#9c9b88" : "#e5c995";
+    for (const side of [-1, 1]) { ctx.beginPath(); ctx.arc(side * 9, -43, 4, .2, Math.PI * 1.85); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(-3, -40); ctx.lineTo(0, -35); ctx.lineTo(3, -40); ctx.stroke();
+  } else if (station.label === "ROOT SEAL") {
+    ctx.strokeStyle = locked ? "#6d6a60" : "#aaa087"; ctx.lineWidth = 3;
+    for (const side of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(side * 13, -36); ctx.bezierCurveTo(side * 26, -47, -side * 7, -58, 0, -50); ctx.stroke();
+    }
+    ctx.lineWidth = 1; ctx.strokeStyle = locked ? "#8b9292" : "#c5c9d5";
+    ctx.beginPath(); ctx.moveTo(0, -49); ctx.lineTo(0, -34); ctx.stroke();
+  } else if (station.label === "STAR ALTAR") {
+    for (const side of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(side * 26, -34); ctx.lineTo(side * 18, -50); ctx.lineTo(side * 5, -47); ctx.stroke();
+    }
+    ctx.fillStyle = locked ? "#90979c" : "#e0d7ef";
+    for (const [x, y] of [[-18, -50], [-5, -47], [5, -47], [18, -50]]) { ctx.beginPath(); ctx.arc(x, y, 1.5, 0, Math.PI * 2); ctx.fill(); }
+  } else {
+    // Moonwell, Frost Font and East Ward are open stone fonts with water insets.
+    const wide = station.label === "MOONWELL" ? 31 : 24;
+    ctx.beginPath(); ctx.ellipse(0, -35, wide, 8, 0, Math.PI * .03, Math.PI * .97); ctx.stroke();
+    ctx.fillStyle = locked ? "#637881" : "#b4c6d2";
+    ctx.beginPath(); ctx.ellipse(0, -35, wide - 4, 3.2, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = locked ? "#7e9098" : "#e0dee9"; ctx.lineWidth = .8;
+    ctx.beginPath(); ctx.ellipse(-2, -36, wide * .55, 1.8, 0, .3, 2.7); ctx.stroke();
+  }
+  // Amber reflects restored wards; a temporary lock always dims the matter.
+  if (restored && !locked) {
+    ctx.strokeStyle = "#e4c59180"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(-27, -30); ctx.quadraticCurveTo(0, -40, 27, -30); ctx.stroke();
+  }
+  ctx.restore();
+}
+
 /** Forest matter, carved moonstone, and local light; no screen-shaped station panels. */
 export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctum, time: number, locked: boolean, nearby: boolean) {
   const { completed } = station;
@@ -38,15 +80,15 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
   ctx.ellipse(0, 20, 50, 19, 0, 0, Math.PI * 2);
   ctx.fill();
   const halo = ctx.createRadialGradient(0, 1, 4, 0, 1, 54);
-  halo.addColorStop(0, `rgba(137,201,168,${brightness * 0.25})`);
-  halo.addColorStop(1, "rgba(85,152,119,0)");
+  halo.addColorStop(0, completed ? `rgba(231,196,137,${brightness * .28})` : `rgba(192,184,221,${brightness * .25})`);
+  halo.addColorStop(1, "rgba(174,162,202,0)");
   ctx.fillStyle = halo;
   ctx.fillRect(-56, -55, 112, 112);
 
   // A stepped moonstone plinth reads as a destination, rather than a loose rock.
   const plinth = ctx.createLinearGradient(0, 12, 0, 32);
-  plinth.addColorStop(0, locked ? "#526169" : "#a4b4bc");
-  plinth.addColorStop(1, locked ? "#26343e" : "#4a6371");
+  plinth.addColorStop(0, locked ? "#626b78" : "#b0aeba");
+  plinth.addColorStop(1, locked ? "#3a4453" : "#686e83");
   ctx.fillStyle = plinth;
   ctx.strokeStyle = "#263a46";
   ctx.lineWidth = 1.5;
@@ -54,7 +96,7 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
   ctx.ellipse(0, 24, 43, 12, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
-  ctx.fillStyle = locked ? "#53656a" : "#91aab1";
+  ctx.fillStyle = locked ? "#656f7b" : "#9c9fad";
   ctx.beginPath();
   ctx.ellipse(0, 18, 37, 10, 0, 0, Math.PI * 2);
   ctx.fill();
@@ -66,7 +108,7 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
 
   // Two carved boughs create a recognizable shrine silhouette from a distance.
   for (const side of [-1, 1]) {
-    ctx.strokeStyle = locked ? "#3b4648" : "#687a80";
+    ctx.strokeStyle = locked ? "#4d535d" : "#7e7e8b";
     ctx.lineWidth = 9;
     ctx.beginPath();
     ctx.moveTo(side * 31, 13);
@@ -83,6 +125,7 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
     ctx.ellipse(side * 30, -21, 9, 3.5, side * 0.8, 0, Math.PI * 2);
     ctx.fill();
   }
+  drawShrineCrown(ctx, station, locked, restored);
   // This steady crown rune records shared restoration, not personal ownership.
   ctx.strokeStyle = locked ? "#6f7f82" : restored ? "#e8dcba" : "#c2ddce";
   ctx.lineWidth = restored ? 3 : 2;
@@ -148,9 +191,9 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
   }
 
   const rock = ctx.createLinearGradient(-16, -26, 21, 24);
-  rock.addColorStop(0, locked ? "#829198" : completed ? "#dedbc9" : "#c0d1ce");
-  rock.addColorStop(0.4, locked ? "#485a67" : completed ? "#9fa9b4" : "#829ca1");
-  rock.addColorStop(1, locked ? "#293b46" : "#496574");
+  rock.addColorStop(0, locked ? "#8a8d9c" : completed ? "#ded5be" : "#c8c3ce");
+  rock.addColorStop(0.4, locked ? "#626b7f" : completed ? "#aaa3ae" : "#9c9daa");
+  rock.addColorStop(1, locked ? "#3f4d60" : "#666d81");
   ctx.fillStyle = rock;
   ctx.strokeStyle = "rgba(13,26,20,.8)";
   ctx.lineWidth = 1.5;
@@ -164,6 +207,15 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
   ctx.quadraticCurveTo(0, 29, -23, 21);
   ctx.fill();
   ctx.stroke();
+
+  // Restrained mineral flecks and chipped planes are stable, not animated noise.
+  for (let i = 0; i < 12; i++) {
+    const x = -16 + i * 17 % 33, y = -15 + i * 13 % 32;
+    ctx.strokeStyle = i % 2 ? "#e9ded338" : "#3c43522e"; ctx.lineWidth = .7;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 2.6, y - .8); ctx.stroke();
+  }
+  ctx.strokeStyle = "#e1d5cb5c"; ctx.lineWidth = .8;
+  ctx.beginPath(); ctx.moveTo(-19, -11); ctx.lineTo(-9, -26); ctx.lineTo(10, -23); ctx.stroke();
 
   ctx.strokeStyle = "rgba(15,35,25,.38)";
   ctx.lineWidth = 1;

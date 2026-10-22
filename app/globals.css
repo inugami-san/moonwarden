@@ -1179,12 +1179,6 @@ input:focus-visible { outline: 3px solid #63e7f4; outline-offset: 3px; }
 .game-footer .latency { margin-left: auto; }
 .latency i { width: 5px; height: 5px; margin-right: 5px; }
 
-.touch-pad { display: none; position: absolute; left: 18px; bottom: 112px; grid-template-columns: repeat(3, 42px); grid-template-rows: repeat(2, 42px); gap: 3px; }
-.touch-pad button { border: 1px solid #516a75; border-radius: 8px; background: rgba(8,18,25,.78); color: #b9d0d5; touch-action: none; }
-.touch-pad button:nth-child(1) { grid-column: 2; }
-.touch-pad button:nth-child(2) { grid-column: 1; grid-row: 2; }
-.touch-pad button:nth-child(3) { grid-column: 2; grid-row: 2; }
-.touch-pad button:nth-child(4) { grid-column: 3; grid-row: 2; }
 
 /* Short console puzzles */
 .modal-backdrop.task-backdrop { background: rgba(0, 10, 14, .86); }
@@ -2625,7 +2619,6 @@ input:focus-visible { outline: 3px solid #63e7f4; outline-offset: 3px; }
   .action kbd { font-size: 7px; }
   .action span { font-size: 7px; }
   .action-dock .report { display: none; }
-  .touch-pad { display: grid; }
   .toast-message { bottom: 100px; font-size: 9px; }
   .interaction-prompt { bottom: 73px; }
   .station-sealed-prompt { bottom: 70px; min-width: min(280px, calc(100% - 24px)); }

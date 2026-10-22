@@ -209,6 +209,16 @@ export class ForestAudio {
     return true;
   }
 
+  ritualHum(listener: Point, source: Point) {
+    const distance = Math.hypot(source.x - listener.x, source.y - listener.y);
+    if (!Number.isFinite(distance) || distance >= HEARING_RANGE) return false;
+    const voice = this.voice("ritual-hum", .7, .13 * (1 - distance / HEARING_RANGE), listener, source);
+    if (!voice) return false;
+    this.tone(voice, 0, .65, 261.63, 261.63, .3);
+    this.bell(voice, .08, 523.25, .55, .2);
+    return true;
+  }
+
   /** A 1.6s visual: wrap at .2s, absorption at .45s, one gulp at .98s, then a gentle settle. */
   devour(listener: Point, source: Point, direct = false) {
     const distance = Math.hypot(source.x - listener.x, source.y - listener.y);

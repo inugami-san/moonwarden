@@ -38,6 +38,7 @@ import {
 import { planRoute } from "./sanctuary-paths";
 import { ejectionVerdict } from "./role-presentation";
 import { createMatchLayout } from "./match-layout";
+import { PAIR_RITUAL_RANGE, PairedRituals } from "./pair-ritual";
 import { clampHollowCount, hollowVictory, ritualProgress, resolveReporterVote, type VoteReceipt, WARD_SETTLE_SECONDS, STEALTH_BODY_DELAY_SECONDS, STEALTH_COOLDOWN_SECONDS, STEALTH_ORDEAL_LOCKOUT } from "./match-rules";
 
 export interface IWebSocketClient {
@@ -75,6 +76,8 @@ export class GameRoom {
   targetPlayers: number = 6;
   botFill: boolean = true;
   hollowCount = 1;
+  chaosMoonsway = false;
+  private pairedRituals = new PairedRituals();
   layoutSeed = 0;
   stations = [...STATIONS];
   obstacles = createMatchLayout(0).obstacles.slice(0, 8);
@@ -174,6 +177,7 @@ export class GameRoom {
       targetPlayers: this.targetPlayers,
       botFill: this.botFill,
       hollowCount: this.hollowCount,
+      chaosMoonsway: this.chaosMoonsway,
       chatHistory: this.chatHistory,
     });
 
@@ -245,6 +249,7 @@ export class GameRoom {
       targetPlayers: this.targetPlayers,
       botFill: this.botFill,
       hollowCount: this.hollowCount,
+      chaosMoonsway: this.chaosMoonsway,
       hostId: this.hostId,
     });
   }
@@ -294,6 +299,7 @@ export class GameRoom {
         if (player.isHost && this.state === "LOBBY") {
           this.targetPlayers = Math.max(this.players.size, 4, Math.min(8, Math.round(msg.targetPlayers)));
           this.botFill = Boolean(msg.botFill);
+          if (typeof msg.chaosMoonsway === "boolean") this.chaosMoonsway = msg.chaosMoonsway;
           this.hollowCount = clampHollowCount(msg.hollowCount ?? this.hollowCount, this.botFill ? this.targetPlayers : this.players.size);
           this.broadcastLobbyUpdate();
         }
@@ -302,11 +308,26 @@ export class GameRoom {
       case "START_MATCH":
         if (player.isHost && this.state === "LOBBY") {
           this.botFill = msg.botFill ?? this.botFill;
+          if (typeof msg.chaosMoonsway === "boolean") this.chaosMoonsway = msg.chaosMoonsway;
           this.targetPlayers = Math.max(this.players.size, 4, Math.min(8, Math.round(msg.targetPlayers ?? this.targetPlayers)));
           this.hollowCount = clampHollowCount(msg.hollowCount ?? this.hollowCount, this.botFill ? this.targetPlayers : this.players.size);
           this.startMatch(this.botFill, this.targetPlayers);
         }
         break;
+
+      case "PAIR_RITUAL": {
+        if (msg.roundId !== this.roundId) break;
+        const station = this.stations.find(station => station.id === msg.stationId);
+        if (!msg.active) {
+          this.pairedRituals.release(player.id);
+          player.working = false;
+          this.sendTo(this.clients.get(player.id)!, { type: "PAIR_RITUAL_STATE", ritual: { stationId: msg.stationId, progress: 0, participants: 0, roundId: this.roundId } });
+        } else if (this.state === "PLAYING" && this.phase !== "DISCUSSION" && player.alive && station
+          && dist(player, station) <= PAIR_RITUAL_RANGE && !this.completedStations.get(player.id)?.has(station.id)) {
+          this.pairedRituals.hold(player.id, station.id, this.roundId, Date.now());
+        }
+        break;
+      }
 
       case "PLAYER_INPUT":
         if (this.state === "PLAYING" && player.alive && this.phase !== "DISCUSSION") {
@@ -489,12 +510,12 @@ export class GameRoom {
     if (client) this.sendTo(client, { type: "ABILITY_STATE", accepted, used: this.abilityUsed.has(playerId), sightRemainingMs: this.phase === "ORDEAL" ? Math.max(0, (this.sightUntil.get(playerId) ?? 0) - Date.now()) : 0, roundId: this.roundId });
   }
 
-  private soundAt(x: number, y: number) {
+  private soundAt(x: number, y: number, kind?: "RITUAL") {
     // Real footsteps and lures deliberately have the same public payload. No role/source leak.
-    const cue = { id: `${this.roundId}-${++this.soundSequence}`, x, y, expiresAt: Date.now() + 1000 };
+    const cue = { id: `${this.roundId}-${++this.soundSequence}`, x, y, expiresAt: Date.now() + 1000, ...(kind ? { kind } : {}) };
     for (const [id, client] of this.clients) {
       const listener = this.players.get(id);
-      if (listener?.alive && dist(listener, cue) <= HEARING_RANGE && (this.hazard !== "ROOTWAKE" || sharesRootCell(listener, cue))) this.sendTo(client, { type: "SOUND_CUE", cue });
+      if (listener?.alive && dist(listener, cue) <= HEARING_RANGE && (this.phase !== "ORDEAL" || this.hazard !== "ROOTWAKE" || sharesRootCell(listener, cue))) this.sendTo(client, { type: "SOUND_CUE", cue });
     }
   }
 
@@ -508,6 +529,7 @@ export class GameRoom {
   }
 
   private startMatch(botFill: boolean, targetCount: number) {
+    this.pairedRituals.clear();
     this.state = "PLAYING";
     this.phase = "CALM";
     this.phaseTime = CALM_SECONDS;
@@ -595,6 +617,7 @@ export class GameRoom {
         role: p.role || "CREWMATE",
         layoutSeed: this.layoutSeed,
         hollowCount: this.hollowCount,
+        chaosMoonsway: this.chaosMoonsway,
         ...(p.role === "IMPOSTOR" ? { hollowAllies: [...hollowIds] } : {}),
         players: playerList.map((player) => ({
           ...player,
@@ -656,6 +679,7 @@ export class GameRoom {
   }
 
   private resetStationsForRound() {
+    this.pairedRituals.clear();
     this.roundId += 1;
     this.sealedStations.clear();
     this.publicSeals.clear();
@@ -709,6 +733,7 @@ export class GameRoom {
   }
 
   private startMeeting(reason: string, reporter: string, bodyReporterId: string | null = null) {
+    this.pairedRituals.clear();
     this.clearMeetingTimers();
     this.restoreTrueColors();
     this.phase = "DISCUSSION";
@@ -774,7 +799,7 @@ export class GameRoom {
       return;
     }
     const livingIds = [...this.players.values()].filter(candidate => candidate.alive).map(candidate => candidate.id);
-    const receipt = resolveReporterVote(playerId, targetId, livingIds, this.meetingBodyReporterId);
+    const receipt = resolveReporterVote(playerId, targetId, livingIds, this.meetingBodyReporterId, Math.random, this.chaosMoonsway);
     this.votes.set(playerId, receipt.targetId);
     this.voteReceipts.set(playerId, receipt);
     reply(true, receipt); // Private; public acknowledgements never disclose targets.
@@ -936,6 +961,7 @@ export class GameRoom {
     // AI Bots movement
     if (this.phase !== "DISCUSSION") {
       this.tickBots(dt);
+      this.tickPairedRituals(dt, now);
     }
     if (this.state !== "PLAYING") return;
 
@@ -1076,6 +1102,10 @@ export class GameRoom {
       bot.vx = 0;
       bot.vy = 0;
       bot.working = true;
+      if ([...this.pairedRituals.intents].some(([id, intent]) => id !== bot.id && intent.stationId === station.id && intent.until > Date.now())) {
+        this.pairedRituals.hold(bot.id, station.id, this.roundId, Date.now());
+        return true;
+      }
       ritual.dwell += Math.min(dt, 0.1);
       if (ritual.dwell >= BOT_RITUAL_SECONDS) {
         this.completeRitual(bot, station.id, station.reward);
@@ -1093,6 +1123,20 @@ export class GameRoom {
     bot.vx = (next.x - bot.x) / distance * speed;
     bot.vy = (next.y - bot.y) / distance * speed;
     return true;
+  }
+
+  private tickPairedRituals(dt: number, now: number) {
+    const actors = [...this.players.values()].filter(player => player.isAi || this.clients.get(player.id)?.readyState === 1);
+    const result = this.pairedRituals.tick(actors, this.stations, (id, stationId) => this.completedStations.get(id)?.has(stationId) ?? true, this.roundId, now, dt);
+    for (const { playerId, ...ritual } of result.updates) {
+      const client = this.clients.get(playerId);
+      if (client) this.sendTo(client, { type: "PAIR_RITUAL_STATE", ritual });
+    }
+    for (const sound of result.sounds) this.soundAt(sound.x, sound.y, "RITUAL");
+    for (const completion of result.completions) {
+      const actor = this.players.get(completion.playerId), station = this.stations.find(station => station.id === completion.stationId);
+      if (actor && station) this.completeRitual(actor, station.id, station.reward);
+    }
   }
 
   private tickBotGear(bot: NetPlayer) {
@@ -1210,6 +1254,7 @@ export class GameServerRegistry {
           targetPlayers: room.targetPlayers,
           botFill: room.botFill,
           hollowCount: room.hollowCount,
+          chaosMoonsway: room.chaosMoonsway,
         });
       }
     }

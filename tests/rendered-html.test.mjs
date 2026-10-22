@@ -257,7 +257,8 @@ test("wrong answers use a small non-blocking alert without a modal or focus capt
 
 test("Moonsway explains the risk, confirms the actual destination, and preserves meeting chat", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(source, /Moonsway: the body reporter’s player vote has a/);
+  assert.match(source, /Chaos Moonsway: the body reporter’s player vote has a/);
+  assert.match(source, /Standard voting: your vote stays on the player you choose/);
   assert.match(source, /MOONSWAY — YOUR VOTE SHIFTED/);
   assert.match(source, /Your vote counts toward/);
   assert.match(source, /next\.candidates !== discussionCandidates/);

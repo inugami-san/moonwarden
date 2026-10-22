@@ -9,6 +9,7 @@ import * as matchRules from "../server/match-rules.ts";
 import { planRoute } from "../server/sanctuary-paths.ts";
 import { preparationStation } from "../app/warden-objectives.ts";
 import { GameRoom } from "../server/game-room.ts";
+import { movementVector } from "../app/joystick-input.ts";
 
 const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("page.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -16,7 +17,7 @@ const node = ast.statements.find(statement => ts.isClassDeclaration(statement) &
 const js = ts.transpileModule(node.getText(ast), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 function fixture() {
   const Engine = runInNewContext(`${js}\nOrdealEngine`, {
-    ...world, ...rules, ...matchRules, W: world.WORLD_WIDTH, H: world.WORLD_HEIGHT, planRoute, preparationStation,
+    ...world, ...rules, ...matchRules, W: world.WORLD_WIDTH, H: world.WORLD_HEIGHT, planRoute, preparationStation, movementVector,
     dist: (a, b) => Math.hypot(a.x - b.x, a.y - b.y),
     clamp: (n, min, max) => Math.max(min, Math.min(max, n)),
     rootwakeStrength: (phase, hazard, time) => phase === "ORDEAL" && hazard === "ROOTWAKE" ? Math.min((10 - time) / .75, time / .55, 1) : 0,
@@ -106,6 +107,28 @@ test("the client can move beyond the old map and respects shared larger bounds",
   const x = human.x;
   engine.updateHuman(.035);
   assert.equal(human.x, x, "opening map stops local input without stopping the world");
+});
+
+test("the actual movement handler preserves joystick drag strength and applies Mirror Pool to analog input", () => {
+  for (const [strength, mirror] of [[.2, false], [1, false], [.2, true]]) {
+    const { engine, human } = fixture();
+    engine.moveVector = { vx: strength, vy: 0 };
+    if (mirror) { engine.phase = "ORDEAL"; engine.hazard = "MIRROR_POOL"; }
+    const x = human.x;
+    engine.updateHuman(1 / 60);
+    assert.ok(Math.abs(human.vx - strength * 184 * .2 * (mirror ? -1 : 1)) < 1e-8);
+    assert.equal(human.x > x, !mirror);
+  }
+});
+
+test("opening navigation clears the real analog handler and held keyboard movement", () => {
+  const { engine, human } = fixture();
+  engine.moveVector = { vx: .6, vy: .8 };
+  engine.keys.add("KeyD"); human.vx = 80; human.vy = 20;
+  engine.setNavigationOpen(true);
+  assert.equal(engine.keys.size, 0);
+  assert.deepEqual({ ...engine.moveVector }, { vx: 0, vy: 0 });
+  assert.equal(human.vx, 0); assert.equal(human.vy, 0);
 });
 
 test("an incorrect shrine answer shows a short notice without blocking movement or a fresh attempt", () => {

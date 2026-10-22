@@ -1,4 +1,5 @@
 import { CENTER, ROOM, SANCTUARY_CLEARINGS, SANCTUARY_TRAILS, WORLD_HEIGHT, WORLD_WIDTH } from "../server/sanctuary-map";
+import { FOREST_PALETTE } from "./forest-art";
 
 /** A full-size world floor baked once. The camera crops it; the forest is not scaled up. */
 export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
@@ -14,13 +15,13 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
 
   ctx.save();
   const sky = ctx.createLinearGradient(0, 0, 0, WORLD_HEIGHT);
-  sky.addColorStop(0, "#344767"); sky.addColorStop(.42, "#778c9a"); sky.addColorStop(1, "#304c55");
+  sky.addColorStop(0, "#4c526c"); sky.addColorStop(.42, "#9296ab"); sky.addColorStop(1, "#5d747b");
   ctx.fillStyle = sky; ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
   glow(1535, 44, 200, "#f5efca9c"); ellipse(1535, 44, 37, 37, "#f4efd3");
 
   // The skyline lives beyond the playable plateau, not behind player silhouettes.
   for (let ridge = 0; ridge < 3; ridge++) {
-    ctx.fillStyle = ["#7887a3", "#596f88", "#3c5b6c"][ridge];
+    ctx.fillStyle = ["#9694ab", "#777f97", "#5a7181"][ridge];
     ctx.beginPath(); ctx.moveTo(0, 155);
     for (let i = 0; i <= 13; i++) ctx.lineTo(i * 160, 32 + ridge * 35 + Math.sin(i * 2.15 + ridge) * 31);
     ctx.lineTo(WORLD_WIDTH, 265); ctx.lineTo(0, 265); ctx.closePath(); ctx.fill();
@@ -31,13 +32,13 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
   ctx.fillStyle = "#233d43";
   ctx.beginPath(); ctx.roundRect(ROOM.left - 12, ROOM.top + 14, width + 24, height + 18, 36); ctx.fill();
   const rim = ctx.createLinearGradient(0, ROOM.top, 0, ROOM.bottom);
-  rim.addColorStop(0, "#b9c1a5"); rim.addColorStop(.22, "#829a7e"); rim.addColorStop(1, "#5c7d6b");
-  ctx.fillStyle = rim; ctx.strokeStyle = "#c0c9ad"; ctx.lineWidth = 2;
+  rim.addColorStop(0, "#a7adb0"); rim.addColorStop(.22, "#808e89"); rim.addColorStop(1, "#677d7b");
+  ctx.fillStyle = rim; ctx.strokeStyle = "#b2b8b260"; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.roundRect(ROOM.left, ROOM.top, width, height, 26); ctx.fill(); ctx.stroke();
 
   ctx.save(); ctx.beginPath(); ctx.roundRect(ROOM.left + 12, ROOM.top + 12, width - 24, height - 24, 20); ctx.clip();
   const floor = ctx.createRadialGradient(CENTER.x, CENTER.y, 70, CENTER.x, CENTER.y, 1050);
-  floor.addColorStop(0, "#8eaa8d"); floor.addColorStop(.5, "#71977f"); floor.addColorStop(1, "#4e796d");
+  floor.addColorStop(0, FOREST_PALETTE.floorLight); floor.addColorStop(.5, FOREST_PALETTE.floorMid); floor.addColorStop(1, FOREST_PALETTE.floorShade);
   ctx.fillStyle = floor; ctx.fillRect(ROOM.left, ROOM.top, width, height);
 
   // Spacious, independently placed clearings give each destination its own identity.
@@ -50,6 +51,18 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
     const x = ROOM.left + 20 + ((i * 173) % (width - 40)), y = ROOM.top + 24 + ((i * 197) % (height - 48));
     ellipse(x, y, 8 + i % 30, 3 + i % 8, i % 2 ? "#d1dbab0c" : "#1d4c3a09");
   }
+  // Broad, low-contrast pigment strokes give the ground painterly variation.
+  // This entire surface is baked once; none of these marks are collision props.
+  for (let i = 0; i < 310; i++) {
+    const x = ROOM.left + 16 + (i * 271 % (width - 32)), y = ROOM.top + 16 + (i * 193 % (height - 32));
+    ellipse(x, y, 18 + i % 39, 4 + i % 11, ["#c7bbd215", "#d1c8b316", "#415f6310", "#9dac901a"][i % 4]);
+  }
+  ctx.lineCap = "round";
+  for (let i = 0; i < 2900; i++) {
+    const x = ROOM.left + 14 + (i * 137.7 % (width - 28)), y = ROOM.top + 14 + (i * 73.9 % (height - 28));
+    ctx.strokeStyle = ["#e1dccb1c", "#3f565e18", "#b8b2c51c", "#c1c5aa20"][i % 4]; ctx.lineWidth = .5 + i % 3 * .4;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 2 + i % 6, y - 1 - i % 2); ctx.stroke();
+  }
 
   // Wide roads are passable ground, never extra invisible walls or shrubs.
   const trail = (points: readonly number[], trailWidth: number, color: string) => {
@@ -58,8 +71,15 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
     ctx.bezierCurveTo(points[2], points[3], points[4], points[5], points[6], points[7]); ctx.stroke();
   };
   for (const { points, width: trailWidth } of SANCTUARY_TRAILS) {
-    trail(points, trailWidth + 25, "#c5c9a014"); trail(points, trailWidth, "#cbd0b140");
-    trail(points, trailWidth - 26, "#d4d4b624"); trail(points, trailWidth - 48, "#dfe0c315");
+    trail(points, trailWidth + 25, "#c9c0b012"); trail(points, trailWidth, "#d2c9b13d");
+    trail(points, trailWidth - 26, "#e0d7c221"); trail(points, trailWidth - 48, "#ece1cf15");
+  }
+  // Sparse ground fern strokes, leaves and gravel: visibly flat and walkable.
+  for (let i = 0; i < 230; i++) {
+    const x = ROOM.left + 26 + i * 97 % (width - 52), y = ROOM.top + 30 + i * 211 % (height - 60);
+    ctx.strokeStyle = i % 3 ? "#c6ceba35" : "#d6c8b640"; ctx.lineWidth = .8;
+    ctx.beginPath(); ctx.moveTo(x - 5, y + 1); ctx.quadraticCurveTo(x, y - 4, x + 5, y - 1); ctx.stroke();
+    ellipse(x + 4, y - 1, 2.4, .8, i % 2 ? "#d4c4b050" : "#525e6950");
   }
   // Small floor inlays read as texture, rather than confusable collision props.
   for (let i = 0; i < 168; i++) {
@@ -83,6 +103,14 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
     const angle = i / 8 * Math.PI * 2;
     ellipse(960 + Math.cos(angle) * 100, 300 + Math.sin(angle) * 54, 3.8, 2.6, "#f1efd178");
   }
+  // Fallen Shrine: a flat, broken crescent mosaic. It is ground, not a new collider.
+  ctx.save(); ctx.translate(960, 265);
+  ctx.strokeStyle = "#dfcfec88"; ctx.lineWidth = 8; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.ellipse(0, 0, 76, 39, -.12, .2, 2.9); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(0, 0, 76, 39, -.12, 3.35, 5.6); ctx.stroke();
+  ctx.strokeStyle = "#78648780"; ctx.lineWidth = 2;
+  for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.moveTo(-55 + i * 27, 36); ctx.lineTo(-45 + i * 27, 45); ctx.lineTo(-51 + i * 27, 51); ctx.stroke(); }
+  ctx.restore();
   // Owl Watch: gold leaves instead of a cluttered second tree wall.
   for (let i = 0; i < 28; i++) {
     const x = 1390 + i * 53 % 318, y = 230 + i * 41 % 170;
@@ -93,6 +121,18 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
     const angle = i / 18 * Math.PI * 2;
     ellipse(322 + Math.cos(angle) * 90, 756 + Math.sin(angle) * 48, 3.2, 2.2, "#c2f0c85c");
   }
+  // Willow Grove: pale leaf-shaped floor inlays make the clearing recognizable at a glance.
+  ctx.save(); ctx.translate(350, 812);
+  for (let i = 0; i < 7; i++) {
+    const angle = i / 7 * Math.PI * 2;
+    ctx.save(); ctx.translate(Math.cos(angle) * 91, Math.sin(angle) * 44); ctx.rotate(angle);
+    ctx.fillStyle = "#e4d8b253"; ctx.beginPath(); ctx.moveTo(-16, 0); ctx.quadraticCurveTo(0, -12, 16, 0); ctx.quadraticCurveTo(0, 12, -16, 0); ctx.fill(); ctx.restore();
+  }
+  ctx.restore();
+  // The Moonwell's broad crescent reflection is a visual landmark; all water remains walkable.
+  ellipse(1060, 854, 74, 41, "#5b91a668");
+  ctx.strokeStyle = "#dfebd991"; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.ellipse(1060, 854, 49, 25, 0, .35, 2.8); ctx.stroke();
   // Shallow reflective floor basins are decorative, never impassable water.
   for (const [x, y, rx, ry] of [[1184, 896, 74, 34], [1610, 706, 55, 28]]) {
     ellipse(x, y + 2, rx + 6, ry + 4, "#36595c30"); ellipse(x, y, rx, ry, "#82b9b866");
@@ -102,15 +142,15 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
     ellipse(x + rx * .3, y + ry * .18, 7, 4, "#bad3aa91");
   }
   // A welcoming central meeting place stays open for player movement.
-  glow(CENTER.x, CENTER.y, 210, "#e7e3b648"); ellipse(CENTER.x, CENTER.y, 124, 84, "#d9dfba30");
+  glow(CENTER.x, CENTER.y, 210, "#e6d6ba3d"); ellipse(CENTER.x, CENTER.y, 124, 84, "#dcd2c22b");
   ctx.strokeStyle = "#e3e6c167"; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.ellipse(CENTER.x, CENTER.y, 124, 84, 0, .15, Math.PI * 1.85); ctx.stroke();
-  ellipse(CENTER.x - 5, CENTER.y - 4, 39, 32, "#e9eccb81"); ellipse(CENTER.x + 8, CENTER.y - 14, 35, 29, "#8cae91");
+  ellipse(CENTER.x - 5, CENTER.y - 4, 39, 32, "#e9e4d272"); ellipse(CENTER.x + 8, CENTER.y - 14, 35, 29, "#8c9d9c");
 
   ctx.textAlign = "center"; ctx.font = "700 12px ui-monospace, monospace"; ctx.fillStyle = "#e5ecd19c";
   for (const [label, x, y] of [
-    ["FROST HOLLOW", 375, 382], ["STARLIGHT ARCHIVE", 960, 405], ["OWL WATCH", 1536, 354],
-    ["DEEP ROOT GROTTO", 337, 710], ["MOONWELL SPRINGS", 1230, 946], ["SUNKEN CLOISTER", 1630, 766],
+    ["FROST HOLLOW", 375, 382], ["FALLEN SHRINE", 960, 405], ["OWL WATCH", 1536, 354],
+    ["WILLOW GROVE", 337, 710], ["MOONWELL", 1060, 946], ["SUNKEN CLOISTER", 1630, 766],
   ] as const) ctx.fillText(label, x, y);
   ctx.font = "600 10px ui-monospace, monospace"; ctx.fillStyle = "#e9ecd080";
   ctx.fillText("WARDEN COURTYARD", CENTER.x, CENTER.y + 66); ctx.restore();
@@ -122,11 +162,16 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
     for (let tier = 0; tier < 4; tier++) {
       const tip = -height + tier * height * .19, spread = height * (.17 + tier * .034);
       const needles = ctx.createLinearGradient(-spread, tip, spread, tip + 44);
-      needles.addColorStop(0, "#9ab7a2"); needles.addColorStop(.5, "#5b8978"); needles.addColorStop(1, "#3d6c63");
+      needles.addColorStop(0, "#a1b1b0"); needles.addColorStop(.5, "#718b85"); needles.addColorStop(1, "#4c686d");
       ctx.fillStyle = needles; ctx.beginPath(); ctx.moveTo(0, tip);
       ctx.bezierCurveTo(-spread * .15, tip + 17, -spread * .9, tip + 28, -spread, tip + height * .33);
       ctx.quadraticCurveTo(0, tip + height * .26, spread, tip + height * .33);
       ctx.bezierCurveTo(spread * .85, tip + 25, spread * .15, tip + 17, 0, tip); ctx.fill();
+      ctx.strokeStyle = "#d9d5cf2e"; ctx.lineWidth = .8;
+      for (let needle = 0; needle < 13; needle++) {
+        const ny = tip + 10 + needle * height * .019, nx = spread * (needle / 16);
+        ctx.beginPath(); ctx.moveTo(-nx, ny + 2); ctx.lineTo(0, ny - 3); ctx.lineTo(nx * .8, ny + 1); ctx.stroke();
+      }
     }
     ctx.restore();
   };

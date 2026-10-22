@@ -5,6 +5,7 @@ import test from "node:test";
 import ts from "typescript";
 import { ejectionVerdict } from "../server/role-presentation.ts";
 import * as matchRules from "../server/match-rules.ts";
+import { sanctuaryZoneName } from "../server/sanctuary-map.ts";
 
 // Exercise the real engine methods without starting RAF, audio hardware, or a
 // network connection. Extracting the class avoids adding test exports/routes
@@ -27,6 +28,8 @@ function fixture() {
     drawSanctumStatus: () => layers.push("status"),
     ejectionVerdict,
     ...matchRules,
+    sanctuaryZoneName,
+    Math,
     choose: items => items[0],
   });
   const engine = Object.assign(Object.create(Engine.prototype), {
@@ -151,6 +154,7 @@ test("solo vote verdicts reveal The Hollow or Warden without rewriting player na
 
 test("solo Moonsway counts the body reporter's shifted ballot, not their original target", t => {
   const { engine } = fixture();
+  engine.chaosMoonsway = true;
   engine.players.push(
     { id: "suspect", name: "Suspect", role: "IMPOSTOR", alive: true, ai: false },
     { id: "other", name: "Other", role: "CREWMATE", alive: true, ai: false },

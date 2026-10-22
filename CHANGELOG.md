@@ -6,6 +6,35 @@ source releases, not proof that a particular server has been deployed.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-22
+
+Prepared locally for the next beta release; this entry is not a deployment claim.
+
+### Added
+
+- Floating, multitouch virtual joystick on the left side of the gameplay area.
+  Radial dead zone, proportional walking speed, clamped diagonals, movement-based
+  mobile aim, pointer capture, and cancellation on dialogs, blur, resize or disconnect.
+- Optional paired shrine rituals: hold H (or the touch action) with another willing
+  slime for a 1.25-second channel. Nearby humming attracts attention. Both roles can
+  participate; personal gear and anonymous ward settlement keep their existing rules.
+- Private, match-local field notes and meeting observation drafts. Notes are manual
+  claims, never verified sightings or automatic tracking, and are never sent automatically.
+- Fallen Shrine, Willow Grove and Moonwell landmark identities with map symbols,
+  distinct floor motifs, a location label, and two validated approaches per seeded shrine.
+
+### Changed
+
+- Painterly forest rendering: translucent moonlit slimes, smaller expressions,
+  restrained gait and costume follow-through, woven/wood-grain accessories,
+  textured foliage and stone, distinct shrine crowns, and lavender/amber lighting.
+  Forest prop layers are cached; calm-only grass/water reactions respect reduced
+  motion. Existing collision geometry and Ordeal identity concealment are unchanged.
+- Moonsway is disabled by default. Hosts may opt into a clearly disclosed Chaos
+  setting before a match; standard ballots always retain the chosen destination.
+- Multiplayer compatibility is `silverpine-harmony-v5`. The frontend and room server
+  must be deployed together. No beginner preset or new analytics collection is added.
+
 ## [0.2.0] - 2026-10-21
 
 ### Added

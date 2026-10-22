@@ -155,8 +155,8 @@ test("slimes idle gently, hop further while moving, and lean/gaze in their actua
   const up = animate(0, -200).poses;
   const down = animate(0, 200).poses;
   const lift = poses => Math.max(...poses.map(pose => -pose.offsetY));
-  assert.ok(lift(idle) > 1.7 && lift(idle) <= 1.8);
-  assert.ok(lift(right) > 6.8 && lift(right) <= 7.6, "walking has rounded, grounded hops");
+  assert.ok(lift(idle) > 1.05 && lift(idle) <= 1.1);
+  assert.ok(lift(right) > 5.3 && lift(right) <= 5.9, "walking has restrained, grounded hops");
   assert.ok(right.at(-1).shear < -.095 && left.at(-1).shear > .095);
   assert.ok(right.at(-1).gazeX > 1.4 && left.at(-1).gazeX < -1.4);
   assert.ok(up.at(-1).gazeY < -1.1 && down.at(-1).gazeY > 1.1);
@@ -165,7 +165,7 @@ test("slimes idle gently, hop further while moving, and lean/gaze in their actua
     assert.ok(pose.shadowScale >= .83 && pose.shadowScale <= 1);
     assert.ok(pose.shadowAlpha >= .77 && pose.shadowAlpha <= 1);
   }
-  assert.ok(Math.max(...right.map(pose => pose.scaleX)) > 1.09, "landings squash without ballooning");
+  assert.ok(Math.max(...right.map(pose => pose.scaleX)) > 1.06 && Math.max(...right.map(pose => pose.scaleX)) < 1.08, "landings softly compress without ballooning");
 });
 
 test("gait is fluid across contact, reversal, and different render frame rates", () => {
@@ -206,7 +206,7 @@ test("motion eases to idle when blocked/stopped and resets safely after teleport
   assert.ok(Object.values(revealed).every(Number.isFinite));
   for (const fps of [30, 60, 144]) {
     const lift = Math.max(...animate(200, 0, fps).poses.map(pose => -pose.offsetY));
-    assert.ok(lift > 6.8 && lift < 7.1, `bounded, consistent motion at ${fps}fps`);
+    assert.ok(lift > 5.3 && lift < 5.5, `bounded, consistent motion at ${fps}fps`);
   }
 });
 
