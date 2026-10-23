@@ -1,4 +1,4 @@
-import { slimeEyes, slimeOutline, slimePalette, slimeSkin } from "./slime-art";
+import { drawSlimeSprout, slimeEyes, slimeOutline, slimePalette, slimeSkin } from "./slime-art";
 import type { SlimePose } from "./slime-motion";
 import type { EyeStyle } from "../server/appearance";
 
@@ -121,7 +121,7 @@ export function drawSlimeConsumption(ctx: CanvasRenderingContext2D, event: Devou
   ctx.transform((motion?.scaleX ?? 1) * pose.scaleX, 0, motion?.shear ?? 0, (motion?.scaleY ?? 1) * pose.scaleY, 0, 0);
   ctx.translate(0, -31);
   if (hidden) anonymousSlime(ctx);
-  else ctx.drawImage(slimeSkin(killerColor, !options.muted), -48, -54, 96, 112);
+  else { ctx.drawImage(slimeSkin(killerColor, !options.muted, false), -48, -54, 96, 112); if (!options.muted) drawSlimeSprout(ctx, killerColor, motion?.sproutTilt ?? 0); }
   if (pose.coreAlpha > .001) {
     ctx.globalAlpha = alpha * pose.coreAlpha * .65;
     ctx.fillStyle = victimColor;

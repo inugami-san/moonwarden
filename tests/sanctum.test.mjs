@@ -188,6 +188,7 @@ test("meeting resolution starts a fresh shrine round and clears fake-task locks 
   assert.equal(room.completedStations.get("p3").size, 1);
   const previousHazard = room.hazard;
   room.phase = "DISCUSSION";
+  room.meetingTally = [];
   room.resolveMeeting();
   assert.equal(room.phaseTime, CALM_SECONDS);
   assert.notEqual(room.hazard, previousHazard, "meeting return also advertises the next ordeal immediately");

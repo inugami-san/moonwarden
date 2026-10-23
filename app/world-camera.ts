@@ -3,7 +3,7 @@ import { WORLD_WIDTH, WORLD_HEIGHT, VIEW_WIDTH, VIEW_HEIGHT } from "../server/sa
 export type CameraPoint = { x: number; y: number };
 export type CameraViewport = { width: number; height: number };
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-export const GAMEPLAY_ZOOM = 1.4;
+export const GAMEPLAY_ZOOM = 1.22;
 
 /** Fill the arena's real aspect ratio without shrinking the whole forest to fit. */
 export function cameraViewport(width: number, height: number): CameraViewport {

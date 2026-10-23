@@ -7,6 +7,9 @@ import { sightAt, SIGHT_RANGES } from "../server/visibility.ts";
 import * as world from "../server/sanctuary-map.ts";
 import * as rules from "../server/ordeal-rules.ts";
 import * as camera from "../app/world-camera.ts";
+import * as reportRules from "../server/report-rules.ts";
+import * as taskHold from "../app/task-hold.ts";
+import * as restoration from "../app/restoration-art.ts";
 
 const observer = Object.freeze({ id: "you", x: 900, y: 400 });
 const context = overrides => ({ observer, phase: "CALM", hazard: "FOG", obstacles: [], flares: [], ...overrides });
@@ -79,7 +82,7 @@ const resizeJavascript = ts.transpileModule(`function resizeEngine() { const res
 function fixture() {
   const draws = [], audio = [], reports = [];
   const runtime = {
-    ...world, ...rules, ...camera, sightAt, W: world.WORLD_WIDTH, H: world.WORLD_HEIGHT,
+    ...world, ...rules, ...camera, ...reportRules, ...taskHold, ...restoration, sightAt, W: world.WORLD_WIDTH, H: world.WORLD_HEIGHT,
     DEVOUR_SECONDS: 1.6, HEARING_RANGE: 300, KILL_COOLDOWN_SECONDS: 1.6, Math, window: { devicePixelRatio: 2 },
     dist: (a, b) => Math.hypot(a.x - b.x, a.y - b.y), clamp: (n, a, b) => Math.max(a, Math.min(b, n)),
     drawSanctumStatus() {}, drawSlimeConsumption: (...args) => draws.push(["consume", ...args]),

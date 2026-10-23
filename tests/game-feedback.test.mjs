@@ -5,6 +5,9 @@ import test from "node:test";
 import ts from "typescript";
 import { ejectionVerdict } from "../server/role-presentation.ts";
 import * as matchRules from "../server/match-rules.ts";
+import * as reportRules from "../server/report-rules.ts";
+import * as taskHold from "../app/task-hold.ts";
+import * as restoration from "../app/restoration-art.ts";
 import { sanctuaryZoneName } from "../server/sanctuary-map.ts";
 import { sightAt } from "../server/visibility.ts";
 
@@ -29,6 +32,9 @@ function fixture() {
     drawSanctumStatus: () => layers.push("status"),
     ejectionVerdict,
     ...matchRules,
+    ...reportRules,
+    ...taskHold,
+    ...restoration,
     sanctuaryZoneName,
     sightAt,
     Math,
@@ -47,6 +53,26 @@ function fixture() {
   });
   return { engine, cues, layers };
 }
+
+test("forest milestones are public, deferred until Calm, and never replay after siphon oscillations", () => {
+  const { engine } = fixture();
+  const sounds = [];
+  engine.audio.restoration = (...args) => sounds.push(args);
+  engine.taskProgress = 25; engine.updateRestorationSound();
+  assert.deepEqual(sounds, [[1, true]]);
+  assert.match(engine.message, /wildflowers/);
+  engine.taskProgress = 75; engine.phase = "ORDEAL"; engine.updateRestorationSound();
+  assert.equal(sounds.length, 1);
+  engine.phase = "CALM"; engine.updateRestorationSound();
+  assert.deepEqual(sounds.at(-1), [3, true]);
+  engine.taskProgress = 45; engine.updateRestorationSound();
+  engine.taskProgress = 75; engine.updateRestorationSound();
+  assert.equal(sounds.length, 2, "re-crossing an old threshold cannot spam celebrations");
+  engine.elapsed += 13; engine.updateRestorationSound();
+  assert.deepEqual(sounds.at(-1), [3]);
+  engine.gameOver = true; engine.elapsed += 20; engine.updateRestorationSound();
+  assert.equal(sounds.length, 3);
+});
 
 test("puzzles emit error feedback and grant one completion cue only after a correct answer", () => {
   const { engine, cues } = fixture();
@@ -102,6 +128,26 @@ test("reopened shrine questions change even when random picks repeat, and failur
   engine.cancelPuzzle("");
   engine.tryOpenPuzzle();
   assert.notEqual(engine.activePuzzle.sequence.join(), firstSequence);
+});
+
+test("a final network result cancels input/puzzles and cannot replay on duplicate packets", () => {
+  const { engine, cues } = fixture();
+  const results = [];
+  engine.onEnd = result => results.push(result);
+  engine.keys.add("KeyE"); engine.touchKeys.add("KeyD");
+  engine.activePuzzle = { stationIndex: 0 };
+  engine.taskHold = .8;
+  const packet = { type: "MATCH_RESULT", result: "CREW VICTORY — ALL MOON WARDS RESTORED", impostorName: "Gloop" };
+  engine.handleNetworkMessage(packet);
+  engine.handleNetworkMessage(packet);
+  assert.equal(engine.gameOver, true);
+  assert.equal(engine.paused, true);
+  assert.equal(engine.activePuzzle, null);
+  assert.equal(engine.keys.size, 0);
+  assert.equal(engine.touchKeys.size, 0);
+  assert.equal(engine.taskHold, 0);
+  assert.deepEqual(cues, ["victory"]);
+  assert.deepEqual(results, [packet.result]);
 });
 
 test("network snapshots play phase transitions once, not on every world update", () => {

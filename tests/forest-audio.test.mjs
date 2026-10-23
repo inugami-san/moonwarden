@@ -193,6 +193,59 @@ test("unsupported or blocked WebAudio remains silent without throwing", async t 
   audio.destroy();
 });
 
+test("restored forest ambience grows with the public tier and respects mute and cooldown", async t => {
+  install(t);
+  const audio = new ForestAudio();
+  assert.equal(audio.restoration(1, true), false);
+  assert.equal(FakeAudioContext.instances.length, 0);
+  await audio.toggle();
+  const context = FakeAudioContext.instances[0];
+  let previousCount = 0;
+  for (const tier of [1, 2, 3]) {
+    const before = context.nodes.length;
+    assert.equal(audio.restoration(tier, true), true);
+    const sources = context.nodes.slice(before).filter(node => node instanceof FakeSource);
+    assert.ok(sources.length > previousCount); previousCount = sources.length;
+    context.finish();
+    assert.ok(sources.every(node => node.disconnected));
+  }
+  assert.equal(audio.restoration(2), true);
+  assert.equal(audio.restoration(2), false);
+  for (const tier of [NaN, 0, 4, 1.5]) assert.equal(audio.restoration(tier), false);
+  audio.enabled = false;
+  assert.equal(audio.restoration(3, true), false);
+  audio.destroy();
+});
+
+test("distinct final-match flourishes respect mute, cooldown, finite levels and cleanup", async t => {
+  install(t);
+  const audio = new ForestAudio();
+  assert.equal(audio.celebration("WARDEN"), false);
+  assert.equal(FakeAudioContext.instances.length, 0, "the cinematic never creates an autoplay context");
+  await audio.toggle();
+  const ctx = FakeAudioContext.instances[0];
+  const starts = [];
+  for (const kind of ["WARDEN", "HOLLOW"]) {
+    const before = ctx.nodes.length;
+    assert.equal(audio.celebration(kind), true);
+    assert.equal(audio.celebration(kind), false);
+    const voices = ctx.nodes.slice(before);
+    starts.push(voices.filter(n => n.kind === "oscillator").map(n => n.frequency.events));
+    for (const n of voices) {
+      if (n.gain) assert.ok(n.gain.value >= 0 && n.gain.value <= .8);
+      if (n instanceof FakeSource) assert.ok(n.stops[0] > n.startAt && n.stops[0] - n.startAt <= 1.1);
+    }
+    ctx.finish();
+    assert.ok(voices.every(n => n.disconnected));
+  }
+  assert.notDeepEqual(starts[0], starts[1]);
+  audio.enabled = false;
+  const count = ctx.nodes.length;
+  assert.equal(audio.celebration("HOLLOW"), false);
+  assert.equal(ctx.nodes.length, count);
+  audio.destroy();
+});
+
 test("destroy during pending gesture resume cannot reactivate a discarded engine", async t => {
   let finishResume;
   class DelayedAudioContext extends FakeAudioContext {

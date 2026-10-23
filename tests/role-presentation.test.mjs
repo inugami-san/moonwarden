@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ROLE_LABELS, ejectionVerdict, matchResultLabel, meetingVerdictLabel } from "../server/role-presentation.ts";
+import { ROLE_LABELS, ejectionVerdict, matchResultLabel, meetingVerdictLabel, verdictRole } from "../server/role-presentation.ts";
+
+test("verdictRole extracts post-verdict role from concluded meeting strings", () => {
+  assert.equal(verdictRole("Mochi was ejected — WARDEN"), "CREWMATE");
+  assert.equal(verdictRole("Mochi was ejected — CREWMATE"), "CREWMATE");
+  assert.equal(verdictRole("Gloop was ejected — THE HOLLOW"), "IMPOSTOR");
+  assert.equal(verdictRole("Gloop was ejected — THE IMPOSTOR"), "IMPOSTOR");
+  assert.equal(verdictRole("Vote tied — no one was ejected"), null);
+  assert.equal(verdictRole("Vote skipped — no one was ejected"), null);
+  assert.equal(verdictRole(null), null);
+  assert.equal(verdictRole(""), null);
+});
 
 test("role labels present The Hollow and Warden without changing role IDs", () => {
   assert.deepEqual(ROLE_LABELS, { CREWMATE: "Warden", IMPOSTOR: "The Hollow" });

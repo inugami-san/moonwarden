@@ -6,6 +6,77 @@ source releases, not proof that a particular server has been deployed.
 
 ## [Unreleased]
 
+No further release changes recorded.
+
+## [0.4.0] - 2026-10-23
+
+### Changed
+
+- Public ward restoration now returns wildflowers at 25%, awakens shrine
+  lanterns at 50%, and fills the sanctuary with blooms/fireflies at 75%.
+  Calm gains gentle, layered birdsong and one-time milestone chimes. Scenery
+  respects existing Ordeal masks and adds no gameplay light or collision.
+- Harmonize explicitly shows its two-player, 1.25-second, audible-nearby trade-off.
+  Its tooltip explains both players earn gear and a Hollow can join the duet;
+  the underlying role-blind ritual rules and timing are unchanged.
+- Final match results now have two short, skippable celebrations: Warden moonlit
+  blooms and joyful hops, or a Hollow eclipse with spreading shadow roots. Shared
+  gameplay slime/costume art, gentle synthesized flourishes, native modal focus,
+  a static reduced-motion ending and a clear return-to-lobby action replace the
+  old simulation-complete card. Only official final result codes select a winner;
+  hidden player roles and win conditions are not changed.
+- Match completion clears transient overlays and input, fades gameplay music,
+  and ignores duplicate multiplayer result packets. A development-only
+  `/dev/victory` art review page offers both endings without running a match;
+  it returns not-found outside development.
+- Gameplay camera eased from 1.4× to 1.22×: about 15% more world space in each
+  dimension without changing sight, cover, hidden-kill rules or collision.
+- Slimes now have a woodland-wisp outline with an asymmetrical crest, rippled
+  gel base and suspended seed core shared by portraits/gameplay. More visible
+  volume-preserving hops, softer pacing, landing squash and separately cached
+  sprout follow-through replace the subtle dome breathing. Reduced motion and
+  anonymous/subdued materials retain their concealment behavior.
+- Hold-E shrines display a progress bar, percentage and remaining seconds for
+  their 1.8-second attunement, including touch/keyboard activation of the task
+  button. Releasing, leaving, switching shrine or opening navigation clears the
+  channel instead of carrying progress elsewhere. Puzzles remain separate.
+- HUD snapshot comparisons now include task progress and report labels, so both
+  the attunement gauge and emergency-bell countdown actually update on screen.
+- Emergency meetings are locked until the first Ordeal ends (a body report can
+  end that Ordeal early). After any meeting ends, the central bell has a shared
+  60-second cooldown measured in active gameplay time. Nearby visible puddles
+  always bypass the first-Ordeal lock and bell cooldown. The disabled report
+  control explains its state and shows remaining cooldown seconds.
+- Room authority enforces the same report rules and syncs the bell state to
+  clients. Multiplayer compatibility is now `silverpine-bell-v6`: release the
+  matching frontend and room server together.
+- Continued the local rounded mochi-slime art pass with shared Canvas/SVG light
+  positions, matching gel depth, floor bounce, leaf detail and subtle surface grain.
+  The same body remains in silhouettes; subdued Ordeal skins add no sprout detail.
+- Sprout artwork now replays shared geometry without a separate `Path2D`
+  dependency. Texture colors normalize safely and a bounded, recently-used cache
+  avoids retaining every past customization palette. No gameplay/protocol change.
+
+## [0.3.3] - 2026-10-22
+
+Local presentation work; not separately deployed. Included in v0.4.0.
+
+### Added
+
+- "The Moon's Judgment" role-specific vote-out animations:
+  - Neutral suspenseful opening: the voted slime stands in a moonlit clearing, fireflies hush, and an ancient moonlit rune forms below.
+  - Warden ending ("An Innocent Light"): gentle silver moonlight lifts the slime as they look back at the circle, softly dissolving into silver fireflies and leaving a single blooming white flower accompanied by a delicate, slightly sad bell.
+  - The Hollow ending ("The Forest Rejects You"): the rune fractures with violet energy as the slime's expression twists; luminous roots bind it and pull it into a swirling shadow below the clearing, sealing with a deep resonant thump.
+  - Ties and skips: gentle fading rune with "No one was banished", without role reveals or player disappearance.
+  - Accessible announcement for assistive technology and a peaceful still crossfade for reduced motion.
+  - View Tally action allowing players to skip directly to the final vote totals at any point.
+
+### Changed
+
+- Centralized post-verdict role normalization (`verdictRole`) in `server/role-presentation.ts`, ensuring client animations read only authoritative concluded-meeting verdicts without leaking living roles early.
+- This local presentation work did not change `silverpine-harmony-v5`; v0.4.0
+  includes the subsequent bell-rule protocol change described above.
+
 ## [0.3.2] - 2026-10-22
 
 ### Changed

@@ -5,15 +5,19 @@ import { MultiplayerClient, type MultiplayerState } from "./network";
 import type { NetMovement, NetPlayer, PairRitualState, S2CMessage } from "../server/game-types";
 import { FloatingJoystick } from "./floating-joystick";
 import { movementVector, type MoveVector } from "./joystick-input";
-import { PairedRituals } from "../server/pair-ritual";
+import { PAIR_RITUAL_SECONDS, PairedRituals } from "../server/pair-ritual";
 import { FieldNotebook, MeetingObservations } from "./field-notebook";
 import type { KnownName, ObservationNote } from "./field-notes";
-import { ROLE_LABELS, ejectionVerdict, matchResultLabel, meetingVerdictLabel } from "../server/role-presentation";
+import { banishmentOutcome, type BanishmentOutcome } from "./banishment";
+import { BanishmentOverlay } from "./banishment-overlay";
+import { matchVictory, type MatchVictory } from "./match-victory";
+import { VictoryOverlay } from "./victory-overlay";
+import { ROLE_LABELS, ejectionVerdict, meetingVerdictLabel } from "../server/role-presentation";
 import { GAME_RELEASE_LABEL, GAME_RELEASE_VERSION, GAME_WORLD_VERSION } from "../server/game-version";
 import { createMatchLayout } from "../server/match-layout";
 import { clampHollowCount, hollowVictory, ritualProgress, resolveReporterVote, REPORTER_VOTE_DRIFT_CHANCE, type VoteReceipt, WARD_SETTLE_SECONDS, STEALTH_BODY_DELAY_SECONDS, STEALTH_COOLDOWN_SECONDS, STEALTH_ORDEAL_LOCKOUT } from "../server/match-rules";
 import { MovementBuffer } from "./movement";
-import { slimeEyes, slimeOutline, slimeSkin } from "./slime-art";
+import { drawSlimeSprout, slimeEyes, slimeOutline, slimeSkin } from "./slime-art";
 import { SlimePortrait } from "./slime-portrait";
 import { EyeStylePicker } from "./eye-style-picker";
 import { EYE_LABELS } from "./slime-eyes";
@@ -51,11 +55,15 @@ import { AnalyticsSettingsButton } from "./analytics-consent";
 import { NavigationMap } from "./navigation-map";
 import { GameGlyph, GameplaySettings } from "./gameplay-controls";
 import { LandscapeGuard, useLandscapeRequired } from "./gameplay-orientation";
+import { TaskHoldGauge } from "./task-hold-gauge";
+import { holdTaskProgress, TASK_HOLD_SECONDS } from "./task-hold";
 import { WORLD_WIDTH, WORLD_HEIGHT, VIEW_WIDTH, VIEW_HEIGHT, ROOM, PLAYER_BOUNDS, CENTER, CALM_SECONDS, ROOT_BARRIERS, STATIONS, getRootCell, sharesRootCell, clampWorldPoint, keepInRootCell } from "../server/sanctuary-map";
 import { planRoute } from "../server/sanctuary-paths";
 import { cameraViewport, cameraTarget, followCamera, viewportToWorld } from "./world-camera";
 import { sightAt, type Sight, type SightPoint, type SightKind } from "../server/visibility";
+import { advanceEmergency, afterMeeting, finishFirstOrdeal, initialEmergencyState, reportAvailability } from "../server/report-rules";
 import { ORDEAL_PREPARATION, preparationStation, restorationMilestone } from "./warden-objectives";
+import { drawRestorationGarden, restorationTier, RESTORATION_MESSAGES } from "./restoration-art";
 import "./warden-exploration.css";
 import "./next-chapter.css";
 import "./gameplay-hud.css";
@@ -133,8 +141,12 @@ type Snapshot = {
   moonSightActive: boolean;
   soundCaption: string;
   canReport: boolean;
+  reportLabel: string;
+  reportHint: string;
   taskPrompt: boolean;
   taskMode: "PUZZLE" | "HOLD" | null;
+  taskHoldProgress: number;
+  taskHolding: boolean;
   stationStatus: { label: string; completed: boolean; reward: ItemKind; teamRestored?: boolean; pending?: boolean } | null;
   rewardNotice: { item: ItemKind; station: string; progress?: number } | null;
   navigation: { x: number; y: number; personalCompleted: string[]; teamRestored: string[]; destinationId: string | null };
@@ -264,8 +276,12 @@ function initialSnapshot(role: Role = "CREWMATE"): Snapshot {
     moonSightActive: false,
     soundCaption: "",
     canReport: false,
+    reportLabel: "Locked",
+    reportHint: "The emergency bell unlocks after the first Ordeal ends. Nearby puddles can always be reported.",
     taskPrompt: false,
     taskMode: null,
+    taskHoldProgress: 0,
+    taskHolding: false,
     stationStatus: null,
     rewardNotice: null,
     navigation: { x: CENTER.x, y: CENTER.y, personalCompleted: [], teamRestored: [], destinationId: null },
@@ -317,8 +333,10 @@ function snapshotsEqual(a: Snapshot, b: Snapshot): boolean {
     && a.moonSightActive === b.moonSightActive
     && a.soundCaption === b.soundCaption
     && a.canReport === b.canReport
+    && a.reportLabel === b.reportLabel && a.reportHint === b.reportHint
     && a.taskPrompt === b.taskPrompt
     && a.taskMode === b.taskMode
+    && a.taskHoldProgress === b.taskHoldProgress && a.taskHolding === b.taskHolding
     && a.humanAlive === b.humanAlive
     && a.message === b.message
     && a.localPlayerId === b.localPlayerId
@@ -352,6 +370,7 @@ class OrdealEngine {
   private stealthUntil = 0;
   private stealthAvailableOrdeal = 0;
   private ordealNumber = 0;
+  private emergency = initialEmergencyState();
   private botStrikeSpent = new Set<string>();
   private pendingBodies: { body: Body; at: number }[] = [];
   private pendingKillStealth = false;
@@ -396,6 +415,7 @@ class OrdealEngine {
   charges: Record<ItemKind, number> = { FLASHLIGHT: 0, FLARE: 0, SONAR: 0 };
   itemActiveUntil = 0;
   taskHold = 0;
+  private taskHoldStation: string | null = null;
   killCooldownUntil = 0;
   killUsedThisOrdeal = false;
   private pendingDevourVictimId: string | null = null;
@@ -411,11 +431,13 @@ class OrdealEngine {
   private captionUntil = 0;
   private lastCaptionAt = -1;
   private localStep = { x: 0, y: 0, at: -1 };
+  private restorationSeen = 0;
+  private restorationAmbienceAt = 0;
   audio = new ForestAudio();
   lowGlare = false;
   private slimeAnimator = new SlimeAnimator();
   private motionPreference: MediaQueryList | null = null;
-  private reducedMotion = false;
+  public reducedMotion = false;
   private onMotionPreferenceChange = (event: MediaQueryListEvent) => { this.reducedMotion = event.matches; };
   rewardNotice: { item: ItemKind; station: string; progress?: number } | null = null;
   rewardNoticeUntil = 0;
@@ -802,6 +824,7 @@ class OrdealEngine {
 
       case "SYNC_WORLD": {
         if (msg.roundId !== undefined && msg.roundId < this.stationRound) break;
+        if (msg.emergency) this.emergency = { ...msg.emergency };
         const previousPhase = this.phase;
         const previousHazard = this.hazard;
         const stationResetNow = msg.roundId !== undefined
@@ -957,6 +980,9 @@ class OrdealEngine {
       }
 
       case "MATCH_RESULT": {
+        if (this.gameOver) break;
+        this.resetInput();
+        this.cancelPuzzle("");
         this.playResultSound(msg.result);
         this.gameOver = true;
         this.paused = true;
@@ -1005,7 +1031,7 @@ class OrdealEngine {
     this.wardClaims.clear();
     this.stationRound = roundId;
     this.cancelPuzzle("");
-    this.taskHold = 0;
+    this.clearTaskHold();
     this.botRites?.clear();
     this.botWork?.clear();
     this.botRoutes?.clear();
@@ -1184,12 +1210,15 @@ class OrdealEngine {
   }
 
   resetInput() {
+    this.clearTaskHold();
     this.keys.clear(); this.touchKeys.clear();
     this.moveVector = { vx: 0, vy: 0 };
     this.setPairRitual(false);
     if (this.human) { this.human.vx = 0; this.human.vy = 0; this.human.working = false; }
   }
   visibilityChanged = () => { if (document.hidden) this.resetInput(); };
+
+  clearTaskHold() { this.taskHold = 0; this.taskHoldStation = null; }
 
   setNotebookOpen(open: boolean) { this.notebookOpen = open; this.resetInput(); }
 
@@ -1236,7 +1265,7 @@ class OrdealEngine {
     // continue, and the human simply stands still at the shrine.
     this.activePuzzle = puzzle;
     this.audio.cue("task-open");
-    this.taskHold = 0;
+    this.clearTaskHold();
     this.human.vx = 0;
     this.human.vy = 0;
     this.human.working = true;
@@ -1422,18 +1451,14 @@ class OrdealEngine {
   report() {
     if (!this.human.alive || this.paused) return;
     const nearby = this.bodies.find((body) => dist(this.human, body) < 96 && this.visibilityFor(body, this.human, false).kind !== "HIDDEN");
-    const atEmergency = dist(this.human, CENTER) < 92 && this.phase === "CALM";
+    const availability = reportAvailability({ emergency: this.emergency, phase: this.phase, alive: this.human.alive, nearbyBody: !!nearby, nearBell: dist(this.human, CENTER) < 92 });
+    if (!availability.allowed) { this.flashMessage(availability.hint); return; }
     if (this.multiplayerClient) {
-      if (nearby || atEmergency) {
-        this.multiplayerClient.sendReport(nearby?.id);
-      } else {
-        this.flashMessage("No body nearby. Emergency button is available during Calm.");
-      }
+      this.multiplayerClient.sendReport(nearby?.id);
       return;
     }
     if (nearby) this.startMeeting(`${nearby.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, "YOU", this.localPlayerId);
-    else if (atEmergency) this.startMeeting("EMERGENCY MEETING", "YOU");
-    else this.flashMessage("No body nearby. Emergency button is available during Calm.");
+    else this.startMeeting("EMERGENCY MEETING", "YOU");
   }
 
   kill(stealth = false) {
@@ -1607,6 +1632,7 @@ class OrdealEngine {
 
   startMeeting(reason: string, reporter: string, bodyReporterId: string | null = null) {
     if (this.paused) return;
+    if (this.phase === "ORDEAL") this.emergency = finishFirstOrdeal(this.emergency);
     this.resetInput(); this.pairedRituals?.clear();
     this.taskFailure = "";
     this.restoreTrueColors();
@@ -1740,6 +1766,7 @@ class OrdealEngine {
     this.onMeeting(null);
     this.paused = false;
     if (!this.checkWin()) {
+      this.emergency = afterMeeting(this.emergency);
       this.phase = "CALM";
       this.phaseTime = CALM_SECONDS;
       this.hazard = nextHazard(this.hazard);
@@ -1795,6 +1822,7 @@ class OrdealEngine {
   snapshot(): Snapshot {
     const nearbyBody = this.bodies.some((body) => dist(body, this.human) < 96 && this.visibilityFor(body, this.human, false).kind !== "HIDDEN");
     const nearButton = this.phase === "CALM" && dist(this.human, CENTER) < 92;
+    const report = reportAvailability({ emergency: this.emergency, phase: this.phase, alive: this.human.alive, nearbyBody, nearBell: nearButton, blocked: this.paused });
     const nearestStation = this.stations.find((station) => dist(station, this.human) < 84);
     const victimNear = this.players.some(
       (player) =>
@@ -1826,9 +1854,13 @@ class OrdealEngine {
       canUseMoonSight: this.human.alive && this.human.role === "IMPOSTOR" && this.phase === "ORDEAL" && !this.moonSightUsedThisOrdeal && !this.abilityPending,
       moonSightActive,
       soundCaption: this.elapsed < this.captionUntil ? this.caption : "",
-      canReport: this.human.alive && (nearbyBody || nearButton),
+      canReport: report.allowed,
+      reportLabel: report.label,
+      reportHint: report.hint,
       taskPrompt: Boolean(nearestStation && !nearestStation.completed && !nearestStation.pending && nearestStation.cooldown <= 0) && this.phase !== "DISCUSSION" && this.human.alive,
       taskMode: nearestStation && !nearestStation.completed ? (nearestStation.puzzle ? "PUZZLE" : "HOLD") : null,
+      taskHoldProgress: nearestStation && nearestStation.label === this.taskHoldStation && !nearestStation.completed && !nearestStation.pending ? holdTaskProgress(this.taskHold) : 0,
+      taskHolding: this.taskHold > 0 && (this.keys.has("KeyE") || this.touchKeys.has("KeyE")),
       stationStatus: nearestStation ? { label: nearestStation.label, completed: nearestStation.completed, reward: nearestStation.reward, teamRestored: nearestStation.teamRestored, pending: nearestStation.pending } : null,
       rewardNotice: this.rewardNotice && this.elapsed < this.rewardNoticeUntil ? this.rewardNotice : null,
       humanAlive: this.human.alive,
@@ -1901,6 +1933,7 @@ class OrdealEngine {
   }
 
   update(dt: number) {
+    this.emergency = advanceEmergency(this.emergency, dt, this.phase);
     if (!this.multiplayerClient) {
       this.wardSettleTimer += dt;
       if (this.wardSettleTimer >= WARD_SETTLE_SECONDS) {
@@ -1947,6 +1980,7 @@ class OrdealEngine {
                       : "PHANTOM PROCESSION — false wardens now walk among the living.",
           );
         } else if (this.phase === "ORDEAL") {
+          this.emergency = finishFirstOrdeal(this.emergency);
           this.audio.cue("calm");
           this.phase = "CALM";
           this.phaseTime = CALM_SECONDS;
@@ -1959,6 +1993,7 @@ class OrdealEngine {
       }
     }
 
+    this.updateRestorationSound();
     for (const station of this.stations) {
       station.cooldown = Math.max(0, station.cooldown - dt);
       const targetClosure = this.phase === "DISCUSSION" ? 1 : 0;
@@ -2096,13 +2131,15 @@ class OrdealEngine {
   updateHuman(dt: number) {
     const player = this.human;
     if (!player.alive) {
+      this.clearTaskHold();
       player.working = false;
       return;
     }
-    if (this.multiplayerClient && !this.multiplayerClient.connected) { player.vx = 0; player.vy = 0; player.working = false; return; }
-    if (this.navigationOpen || this.notebookOpen) { player.vx = 0; player.vy = 0; player.working = false; return; }
+    if (this.multiplayerClient && !this.multiplayerClient.connected) { this.clearTaskHold(); player.vx = 0; player.vy = 0; player.working = false; return; }
+    if (this.navigationOpen || this.notebookOpen) { this.clearTaskHold(); player.vx = 0; player.vy = 0; player.working = false; return; }
     player.flashlight = this.phase === "ORDEAL" && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil;
     if (this.activePuzzle) {
+      this.clearTaskHold();
       player.vx = 0;
       player.vy = 0;
       player.working = true;
@@ -2112,7 +2149,7 @@ class OrdealEngine {
     const invert = this.phase === "ORDEAL" && this.hazard === "MIRROR_POOL";
     const input = movementVector(Number(pressed("KeyD") || pressed("ArrowRight")) - Number(pressed("KeyA") || pressed("ArrowLeft")), Number(pressed("KeyS") || pressed("ArrowDown")) - Number(pressed("KeyW") || pressed("ArrowUp")), this.moveVector, invert);
     const dx = input.vx, dy = input.vy;
-    if (this.pairStationId && !dx && !dy) { player.vx = 0; player.vy = 0; player.working = true; return; }
+    if (this.pairStationId && !dx && !dy) { this.clearTaskHold(); player.vx = 0; player.vy = 0; player.working = true; return; }
     if (this.pairStationId && (dx || dy)) this.setPairRitual(false);
     const speed = 184;
     player.vx += (dx * speed - player.vx) * Math.min(1, dt * 12);
@@ -2139,17 +2176,19 @@ class OrdealEngine {
 
     const station = this.stations.find((entry) => dist(entry, player) < 84 && !entry.completed && !entry.pending && entry.cooldown <= 0);
     if (station && !station.puzzle && pressed("KeyE") && this.phase !== "DISCUSSION") {
+      if (this.taskHoldStation !== station.label) this.clearTaskHold();
+      this.taskHoldStation = station.label;
       this.taskHold += dt;
-      if (this.taskHold >= 1.8) {
-        this.taskHold = 0;
+      if (this.taskHold >= TASK_HOLD_SECONDS) {
+        this.clearTaskHold();
         player.working = false;
         this.completeStation(station, player.role === "IMPOSTOR");
       } else {
         player.working = true;
       }
     } else {
-      this.taskHold = Math.max(0, this.taskHold - dt * 1.4);
-      player.working = this.taskHold > 0.08;
+      this.clearTaskHold();
+      player.working = false;
     }
   }
 
@@ -2320,7 +2359,7 @@ class OrdealEngine {
       ctx.translate(shakeX, shakeY);
     }
     this.drawRoom(ctx);
-    this.forestAtmosphere.drawGround(ctx, this.obstacles);
+    this.forestAtmosphere?.drawGround(ctx, this.obstacles);
     this.drawBeams(ctx);
     for (const body of this.bodies) this.drawBody(ctx, body);
     const moonGlareActive = this.phase === "ORDEAL" && this.hazard === "MOONGLARE";
@@ -2380,9 +2419,9 @@ class OrdealEngine {
       beamAngle: this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil
         ? Math.atan2(this.mouse.y - this.human.y, this.mouse.x - this.human.x) : undefined,
     };
-    this.forestAtmosphere.drawVeil(ctx, atmosphereView);
+    this.forestAtmosphere?.drawVeil(ctx, atmosphereView);
     if (!moonGlareActive) this.drawLighting(ctx);
-    this.forestAtmosphere.drawMist(ctx, atmosphereView);
+    this.forestAtmosphere?.drawMist(ctx, atmosphereView);
     this.drawSonarEchoes(ctx);
     if (rootwakeActive) {
       this.drawRootwakeOcclusion(ctx);
@@ -2653,7 +2692,22 @@ class OrdealEngine {
     }
   }
 
+  updateRestorationSound() {
+    if (this.phase !== "CALM" || this.gameOver) return;
+    const tier = restorationTier(this.taskProgress);
+    if (tier > (this.restorationSeen ?? 0)) {
+      this.restorationSeen = tier;
+      this.audio.restoration(tier, true);
+      this.flashMessage(RESTORATION_MESSAGES[tier]);
+      this.restorationAmbienceAt = this.elapsed + 12;
+    } else if (tier > 0 && this.elapsed >= (this.restorationAmbienceAt ?? 0)) {
+      this.audio.restoration(tier);
+      this.restorationAmbienceAt = this.elapsed + 16 - tier * 2;
+    }
+  }
+
   drawRestoration(ctx: CanvasRenderingContext2D) {
+    drawRestorationGarden(ctx, this.stations, this.taskProgress, this.elapsed, this.reducedMotion);
     const milestone = Math.min(4, Math.floor(this.taskProgress / 25));
     ctx.save();
     for (let i = 0; i < 4; i++) {
@@ -2674,7 +2728,8 @@ class OrdealEngine {
 
   drawEmergency(ctx: CanvasRenderingContext2D) {
     ctx.save(); ctx.translate(CENTER.x, CENTER.y);
-    const nearby = dist(this.human, CENTER) < 92 && this.phase === "CALM";
+    const bellState = reportAvailability({ emergency: this.emergency, phase: this.phase, alive: this.human.alive, nearbyBody: false, nearBell: dist(this.human, CENTER) < 92, blocked: this.paused });
+    const nearby = bellState.allowed;
     // A carved crescent and a small hanging chime, not a screen-shaped machine.
     ctx.fillStyle = "rgba(24,53,40,.24)"; ctx.beginPath(); ctx.ellipse(0, 26, 46, 12, 0, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = "#817c59"; ctx.lineWidth = 6; ctx.lineCap = "round";
@@ -2687,7 +2742,7 @@ class OrdealEngine {
     for (const side of [-1, 1]) { ctx.fillStyle = "#96b57b"; ctx.beginPath(); ctx.ellipse(side * 25, -18, 9, 3, side * -.6, 0, Math.PI * 2); ctx.fill(); }
     if (nearby) { ctx.strokeStyle = "#d7ecc280"; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(0, 20, 62, 35, 0, 0, Math.PI * 2); ctx.stroke(); }
     ctx.font = "700 10px Georgia, serif"; ctx.textAlign = "center";
-    ctx.fillStyle = nearby ? "#eff6d6" : "#d8e4c8"; ctx.fillText(nearby ? "R · CALL THE CIRCLE" : "WARDEN BELL", 0, 47);
+    ctx.fillStyle = nearby ? "#eff6d6" : "#d8e4c8"; ctx.fillText(nearby ? "R · CALL THE CIRCLE" : bellState.label === "Locked" ? "SEALED · FIRST ORDEAL" : bellState.label.endsWith("s") ? `BELL · ${bellState.label}` : "WARDEN BELL", 0, 47);
     ctx.restore();
   }
 
@@ -2840,7 +2895,8 @@ class OrdealEngine {
     // Identity recedes ahead of the body: a neutral outline remains briefly
     // inside the mist boundary. No ghost trail survives a failed sight check.
     ctx.globalAlpha = visibilityAlpha * identityAlpha;
-    ctx.drawImage(slimeSkin(baseColor, !colorMuted), -48, -54, 96, 112);
+    ctx.drawImage(slimeSkin(baseColor, !colorMuted, false), -48, -54, 96, 112);
+    if (!colorMuted) drawSlimeSprout(ctx, baseColor, pose.sproutTilt);
     const blink = !this.reducedMotion && (this.elapsed + seed * 0.037) % 6.3 < 0.16;
     ctx.save();
     ctx.translate(pose.gazeX, pose.gazeY);
@@ -4713,10 +4769,13 @@ function Game({
   const [meetingKey, setMeetingKey] = useState(0);
   const [snapshot, setSnapshot] = useState<Snapshot>(initialSnapshot());
   const [meeting, setMeeting] = useState<Meeting | null>(null);
+  const [banishment, setBanishment] = useState<BanishmentOutcome | null>(null);
+  const banishmentSeenRef = useRef<Set<string>>(new Set());
   const [puzzle, setPuzzle] = useState<TaskPuzzle | null>(null);
   const [killNotice, setKillNotice] = useState<KillNotice | null>(null);
   const [deathReveal, setDeathReveal] = useState<DeathReveal | null>(null);
   const [result, setResult] = useState("");
+  const [victory, setVictory] = useState<MatchVictory | null>(null);
   const [roleReveal, setRoleReveal] = useState<Role | null>(null);
   const [musicEnabled, setMusicEnabled] = useState(true);
   const [musicReady, setMusicReady] = useState(true);
@@ -4732,6 +4791,18 @@ function Game({
   const [notebookOpen, setNotebookOpen] = useState(false);
   const [observations, setObservations] = useState<ObservationNote[]>([]);
   const [knownNames, setKnownNames] = useState<KnownName[]>([]);
+  const [reducedMotion, setReducedMotion] = useState(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return false;
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const onChange = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = multiplayerClient?.onStateChange(setNetworkState);
@@ -4748,12 +4819,32 @@ function Game({
         meetingSerialRef.current += 1;
         setChatMessages([]);
         setChatDraft("");
+        setBanishment(null);
       } else if (!next.tally && next.candidates !== discussionCandidates) {
         discussionCandidates = next.candidates;
         meetingSerialRef.current += 1;
         setMeetingKey(meetingSerialRef.current);
         setChatMessages(openingChat(next));
         setChatDraft("");
+        setBanishment(null);
+      } else if (next.tally) {
+        const key = `banish-${meetingSerialRef.current}-${next.ejectedId ?? (next.tied ? "tied" : "skip")}`;
+        if (!banishmentSeenRef.current.has(key)) {
+          banishmentSeenRef.current.add(key);
+          const outcome = banishmentOutcome({
+            key,
+            ejectedId: next.ejectedId,
+            verdict: next.verdict,
+            tied: next.tied,
+            tally: next.tally,
+            candidates: next.candidates,
+            localPlayerId: engineRef.current?.localPlayerId ?? null,
+          });
+          if (outcome) {
+            setBanishment(outcome);
+            engineRef.current?.resetInput();
+          }
+        }
       }
     };
     const engine = new OrdealEngine(
@@ -4767,6 +4858,16 @@ function Game({
       setDeathReveal,
       (nextResult) => {
         onMatchComplete(nextResult);
+        setBanishment(null);
+        setMeeting(null);
+        setPuzzle(null);
+        setDeathReveal(null);
+        setKillNotice(null);
+        setRoleReveal(null);
+        setSettingsOpen(false);
+        setNotebookOpen(false);
+        setNavigationExpanded(false);
+        setVictory(matchVictory(nextResult, engineRef.current?.human));
         setResult(nextResult);
       },
       multiplayerClient,
@@ -4834,6 +4935,7 @@ function Game({
     const ordealMusic = ordealMusicRef.current;
     if (!normalMusic || !ordealMusic) return;
     if (musicFadeRef.current !== null) window.cancelAnimationFrame(musicFadeRef.current);
+    let cancelled = false;
 
     const crossfadeTo = (normalTarget: number, ordealTarget: number, duration: number) => {
       const normalInitial = normalMusic.volume;
@@ -4854,31 +4956,34 @@ function Game({
       musicFadeRef.current = window.requestAnimationFrame(step);
     };
 
-    if (musicEnabled && musicReady) {
+    if (musicEnabled && musicReady && !result) {
       const ordealActive = snapshot.phase === "ORDEAL";
       const activeTrack = ordealActive ? ordealMusic : normalMusic;
       void activeTrack.play()
         .then(() => {
+          if (cancelled) return;
           setMusicBlocked(false);
           crossfadeTo(ordealActive ? 0 : 0.2, ordealActive ? 0.26 : 0, 900);
         })
         .catch(() => {
-          setMusicBlocked(true);
+          if (!cancelled) setMusicBlocked(true);
         });
     } else {
       crossfadeTo(0, 0, 620);
     }
 
     return () => {
+      cancelled = true;
       if (musicFadeRef.current !== null) {
         window.cancelAnimationFrame(musicFadeRef.current);
         musicFadeRef.current = null;
       }
     };
-  }, [snapshot.phase, musicEnabled, musicReady]);
+  }, [snapshot.phase, musicEnabled, musicReady, result]);
 
   useEffect(() => {
-    if (!musicEnabled || !musicBlocked) return;
+    if (!musicEnabled || !musicBlocked || result) return;
+    let cancelled = false;
     const unlockOnGesture = () => {
       const normalMusic = normalMusicRef.current;
       const ordealMusic = ordealMusicRef.current;
@@ -4887,6 +4992,7 @@ function Game({
       const activeTrack = ordealActive ? ordealMusic : normalMusic;
       void activeTrack.play()
         .then(() => {
+          if (cancelled) return;
           setMusicBlocked(false);
           setMusicReady(true);
           activeTrack.volume = ordealActive ? 0.26 : 0.2;
@@ -4896,10 +5002,11 @@ function Game({
     window.addEventListener("pointerdown", unlockOnGesture, { once: true });
     window.addEventListener("keydown", unlockOnGesture, { once: true });
     return () => {
+      cancelled = true;
       window.removeEventListener("pointerdown", unlockOnGesture);
       window.removeEventListener("keydown", unlockOnGesture);
     };
-  }, [musicEnabled, musicBlocked, snapshot.phase]);
+  }, [musicEnabled, musicBlocked, snapshot.phase, result]);
 
   useEffect(() => {
     if (!deathReveal) return;
@@ -5033,7 +5140,7 @@ function Game({
         <Logo />
         <div className={`phase-chip phase-${snapshot.phase.toLowerCase()}`}><GameGlyph name="moon" /><span className="phase-name">{phaseLabel}</span><b>{Math.ceil(snapshot.time).toString().padStart(2, "0")}<small>s</small></b></div>
         <div className="game-nav-actions">
-          <button type="button" className="play-settings-open" aria-label="Open game settings" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)} disabled={!!meeting || !!puzzle || !!roleReveal || !!deathReveal || !!result}><GameGlyph name="settings" /><span>Settings</span></button>
+          <button type="button" className="play-settings-open" aria-label="Open game settings" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)} disabled={!!meeting || !!puzzle || !!roleReveal || !!deathReveal || !!result || !!banishment}><GameGlyph name="settings" /><span>Settings</span></button>
           <button type="button" className="leave-button" onClick={onExit}><GameGlyph name="exit" /><span>Leave</span></button>
         </div>
       </header>
@@ -5119,7 +5226,7 @@ function Game({
         </div>
 
         <div className="action-dock" aria-label="Game actions">
-          <button className={`action report ${snapshot.canReport ? "ready" : ""}`} title="Report a nearby puddle, or ring the bell from the center" onClick={() => engineRef.current?.report()}><kbd>R</kbd><GameGlyph name="report" /><span>Report</span></button>
+          <button className={`action report ${snapshot.canReport ? "ready" : ""}`} disabled={!snapshot.canReport} aria-label={snapshot.reportHint} title={snapshot.reportHint} onClick={() => engineRef.current?.report()}><kbd>R</kbd><GameGlyph name="report" /><span>{snapshot.reportLabel}</span></button>
           {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight || snapshot.moonSightActive ? "ready" : ""}`} onClick={() => engineRef.current?.useMoonSight()} disabled={snapshot.phase !== "ORDEAL" || !snapshot.canUseMoonSight} title="Moon Sight: briefly reveal living slimes during an Ordeal"><kbd>V</kbd><GameGlyph name="sight" /><span>{snapshot.moonSightActive ? "Seeing" : "Sight"}</span></button>}
           {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight ? "ready" : ""}`} title="Aim, then create a two-second false rustle. Shares one charge with Sight." onClick={() => engineRef.current?.useEchoLure()} disabled={!snapshot.canUseMoonSight}><kbd>C</kbd><GameGlyph name="echo" /><span>Echo</span></button>}
           {snapshot.role === "IMPOSTOR" && <button className={`action kill ${snapshot.canKill ? "ready" : ""}`} onClick={() => engineRef.current?.kill()} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.killCooldown > 0} title="Bite a nearby slime. One strike per Ordeal."><kbd>Q</kbd><GameGlyph name="bite" /><span>{snapshot.killSpent ? "Spent" : snapshot.killCooldown > 0 ? `${Math.ceil(snapshot.killCooldown)}s` : "Bite"}</span></button>}
@@ -5128,18 +5235,24 @@ function Game({
         </div>
 
         {snapshot.taskPrompt && (
-          <button
-            type="button"
-            className="interaction-prompt interaction-prompt-button"
-            onClick={() => engineRef.current?.tryOpenPuzzle()}
-            onPointerDown={() => { if (snapshot.taskMode === "HOLD") engineRef.current?.setTouch("KeyE", true); }}
-            onPointerUp={() => engineRef.current?.setTouch("KeyE", false)}
-            onPointerCancel={() => engineRef.current?.setTouch("KeyE", false)}
-            onPointerLeave={() => engineRef.current?.setTouch("KeyE", false)}
-          >
-            <kbd>E</kbd>
-            <span><b>{snapshot.taskMode === "PUZZLE" ? (snapshot.role === "IMPOSTOR" ? "Fake a ritual" : "Begin ritual") : (snapshot.role === "IMPOSTOR" ? "Hold to fake a ritual" : "Hold to attune")}</b><small>{snapshot.stationStatus?.label} · {snapshot.stationStatus?.teamRestored ? "Earn your gear" : "Restore ward + earn gear"}</small></span><GameGlyph name="spark" />
-          </button>
+          <div className="interaction-prompt interaction-shell">
+            <button
+              type="button"
+              className="interaction-prompt-button"
+              onClick={() => { if (snapshot.taskMode === "PUZZLE") engineRef.current?.tryOpenPuzzle(); }}
+              onPointerDown={event => { if (snapshot.taskMode === "HOLD") { event.currentTarget.setPointerCapture(event.pointerId); engineRef.current?.setTouch("KeyE", true); } }}
+              onPointerUp={() => engineRef.current?.setTouch("KeyE", false)}
+              onPointerCancel={() => engineRef.current?.setTouch("KeyE", false)}
+              onLostPointerCapture={() => engineRef.current?.setTouch("KeyE", false)}
+              onBlur={() => engineRef.current?.setTouch("KeyE", false)}
+              onKeyDown={event => { if (snapshot.taskMode === "HOLD" && ["Space", "Enter"].includes(event.code)) { event.preventDefault(); engineRef.current?.setTouch("KeyE", true); } }}
+              onKeyUp={event => { if (["Space", "Enter"].includes(event.code)) engineRef.current?.setTouch("KeyE", false); }}
+            >
+              <kbd>E</kbd>
+              <span><b>{snapshot.taskMode === "PUZZLE" ? (snapshot.role === "IMPOSTOR" ? "Fake a ritual" : "Begin ritual") : (snapshot.role === "IMPOSTOR" ? "Hold to fake a ritual" : "Hold to attune")}</b><small>{snapshot.stationStatus?.label} · {snapshot.stationStatus?.teamRestored ? "Earn your gear" : "Restore ward + earn gear"}</small></span><GameGlyph name="spark" />
+            </button>
+            {snapshot.taskMode === "HOLD" && <TaskHoldGauge progress={snapshot.taskHoldProgress} holding={snapshot.taskHolding} />}
+          </div>
         )}
 
         {snapshot.stationStatus?.completed && snapshot.phase !== "DISCUSSION" && (
@@ -5149,11 +5262,12 @@ function Game({
         )}
 
         {snapshot.taskPrompt && !puzzle && !roleReveal && <button type="button" className="paired-ritual-button"
+          title={`Both players hold H and stay still for ${PAIR_RITUAL_SECONDS}s. Faster than a solo hold; both earn gear, but your chant is heard nearby. A Hollow can join too — a duet is not proof of innocence.`}
           onPointerDown={event => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); engineRef.current?.setPairRitual(true); }}
           onPointerUp={() => engineRef.current?.setPairRitual(false)} onPointerCancel={() => engineRef.current?.setPairRitual(false)} onLostPointerCapture={() => engineRef.current?.setPairRitual(false)} onBlur={() => engineRef.current?.setPairRitual(false)}
           onKeyDown={event => { if (["Space", "Enter"].includes(event.code)) { event.preventDefault(); engineRef.current?.setPairRitual(true); } }}
           onKeyUp={event => { if (["Space", "Enter"].includes(event.code)) { event.preventDefault(); engineRef.current?.setPairRitual(false); } }}>
-          <span><kbd>H</kbd> Hold to harmonize</span><small>{snapshot.pairRitual ? `${snapshot.pairRitual.participants}/2 slimes · ${Math.round(snapshot.pairRitual.progress * 100)}%` : "Optional · bring a friend · makes noise"}</small>
+          <span><kbd>H</kbd> Harmonize together</span><small>{snapshot.pairRitual ? `${snapshot.pairRitual.participants}/2 ready · ${Math.round(snapshot.pairRitual.progress * 100)}% · audible nearby` : `Faster with 2 · ${PAIR_RITUAL_SECONDS}s · audible nearby`}</small>
           <i style={{ width: `${(snapshot.pairRitual?.progress ?? 0) * 100}%` }} />
         </button>}
         <FloatingJoystick surfaceRef={stageRef} onVector={handleMoveVector} enabled={snapshot.humanAlive && !meeting && !puzzle && !roleReveal && !deathReveal && !result && !navigationExpanded && !notebookOpen && !settingsOpen && !landscapeRequired && (!networkState || networkState.connected)} />
@@ -5370,16 +5484,21 @@ function Game({
         </div>
       )}
 
-      {result && (
-        <div className="modal-backdrop result-backdrop" role="dialog" aria-modal="true" aria-labelledby="result-title">
-          <div className="result-card">
-            <small>SIMULATION COMPLETE</small>
-            <h2 id="result-title">{matchResultLabel(result)}</h2>
-            <p>The hidden role was assigned privately. No public character trait revealed allegiance.</p>
-            <button onClick={onExit}>RETURN TO LOBBY</button>
-          </div>
-        </div>
+      {banishment && (
+        <BanishmentOverlay
+          outcome={banishment}
+          reducedMotion={reducedMotion}
+          onPlayAudio={(kind) => {
+            if (kind === "OPENING") engineRef.current?.audio.banishmentOpening();
+            else if (kind === "WARDEN") engineRef.current?.audio.banishmentWarden();
+            else if (kind === "HOLLOW") engineRef.current?.audio.banishmentHollow();
+          }}
+          onComplete={() => setBanishment(null)}
+        />
       )}
+
+      {result && victory && <VictoryOverlay key={result} victory={victory} reducedMotion={reducedMotion}
+        onCelebrate={kind => { engineRef.current?.audio.celebration(kind); }} onExit={onExit} />}
       <LandscapeGuard active={landscapeRequired} multiplayer={!!multiplayerClient} onExit={onExit} />
     </main>
   );

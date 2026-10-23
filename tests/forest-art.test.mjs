@@ -94,7 +94,7 @@ test("portrait and arena share smaller eyes and new surface effects cannot leak 
   assert.equal(SLIME_EYE_SCALE, .84);
   assert.match(portrait, /scale\(\$\{SLIME_EYE_SCALE\}\)/);
   assert.match(material, /ctx\.scale\(SLIME_EYE_SCALE, SLIME_EYE_SCALE\)/);
-  assert.match(page, /this\.phase === "CALM" && !silhouette && !colorMuted\) \{\s*drawGroundResponse/);
+  assert.match(page, /this\.phase === "CALM" && !silhouette && !colorMuted[^)]*\) \{\s*drawGroundResponse/);
   assert.match(page, /drawForestObstacle\(ctx, obs, this\.elapsed, this\.human, this\.reducedMotion/);
   // Readable midtones; a new hue must not silently become another darkness pass.
   for (const color of [FOREST_PALETTE.floorLight, FOREST_PALETTE.floorMid, FOREST_PALETTE.floorShade]) {

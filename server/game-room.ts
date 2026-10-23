@@ -23,6 +23,7 @@ import {
   MOON_SIGHT_SECONDS,
   nextHazard,
   ordealDuration,
+  isOccludedByObstacle,
   resolveObstacleMovement,
   resolveObstaclePosition,
 } from "./ordeal-rules";
@@ -39,6 +40,7 @@ import { planRoute } from "./sanctuary-paths";
 import { ejectionVerdict } from "./role-presentation";
 import { createMatchLayout } from "./match-layout";
 import { PAIR_RITUAL_RANGE, PairedRituals } from "./pair-ritual";
+import { advanceEmergency, afterMeeting, finishFirstOrdeal, initialEmergencyState, reportAvailability } from "./report-rules";
 import { clampHollowCount, hollowVictory, ritualProgress, resolveReporterVote, type VoteReceipt, WARD_SETTLE_SECONDS, STEALTH_BODY_DELAY_SECONDS, STEALTH_COOLDOWN_SECONDS, STEALTH_ORDEAL_LOCKOUT } from "./match-rules";
 
 export interface IWebSocketClient {
@@ -89,6 +91,7 @@ export class GameRoom {
   private stealthUntil = new Map<string, number>();
   private stealthOrdeal = new Map<string, number>();
   private ordealNumber = 0;
+  emergency = initialEmergencyState();
   private pendingBodies: { body: NetBody; at: number }[] = [];
   clients = new Map<string, IWebSocketClient>();
   players = new Map<string, NetPlayer>();
@@ -417,12 +420,16 @@ export class GameRoom {
 
       case "TRIGGER_REPORT":
         if (this.state === "PLAYING" && player.alive && this.phase !== "DISCUSSION") {
-          const nearbyBody = this.bodies.find((b) => dist(player, b) < 96);
-          const atBell = dist(player, CENTER) < 92 && this.phase === "CALM";
+          const nearbyBody = this.bodies.find(b => (!msg.bodyId || b.id === msg.bodyId) && dist(player, b) < 96
+            && !isOccludedByObstacle(player, b, this.obstacles)
+            && (this.phase !== "ORDEAL" || this.hazard !== "ROOTWAKE" || sharesRootCell(player, b)));
+          const availability = reportAvailability({ emergency: this.emergency, phase: this.phase, alive: player.alive, nearbyBody: !!nearbyBody, nearBell: dist(player, CENTER) < 92 });
           if (nearbyBody) {
             this.startMeeting(`${nearbyBody.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, player.name, player.id);
-          } else if (atBell) {
+          } else if (!msg.bodyId && availability.allowed) {
             this.startMeeting("EMERGENCY MEETING CALLED", player.name);
+          } else {
+            this.sendTo(this.clients.get(playerId)!, { type: "ERROR_ALERT", message: msg.bodyId ? "That puddle is no longer visible within reporting reach." : availability.hint });
           }
         }
         break;
@@ -537,6 +544,7 @@ export class GameRoom {
     this.taskProgress = 0;
     this.pendingWardDelta = 0;
     this.wardSettleTimer = 0;
+    this.emergency = initialEmergencyState();
     this.strikeSpent.clear();
     this.stealthUntil.clear(); this.stealthOrdeal.clear(); this.pendingBodies = []; this.ordealNumber = 0;
     this.layoutSeed = Math.floor(Math.random() * 4294967296);
@@ -733,6 +741,8 @@ export class GameRoom {
   }
 
   private startMeeting(reason: string, reporter: string, bodyReporterId: string | null = null) {
+    // A body report may end the first Ordeal early; it still counts as ended.
+    if (this.phase === "ORDEAL") this.emergency = finishFirstOrdeal(this.emergency);
     this.pairedRituals.clear();
     this.clearMeetingTimers();
     this.restoreTrueColors();
@@ -882,6 +892,7 @@ export class GameRoom {
   }
 
   private resolveMeeting() {
+    if (this.phase !== "DISCUSSION" || !this.meetingTally) return;
     this.clearMeetingTimers();
     this.meetingBodyReporterId = null;
     this.voteReceipts.clear();
@@ -891,6 +902,7 @@ export class GameRoom {
     this.meetingTally = null;
 
     if (!this.checkWinConditions()) {
+      this.emergency = afterMeeting(this.emergency);
       this.phase = "CALM";
       this.phaseTime = CALM_SECONDS;
       this.announceNextOrdeal();
@@ -947,6 +959,7 @@ export class GameRoom {
     const elapsed = Math.max(0, Math.min((now - this.lastTick) / 1000, 60));
     const dt = Math.min(elapsed, 0.1);
     this.lastTick = now;
+    this.emergency = advanceEmergency(this.emergency, elapsed, this.phase);
     if (this.phase !== "DISCUSSION") {
       this.wardSettleTimer += elapsed;
       if (this.wardSettleTimer >= WARD_SETTLE_SECONDS) {
@@ -986,6 +999,7 @@ export class GameRoom {
           this.killUsedThisOrdeal = false;
           this.strikeSpent.clear(); this.ordealNumber += 1;
         } else if (this.phase === "ORDEAL") {
+          this.emergency = finishFirstOrdeal(this.emergency);
           this.phase = "CALM";
           this.phaseTime += CALM_SECONDS;
           this.announceNextOrdeal();
@@ -1036,7 +1050,7 @@ export class GameRoom {
 
   private broadcastWorld() {
     this.worldSyncTimer = 0;
-    this.broadcast({ type: "SYNC_WORLD", serverTime: Date.now(), roundId: this.roundId, ordealSeed: this.ordealSeed, phase: this.phase, time: Math.max(0, this.phaseTime), hazard: this.hazard, taskProgress: this.taskProgress, bodies: this.bodies, flares: this.flares, completedStations: Array.from(this.publicSeals) });
+    this.broadcast({ type: "SYNC_WORLD", emergency: { ...this.emergency }, serverTime: Date.now(), roundId: this.roundId, ordealSeed: this.ordealSeed, phase: this.phase, time: Math.max(0, this.phaseTime), hazard: this.hazard, taskProgress: this.taskProgress, bodies: this.bodies, flares: this.flares, completedStations: Array.from(this.publicSeals) });
     for (const player of this.players.values()) if (player.role === "IMPOSTOR") { this.syncAbility(player.id); const client = this.clients.get(player.id); if (client) this.sendTo(client, { type: "STRIKE_STATE", ...this.strikeState(player.id) }); }
   }
 

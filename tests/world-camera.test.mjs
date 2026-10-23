@@ -13,8 +13,8 @@ test("the following camera centers its player rather than fitting the whole fore
   const viewport = cameraViewport(1280, 760);
   assert.deepEqual(viewport, { width: VIEW_WIDTH / GAMEPLAY_ZOOM, height: VIEW_HEIGHT / GAMEPLAY_ZOOM });
   nearPoint(cameraTarget(CENTER, viewport), { x: CENTER.x - viewport.width / 2, y: CENTER.y - viewport.height / 2 });
-  assert.equal(GAMEPLAY_ZOOM, 1.4);
-  assert.ok(viewport.width < 920, "desktop no longer surveys two-thirds of the forest");
+  assert.equal(GAMEPLAY_ZOOM, 1.22);
+  assert.ok(viewport.width < WORLD_WIDTH * .6, "a modest zoom-out still avoids the old two-thirds-map overview");
   assert.ok(viewport.width < WORLD_WIDTH && viewport.height < WORLD_HEIGHT);
   const position = { x: 1040, y: 620 }, camera = cameraTarget(position, viewport);
   nearPoint(viewportToWorld({ x: viewport.width / 2, y: viewport.height / 2 }, camera, viewport), position);

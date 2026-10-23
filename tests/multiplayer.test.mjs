@@ -180,6 +180,7 @@ test("Multiplayer GameRoom: Lifecycle, Input Sync, Tasks, Meetings, and Voting",
   assert.equal(room.taskProgress, initialTask + wardGain(room));
 
   // 6. Emergency Meeting Trigger
+  room.emergency.firstOrdealComplete = true;
   playerA.x = CENTER.x;
   playerA.y = CENTER.y;
   room.handleMessage("player-a", { type: "TRIGGER_REPORT" });

@@ -242,6 +242,62 @@ export class ForestAudio {
     return true;
   }
 
+  /** The Moon's Judgment: suspenseful opening as fireflies hush and rune kindles. */
+  banishmentOpening() {
+    const voice = this.voice("banish:open", 1.0, .24);
+    if (!voice) return false;
+    this.bell(voice, 0, 392, .7, .24);
+    this.tone(voice, .08, .85, 196, 146.83, .2);
+    return true;
+  }
+
+  /** The Moon's Judgment: delicate, slightly sad bell accompanying "[Name] was a Warden." */
+  banishmentWarden() {
+    const voice = this.voice("banish:warden", 1.5, .28);
+    if (!voice) return false;
+    [659.25, 523.25, 440].forEach((note, i) => this.bell(voice, i * .22, note, .8, .3));
+    this.tone(voice, .2, .75, 220, 220, .14);
+    return true;
+  }
+
+  /** The Moon's Judgment: deep thump and resonance as the rune seals over The Hollow. */
+  banishmentHollow() {
+    const voice = this.voice("banish:hollow", 1.5, .34);
+    if (!voice) return false;
+    this.tone(voice, 0, .4, 130, 55, .5);
+    this.tone(voice, .06, .5, 82.41, 41.2, .4);
+    this.leaves(voice, 0, .16, 500, .26);
+    return true;
+  }
+
+  /** Shared forest recovery: gentle milestone bells and non-positional birdsong. */
+  restoration(tier: number, milestone = false) {
+    if (!Number.isInteger(tier) || tier < 1 || tier > 3) return false;
+    const voice = this.voice(milestone ? "forest:bloom" : "forest:life", milestone ? 2 : 9, milestone ? .17 : .065);
+    if (!voice) return false;
+    if (milestone) [523.25, 659.25, 783.99].slice(0, tier).forEach((note, i) => this.bell(voice, i * .18, note, .7, .22));
+    for (let i = 0; i < tier; i++) {
+      this.tone(voice, .15 + i * .28, .12, 1250 + i * 140, 1610 + i * 150, .18);
+      this.tone(voice, .3 + i * .28, .1, 1590 + i * 150, 1310 + i * 140, .12);
+    }
+    return true;
+  }
+
+  /** Final-match flourish, after the short personal win/loss cue has settled. */
+  celebration(kind: "WARDEN" | "HOLLOW") {
+    const voice = this.voice(`celebration:${kind}`, 6, .26);
+    if (!voice) return false;
+    if (kind === "WARDEN") {
+      [523.25, 659.25, 783.99, 1046.5].forEach((note, i) => this.bell(voice, i * .25, note, .85, .25));
+      this.tone(voice, .55, .9, 261.63, 261.63, .13);
+    } else {
+      this.tone(voice, 0, .9, 146.83, 73.42, .32);
+      [293.66, 349.23, 440].forEach((note, i) => this.bell(voice, .25 + i * .3, note, .8, .19));
+      this.leaves(voice, .45, .24, 650, .12);
+    }
+    return true;
+  }
+
   destroy() {
     this.enabled = false;
     this.master?.disconnect();

@@ -123,6 +123,17 @@
 .playful-game .interaction-prompt > span { flex: 1; }
 .playful-game .interaction-prompt b { display: block; font: 800 13px/1.2 var(--font-geist-sans), sans-serif; }
 .playful-game .interaction-prompt small { display: block; margin-top: 4px; font: 10px/1.3 var(--font-geist-sans), sans-serif; color: var(--play-ink); }
+.playful-game .interaction-shell { display: grid; gap: 8px; cursor: default; }
+.playful-game .interaction-shell .interaction-prompt-button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 2px 0; border: 0; border-radius: 8px; background: transparent; color: inherit; box-shadow: none; text-align: left; }
+.playful-game .interaction-prompt-button > span { flex: 1; }
+.playful-game .ritual-hold-gauge { width: 100%; }
+.playful-game .ritual-hold-gauge > div { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 5px; font: 700 10px/1.2 var(--font-geist-sans), sans-serif; color: #263246; }
+.playful-game .ritual-hold-gauge b { font-size: 10px; font-variant-numeric: tabular-nums; }
+.playful-game .ritual-hold-gauge progress { display: block; width: 100%; height: 8px; border: 0; border-radius: 999px; overflow: hidden; background: #8b704e; accent-color: #5c6597; }
+.playful-game .ritual-hold-gauge progress::-webkit-progress-bar { background: #8b704e; border-radius: 999px; }
+.playful-game .ritual-hold-gauge progress::-webkit-progress-value { background: linear-gradient(90deg, #444f80, #b9d3ec); border-radius: 999px; transition: width .1s linear; }
+.playful-game .ritual-hold-gauge progress::-moz-progress-bar { background: #5c6597; border-radius: 999px; }
+@media (prefers-reduced-motion: reduce) { .playful-game .ritual-hold-gauge progress::-webkit-progress-value { transition: none; } }
 .playful-game .paired-ritual-button { bottom: 24px; width: 286px; min-height: 54px; padding: 9px 12px; border: 1px solid var(--play-line); border-radius: 16px; background: var(--play-panel); color: var(--play-ink); box-shadow: var(--play-shadow); }
 .playful-game .paired-ritual-button > span { font: 750 11px/1.5 var(--font-geist-sans), sans-serif; letter-spacing: 0; }
 .playful-game .paired-ritual-button small { font-size: 9px; color: var(--play-ink); }

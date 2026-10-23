@@ -6,6 +6,9 @@ import ts from "typescript";
 import * as world from "../server/sanctuary-map.ts";
 import * as rules from "../server/ordeal-rules.ts";
 import * as matchRules from "../server/match-rules.ts";
+import * as reportRules from "../server/report-rules.ts";
+import * as taskHold from "../app/task-hold.ts";
+import * as restoration from "../app/restoration-art.ts";
 import { planRoute } from "../server/sanctuary-paths.ts";
 import { preparationStation } from "../app/warden-objectives.ts";
 import { GameRoom } from "../server/game-room.ts";
@@ -18,7 +21,7 @@ const node = ast.statements.find(statement => ts.isClassDeclaration(statement) &
 const js = ts.transpileModule(node.getText(ast), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 function fixture() {
   const Engine = runInNewContext(`${js}\nOrdealEngine`, {
-    ...world, ...rules, ...matchRules, W: world.WORLD_WIDTH, H: world.WORLD_HEIGHT, planRoute, preparationStation, movementVector, sightAt,
+    ...world, ...rules, ...matchRules, ...reportRules, ...taskHold, ...restoration, W: world.WORLD_WIDTH, H: world.WORLD_HEIGHT, planRoute, preparationStation, movementVector, sightAt,
     dist: (a, b) => Math.hypot(a.x - b.x, a.y - b.y),
     clamp: (n, min, max) => Math.max(min, Math.min(max, n)),
     rootwakeStrength: (phase, hazard, time) => phase === "ORDEAL" && hazard === "ROOTWAKE" ? Math.min((10 - time) / .75, time / .55, 1) : 0,
@@ -42,6 +45,74 @@ function fixture() {
   engine.makeStations();
   return { engine, human, cues, cancelled };
 }
+
+test("the real client report handler and snapshot share the first-Ordeal lock, cooldown, and body exception", () => {
+  const { engine, human } = fixture();
+  const reports = [];
+  engine.multiplayerClient = { sendReport: id => reports.push(id) };
+  engine.paused = false; engine.obstacles = [];
+  assert.equal(engine.snapshot().canReport, false);
+  assert.equal(engine.snapshot().reportLabel, "Locked");
+  engine.report(); assert.equal(reports.length, 0, "keyboard/programmatic calls cannot bypass the disabled button");
+  engine.emergency = reportRules.finishFirstOrdeal(reportRules.initialEmergencyState());
+  assert.equal(engine.snapshot().canReport, true);
+  engine.report(); assert.deepEqual(reports, [undefined]);
+  engine.emergency = reportRules.afterMeeting(engine.emergency);
+  assert.equal(engine.snapshot().canReport, false);
+  assert.equal(engine.snapshot().reportLabel, "60s");
+  engine.report(); assert.equal(reports.length, 1);
+  engine.bodies = [{ id: "nearby-puddle", x: human.x + 20, y: human.y, name: "Fallen", age: 0 }];
+  assert.equal(engine.snapshot().canReport, true);
+  assert.equal(engine.snapshot().reportLabel, "Report");
+  engine.report(); assert.deepEqual(reports, [undefined, "nearby-puddle"]);
+  engine.bodies = []; engine.emergency = reportRules.initialEmergencyState();
+  engine.handleNetworkMessage({ type: "SYNC_WORLD", emergency: { firstOrdealComplete: true, cooldownRemaining: 42.4 }, phase: "CALM", hazard: "BLACKOUT", time: 20, roundId: 1, taskProgress: 0, bodies: [], flares: [] });
+  assert.equal(engine.snapshot().reportLabel, "43s", "UI follows server state instead of guessing from the phase count");
+});
+
+test("hold-E task progress reaches completion once and resets on release, leaving, or changing shrine", () => {
+  const { engine, human } = fixture();
+  engine.obstacles = []; engine.moveVector = { vx: 0, vy: 0 };
+  const shrine = { label: "HOLD A", x: human.x, y: human.y, completed: false, pending: false, cooldown: 0, reward: "FLARE" };
+  engine.stations = [shrine];
+  const completed = [];
+  engine.completeStation = station => { completed.push(station.label); station.pending = true; };
+  engine.keys.add("KeyE");
+  engine.updateHuman(.9);
+  assert.equal(engine.snapshot().taskHoldProgress, .5);
+  assert.equal(engine.snapshot().taskHolding, true);
+  engine.keys.delete("KeyE"); engine.updateHuman(.02);
+  assert.equal(engine.snapshot().taskHoldProgress, 0);
+  engine.keys.add("KeyE"); engine.updateHuman(.9);
+  shrine.label = "HOLD B"; engine.updateHuman(.18);
+  assert.equal(engine.snapshot().taskHoldProgress, .1, "progress cannot be carried to a different station");
+  human.x += 100; engine.updateHuman(.02);
+  assert.equal(engine.snapshot().taskHoldProgress, 0);
+  human.x = shrine.x; engine.updateHuman(1.79);
+  assert.equal(completed.length, 0);
+  engine.updateHuman(.02); engine.updateHuman(.2);
+  assert.deepEqual(completed, ["HOLD B"]);
+  assert.equal(engine.snapshot().taskHoldProgress, 0);
+  assert.equal(engine.snapshot().taskPrompt, false, "server-pending rewards do not start another channel");
+});
+
+test("touch channels use the same gauge and cancel on lost input or navigation", () => {
+  for (const role of ["CREWMATE", "IMPOSTOR"]) {
+    const { engine, human } = fixture();
+    human.role = role;
+    engine.audio.unlock = () => Promise.resolve();
+    engine.obstacles = []; engine.moveVector = { vx: 0, vy: 0 };
+    engine.stations = [{ label: "TOUCH", x: human.x, y: human.y, completed: false, pending: false, cooldown: 0, reward: "FLARE" }];
+    engine.setTouch("KeyE", true); engine.updateHuman(.9);
+    assert.equal(engine.snapshot().taskHoldProgress, .5);
+    engine.setTouch("KeyE", false); engine.updateHuman(.01);
+    assert.equal(engine.snapshot().taskHoldProgress, 0);
+    engine.setTouch("KeyE", true); engine.updateHuman(.9);
+    engine.setNavigationOpen(true);
+    assert.equal(engine.snapshot().taskHoldProgress, 0);
+    assert.equal(engine.touchKeys.has("KeyE"), false);
+  }
+});
 
 test("native navigation/settings and notebook dialogs retain Escape and never enqueue movement", () => {
   // Class-field handlers live on constructed instances, not the prototype fixture.

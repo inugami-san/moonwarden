@@ -4,6 +4,12 @@ Moonwarden is a social deduction playtest set in an ancient mountain sanctuary
 within the Silverpine forest. It runs in the browser with a procedurally rendered
 2D Canvas world, multiplayer rooms, and autonomous AI wardens.
 
+## Continuing development
+
+Read [AGENT_HANDOFF.md](AGENT_HANDOFF.md) for the latest recorded release context
+and the pending role-specific vote-out animation design. It records completed
+and proposed work separately so a new agent can pick up without redoing changes.
+
 ## Versions and releases
 
 `package.json` is the single source of truth for the player-facing version.
@@ -43,6 +49,12 @@ checks, package bumps, and Git tags do not deploy anything by themselves.
 
 ## Included gameplay
 
+- Ward restoration returns wildflowers at 25%, shrine lanterns at 50%, and richer
+  blooms/fireflies and forest birdsong at 75%. These are scenery-only rewards;
+  sight, Ordeal concealment, collisions and item-light rules stay unchanged.
+- Harmonize: at least two players hold **H** (or the duet button) while still for
+  **1.25 seconds**, faster than a solo hold. Participants earn their shrine gear,
+  but the chant is audible nearby. A Hollow can participate: a duet is not an alibi.
 - Four to eight players; hosts choose 1 to half the circle as Hollows (default 1). Hollow teammates are revealed only to their own side. A 50/50 opening does not immediately end the match; expose every Hollow for a Warden role victory
 - Test modes with forced roles (Warden or The Hollow) or random assignment
 - Cinematic private role reveals for both Wardens and The Hollow
@@ -118,6 +130,21 @@ To play multiplayer with friends or across multiple browser tabs:
 2. Customize your warden nickname, slime color, and hat.
 3. Click **CREATE ROOM** to generate a 4-letter room code (or enter a friend's code and click **JOIN**).
 4. As the host, choose your target party size (4–8 slots) and whether to fill empty slots with AI bots, then click **START MATCH**.
+
+### Reporting and the emergency bell (local development)
+
+The emergency bell is sealed until the first Ordeal ends. It then allows a
+meeting during Calm when you are near the bell in Warden Courtyard. After any
+meeting ends, everyone shares a 60-second bell cooldown; discussions do not
+consume that cooldown. A nearby visible jelly puddle can always be reported,
+including during the first Ordeal or bell cooldown. The report button displays
+the lock/countdown and enables immediately for a reportable puddle. Keyboard
+`R` and multiplayer packets follow the same rules.
+
+This local gameplay update uses `silverpine-bell-v6`. Deploy both the frontend
+and matching persistent room server together; a frontend-only release must not
+connect to the previous `silverpine-harmony-v5` room server. `npm run test:report`
+runs the focused rule and authoritative-server checks.
 
 A standalone WebSocket server is also available via:
 ```bash

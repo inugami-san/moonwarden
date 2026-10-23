@@ -1,4 +1,5 @@
 import type { EyeStyle } from "./appearance";
+import type { EmergencyMeetingState } from "./report-rules";
 
 export type Role = "CREWMATE" | "IMPOSTOR";
 export type RoleChoice = Role | "RANDOM";
@@ -144,6 +145,7 @@ export type S2CMessage =
   | { type: "SYNC_MOVEMENT"; players: NetMovement[]; serverTime: number }
   | {
       type: "SYNC_WORLD";
+      emergency: EmergencyMeetingState;
       phase: Phase;
       time: number;
       hazard: Hazard;

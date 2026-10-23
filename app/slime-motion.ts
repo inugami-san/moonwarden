@@ -2,8 +2,9 @@ type Point = { id: string; x: number; y: number };
 export type SlimePose = {
   offsetY: number; scaleX: number; scaleY: number; shear: number;
   gazeX: number; gazeY: number; hatTilt: number; shadowScale: number; shadowAlpha: number;
+  sproutTilt: number;
 };
-const restingPose = (): SlimePose => ({ offsetY: 0, scaleX: 1, scaleY: 1, shear: 0, gazeX: 0, gazeY: 0, hatTilt: 0, shadowScale: 1, shadowAlpha: 1 });
+const restingPose = (): SlimePose => ({ offsetY: 0, scaleX: 1, scaleY: 1, shear: 0, gazeX: 0, gazeY: 0, hatTilt: 0, shadowScale: 1, shadowAlpha: 1, sproutTilt: 0 });
 type Motion = { x: number; y: number; at: number; phase: number; vx: number; vy: number; pose: SlimePose };
 
 /** Visual-only motion, measured from rendered positions, never from role or input.
@@ -34,10 +35,10 @@ export class SlimeAnimator {
       const pace = Math.min(1, speed / 200);
       // A rounded lift has zero velocity at contact and at the top of a hop.
       // Unlike a clipped sine, it never changes direction abruptly at the feet.
-      motion.phase = (motion.phase + dt * (2.5 + pace * 9)) % (Math.PI * 2);
+      motion.phase = (motion.phase + dt * (2.5 + pace * 8)) % (Math.PI * 2);
       const contact = Math.cos(motion.phase);
       const rise = Math.pow((1 - contact) * .5, 2);
-      const width = 1 + contact * (.012 + pace * .067) - rise * pace * .018;
+      const width = 1 + contact * (.018 + pace * .112) - rise * pace * .025;
       const bodyBlend = 1 - Math.exp(-dt * 24);
       const gazeBlend = 1 - Math.exp(-dt * 14);
       const approach = (current: number, target: number, blend: number) => current + (target - current) * blend;
@@ -46,15 +47,16 @@ export class SlimeAnimator {
       if (reset) motion.pose = restingPose();
       const scaleX = approach(motion.pose.scaleX, width, bodyBlend);
       Object.assign(motion.pose, {
-        offsetY: approach(motion.pose.offsetY, -rise * (1.1 + pace * 4.8), bodyBlend),
+        offsetY: approach(motion.pose.offsetY, -rise * (1.4 + pace * 7.6), bodyBlend),
         scaleX,
         scaleY: 1 / scaleX,
         shear: reset ? 0 : approach(motion.pose.shear, -travelX * .10, gazeBlend),
         gazeX: reset ? 0 : approach(motion.pose.gazeX, travelX * 1.5, gazeBlend),
         gazeY: reset ? 0 : approach(motion.pose.gazeY, travelY * 1.2, gazeBlend),
-        hatTilt: approach(motion.pose.hatTilt, Math.sin(motion.phase - .8) * pace * .033 - travelX * .022, 1 - Math.exp(-dt * 10)),
-        shadowScale: approach(motion.pose.shadowScale, 1 - rise * (.025 + pace * .11), bodyBlend),
-        shadowAlpha: approach(motion.pose.shadowAlpha, 1 - rise * (.035 + pace * .14), bodyBlend),
+        hatTilt: approach(motion.pose.hatTilt, Math.sin(motion.phase - .8) * pace * .058 - travelX * .035, 1 - Math.exp(-dt * 10)),
+        sproutTilt: approach(motion.pose.sproutTilt, Math.sin(motion.phase - 1.1) * (.025 + pace * .15) - travelX * .1, 1 - Math.exp(-dt * 8)),
+        shadowScale: approach(motion.pose.shadowScale, 1 - rise * (.03 + pace * .15), bodyBlend),
+        shadowAlpha: approach(motion.pose.shadowAlpha, 1 - rise * (.04 + pace * .19), bodyBlend),
       });
       motion.x = player.x;
       motion.y = player.y;

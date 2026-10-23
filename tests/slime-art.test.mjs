@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { slimeEyes, slimeOutline, slimePalette, slimeSkin } from "../app/slime-art.ts";
+import { SLIME_CORE_PATH, SLIME_MATERIAL, SLIME_PATH, SLIME_SKIN_CACHE_LIMIT, SLIME_SPROUT, drawSlimeSprout, slimeEyes, slimeOutline, slimePalette, slimeSkin } from "../app/slime-art.ts";
 import { readFile } from "node:fs/promises";
 import { EYE_STYLES, normalizeEyeStyle } from "../server/appearance.ts";
 import { drawEyeShape, eyePath } from "../app/slime-eyes.ts";
@@ -155,17 +155,18 @@ test("slimes idle gently, hop further while moving, and lean/gaze in their actua
   const up = animate(0, -200).poses;
   const down = animate(0, 200).poses;
   const lift = poses => Math.max(...poses.map(pose => -pose.offsetY));
-  assert.ok(lift(idle) > 1.05 && lift(idle) <= 1.1);
-  assert.ok(lift(right) > 5.3 && lift(right) <= 5.9, "walking has restrained, grounded hops");
+  assert.ok(lift(idle) > 1.3 && lift(idle) <= 1.4);
+  assert.ok(lift(right) > 8.1 && lift(right) <= 9, "walking has a visible jelly lift without turning into a pogo stick");
   assert.ok(right.at(-1).shear < -.095 && left.at(-1).shear > .095);
   assert.ok(right.at(-1).gazeX > 1.4 && left.at(-1).gazeX < -1.4);
   assert.ok(up.at(-1).gazeY < -1.1 && down.at(-1).gazeY > 1.1);
   for (const pose of right) {
     assert.ok(Math.abs(pose.scaleX * pose.scaleY - 1) < 1e-10, "jelly keeps its volume");
-    assert.ok(pose.shadowScale >= .83 && pose.shadowScale <= 1);
-    assert.ok(pose.shadowAlpha >= .77 && pose.shadowAlpha <= 1);
+    assert.ok(pose.shadowScale >= .8 && pose.shadowScale <= 1);
+    assert.ok(pose.shadowAlpha >= .74 && pose.shadowAlpha <= 1);
+    assert.ok(Math.abs(pose.sproutTilt) <= .28);
   }
-  assert.ok(Math.max(...right.map(pose => pose.scaleX)) > 1.06 && Math.max(...right.map(pose => pose.scaleX)) < 1.08, "landings softly compress without ballooning");
+  assert.ok(Math.max(...right.map(pose => pose.scaleX)) > 1.1 && Math.max(...right.map(pose => pose.scaleX)) < 1.14, "landings visibly compress while preserving volume");
 });
 
 test("gait is fluid across contact, reversal, and different render frame rates", () => {
@@ -178,7 +179,7 @@ test("gait is fluid across contact, reversal, and different render frame rates",
     let previous = poses[0];
     for (const pose of poses.slice(1)) {
       assert.ok(Math.abs(pose.offsetY - previous.offsetY) < 70 / fps, "no clipped-sine contact snap");
-      assert.ok(Math.abs(pose.scaleX - previous.scaleX) < 1.5 / fps, "continuous squash/stretch");
+      assert.ok(Math.abs(pose.scaleX - previous.scaleX) < 2 / fps, "continuous squash/stretch");
       assert.ok(Math.abs(pose.shear - previous.shear) < 1.05 / fps, "direction changes have follow-through");
       assert.ok(Math.abs(pose.gazeX - previous.gazeX) < 15 / fps, "eyes do not flip instantly");
       previous = pose;
@@ -206,7 +207,7 @@ test("motion eases to idle when blocked/stopped and resets safely after teleport
   assert.ok(Object.values(revealed).every(Number.isFinite));
   for (const fps of [30, 60, 144]) {
     const lift = Math.max(...animate(200, 0, fps).poses.map(pose => -pose.offsetY));
-    assert.ok(lift > 5.3 && lift < 5.5, `bounded, consistent motion at ${fps}fps`);
+    assert.ok(lift > 8.1 && lift < 8.5, `bounded, consistent motion at ${fps}fps`);
   }
 });
 
@@ -214,7 +215,7 @@ test("reduced motion is neutral and animation never modifies physics or depends 
   const animator = new SlimeAnimator();
   const player = Object.freeze({ id: "fixed", x: 100, y: 200 });
   animator.sample(player, 0);
-  const neutral = { offsetY: 0, scaleX: 1, scaleY: 1, shear: 0, gazeX: 0, gazeY: 0, hatTilt: 0, shadowScale: 1, shadowAlpha: 1 };
+  const neutral = { offsetY: 0, scaleX: 1, scaleY: 1, shear: 0, gazeX: 0, gazeY: 0, hatTilt: 0, shadowScale: 1, shadowAlpha: 1, sproutTilt: 0 };
   assert.deepEqual(animator.sample(player, .02, true), neutral);
   assert.deepEqual(player, { id: "fixed", x: 100, y: 200 });
   const a = new SlimeAnimator(), b = new SlimeAnimator();
@@ -312,7 +313,7 @@ test("anonymous outline excludes sprout and eyes; muted eyes do not glow", () =>
     get: (target, key) => target[key] ?? ((...args) => calls.push([key, ...args])),
   });
   slimeOutline(ctx);
-  assert.equal(calls.filter(([name]) => name === "bezierCurveTo").length, 4);
+  assert.equal(calls.filter(([name]) => name === "bezierCurveTo").length, 7);
   assert.equal(calls.some(([name]) => name === "ellipse" || name === "fill"), false);
   slimeEyes(ctx, false);
   assert.equal(ctx.fillStyle, "#f5ffef");
@@ -331,4 +332,115 @@ test("lobby and arena share the reference body and skip decorations for silhouet
   const renderer = page.slice(page.indexOf("  drawSlime("), page.indexOf("  drawHat("));
   assert.ok(renderer.indexOf("return;") < renderer.indexOf("slimeSkin("));
   assert.ok(renderer.indexOf("return;") < renderer.indexOf("slimeEyes("));
+});
+
+function recordSkins(t) {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const canvases = [];
+  Object.defineProperty(globalThis, "document", { configurable: true, value: {
+    createElement(tag) {
+      assert.equal(tag, "canvas");
+      const paths = [], gradients = [], stack = [], state = { globalAlpha: 1 };
+      let path = "";
+      const ctx = new Proxy(state, {
+        get(target, key) {
+          if (key in target) return target[key];
+          if (key === "save") return () => stack.push({ ...state });
+          if (key === "restore") return () => {
+            assert.ok(stack.length, "balanced Canvas state");
+            for (const field of Object.keys(state)) delete state[field];
+            Object.assign(state, stack.pop());
+          };
+          if (key === "beginPath") return () => { path = ""; };
+          const commands = { moveTo: "M", bezierCurveTo: "C", closePath: "Z" };
+          if (key in commands) return (...points) => { path += `${commands[key]}${points.join(" ")}`; };
+          if (key === "fill" || key === "stroke" || key === "clip") return () => paths.push(path);
+          if (key === "createLinearGradient" || key === "createRadialGradient") return (...geometry) => {
+            assert.ok(geometry.every(Number.isFinite));
+            gradients.push({ kind: key, geometry });
+            return { addColorStop(position, color) {
+              assert.ok(position >= 0 && position <= 1);
+              assert.doesNotMatch(color, /NaN|undefined/);
+            } };
+          };
+          return (...args) => { for (const value of args) if (typeof value === "number") assert.ok(Number.isFinite(value)); };
+        },
+      });
+      const canvas = { paths, gradients, stack, getContext: () => ctx };
+      canvases.push(canvas);
+      return canvas;
+    },
+  } });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, "document", original);
+    else delete globalThis.document;
+  });
+  return canvases;
+}
+
+test("mochi dome and botanical sprout replay the same geometry as their SVG counterparts", t => {
+  recordSkins(t);
+  const skin = slimeSkin("#61b9d4");
+  assert.ok(skin.paths.includes(SLIME_PATH));
+  assert.ok(skin.paths.includes(SLIME_CORE_PATH), "a suspended seed, not the old wide face patch");
+  for (const path of Object.values(SLIME_SPROUT)) assert.ok(skin.paths.includes(path), "no Path2D-only or independently redrawn sprout");
+  assert.deepEqual([skin.width, skin.height], [192, 224]);
+  assert.equal(skin.stack.length, 0);
+  const concealed = slimeSkin("#61b9d4", false);
+  assert.ok(concealed.paths.includes(SLIME_PATH), "concealment uses the new dome too");
+  assert.ok(!concealed.paths.includes(SLIME_CORE_PATH));
+  for (const path of Object.values(SLIME_SPROUT)) assert.ok(!concealed.paths.includes(path), "subdued material never adds identifying leaves");
+  assert.equal(concealed.stack.length, 0);
+});
+
+test("portrait and game material use the same body-space lighting, not bounding-box approximations", async t => {
+  recordSkins(t);
+  const skin = slimeSkin("#d9ad65");
+  const { gel, volume, glow, rim, edge, bounce } = SLIME_MATERIAL;
+  for (const light of [gel, rim, edge, bounce]) {
+    assert.ok(skin.gradients.some(g => g.kind === "createLinearGradient" && JSON.stringify(g.geometry) === JSON.stringify([light.x1, light.y1, light.x2, light.y2])));
+  }
+  for (const light of [volume, glow]) {
+    assert.ok(skin.gradients.some(g => g.kind === "createRadialGradient" && JSON.stringify(g.geometry) === JSON.stringify([light.x0, light.y0, light.r0, light.x1, light.y1, light.r1])));
+  }
+  const portrait = await readFile(new URL("../app/slime-portrait.tsx", import.meta.url), "utf8");
+  assert.match(portrait, /SLIME_MATERIAL/);
+  assert.match(portrait, /gradientUnits="userSpaceOnUse" cx=\{volume.x1\}/);
+  assert.match(portrait, /fr=\{glow.r0\}/);
+  assert.match(portrait, /stroke=\{palette.leafVein\}/);
+  assert.doesNotMatch(portrait, /<filter|feTurbulence/, "fine grain does not need expensive animated filters");
+});
+
+test("material colors normalize safely and cache equivalent hex representations once", t => {
+  recordSkins(t);
+  assert.equal(slimeSkin("#aBc"), slimeSkin("#AABBCC"));
+  const fallback = slimePalette("#54dbef");
+  for (const invalid of ["not-a-color", "#", "#ffffff00", null, undefined]) {
+    assert.deepEqual(slimePalette(invalid), fallback);
+    assert.equal(slimeSkin(invalid), slimeSkin("#54dbef"));
+  }
+});
+
+test("gel texture cache is bounded and retains recently used skins across many palettes", t => {
+  recordSkins(t);
+  const cold = slimeSkin("#1a2b3c"), hot = slimeSkin("#f4c9d1");
+  for (let i = 0; i <= SLIME_SKIN_CACHE_LIMIT; i++) {
+    slimeSkin(`#${(0x820000 + i * 79).toString(16)}`);
+    assert.equal(slimeSkin("#f4c9d1"), hot, "active material is not repainted");
+  }
+  assert.notEqual(slimeSkin("#1a2b3c"), cold, "old unused materials are evicted rather than retained forever");
+  assert.equal(slimeSkin("#f4c9d1"), hot);
+});
+
+test("the sprout has independent follow-through and is cached separately from the body", t => {
+  const canvases = recordSkins(t);
+  let blits = 0;
+  const ctx = { save() {}, restore() {}, translate() {}, rotate(angle) { assert.ok(Number.isFinite(angle)); }, drawImage() { blits++; } };
+  for (let frame = 0; frame < 120; frame++) drawSlimeSprout(ctx, "#73bcaa", Math.sin(frame / 12) * .2);
+  assert.equal(canvases.length, 1, "not one crown texture per animation frame");
+  assert.equal(blits, 120);
+  const body = slimeSkin("#73bcaa", true, false);
+  assert.ok(!body.paths.includes(SLIME_SPROUT.stem), "animated sprout does not duplicate a baked stem");
+  const moving = animate(200, 0).poses;
+  assert.ok(Math.max(...moving.map(p => p.sproutTilt)) - Math.min(...moving.map(p => p.sproutTilt)) > .2);
 });
