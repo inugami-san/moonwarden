@@ -2,7 +2,27 @@
 
 Updated: 2026-10-23 (Asia/Manila).
 
-## v0.4.0 release preparation (latest request)
+## Current production release: v0.4.0
+
+- Live: <https://moonwarden-two.vercel.app/>. Its public `/api/version` now reports
+  **0.4.0 / silverpine-bell-v6** after production promotion.
+- Release commit: `6bcda6282c93a65374b03c2c24531cf47d299d91`.
+- Vercel deployment: `dpl_59gmjywgPxSk6Vy3TEAQbve8ghje`, **READY**, Next.js 16.2.6,
+  build 18 seconds. Unique URL: <https://moonwarden-d0gy3prk2-christainj.vercel.app>.
+- Render `moonwarden-rooms`: `srv-db8u6cs9v7es73dt2dt0`, deploy
+  `dep-dbdcjsl9fdbs73alg8vg` **live**, exact same release commit. `/health` reports
+  0.4.0/v6 and a public WebSocket handshake from the production origin succeeded.
+- Both existing release/backend branches were fast-forwarded; `main` was untouched.
+  The separate untracked `prototypes/` directory was excluded. GitHub authentication
+  used the existing gh login through a per-command helper, not global Git changes.
+- 72 focused checks passed including real WebSocket co-op; release/hold checks,
+  TypeScript and scoped ESLint passed. The development victory preview returns
+  HTTP 404 in production. The Vercel runtime error query returned no logs; drains
+  and broader monitoring were not audited. This is not a full human playtest.
+- Existing cached clients must refresh and reconnect/recreate rooms after this
+  coordinated v5-to-v6 release. Backend auto-deploy remains off.
+
+## v0.4.0 implementation notes (latest request)
 
 The user now explicitly authorized implementation of forest restoration rewards
 and clearer Harmonize guidance, followed by production deployment. This supersedes
@@ -18,7 +38,8 @@ threshold cannot spam celebrations. All normal audio preferences still apply.
 Harmonize shows 2 players / 1.25 seconds / audible nearby, and explains its faster
 channel, gear rewards and the fact that a Hollow can participate. Ritual mechanics
 are unchanged. Package/lockfile are now 0.4.0; compatibility remains local v6.
-Deployment outcome must be recorded only after both services confirm it.
+The coordinated deployment is confirmed above. Older local-only statements below
+are retained as development history, not the current deployment status.
 
 ## Read this first
 
@@ -30,7 +51,7 @@ This began as a documentation-only handoff. The user subsequently asked another
 model to continue locally, then asked this agent to continue the slime-art work.
 Do not interpret this file alone as authorization to push or deploy anything.
 
-## Latest local work (2026-10-23; not deployed)
+## Development history preceding v0.4.0
 
 - New user request: distinct match-win animations. `app/match-victory.ts` selects
   Warden/Hollow endings only from exact official solo/server result strings.
@@ -141,7 +162,7 @@ Do not interpret this file alone as authorization to push or deploy anything.
   room process has now been restarted for the bell rules and both endpoints
   report v0.3.3 / `silverpine-bell-v6`. No push or deployment was performed.
 
-## Current published baseline
+## Previous published baseline (v0.3.2)
 
 - Game: **Moonwarden**, a browser-based multiplayer social deduction beta in a
   magical mountain forest. Public role names are **Warden** and **The Hollow**.
