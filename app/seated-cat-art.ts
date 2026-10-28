@@ -2,7 +2,7 @@ import { tintCatFur } from "./mooncat-sprites";
 import type { EyeStyle } from "../server/appearance";
 
 export const SEATED_CAT_URL = "/art/mooncat/mooncat-seated-v1.png";
-const SIZE = 336, LIMIT = 12;
+const SIZE = 672, LIMIT = 12;
 type Eye = { x: number; y: number; rx: number; ry: number };
 let base: HTMLCanvasElement | undefined, loading: Promise<boolean> | undefined;
 let eyes: Eye[] = [];
@@ -33,7 +33,8 @@ export function loadSeatedCat(): Promise<boolean> {
         const scale = Math.min(90 / (bottom - top), 97 / (right - left));
         base = document.createElement("canvas"); base.width = SIZE; base.height = SIZE;
         const ctx = base.getContext("2d"); if (!ctx) return resolve(false);
-        ctx.scale(3, 3); ctx.drawImage(image, 56 - centre * scale, 94 - bottom * scale, source.width * scale, source.height * scale);
+        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+        ctx.scale(SIZE / 112, SIZE / 112); ctx.drawImage(image, 56 - centre * scale, 94 - bottom * scale, source.width * scale, source.height * scale);
         const normalized = ctx.getImageData(0, 0, SIZE, SIZE).data;
         eyes = [false, true].flatMap(rightEye => {
           let l = SIZE, t = SIZE, r = 0, b = 0, count = 0;
@@ -55,12 +56,13 @@ export function loadSeatedCat(): Promise<boolean> {
 }
 
 function expression(ctx: CanvasRenderingContext2D, style: EyeStyle | "BLINK", tinted: Uint8ClampedArray) {
+  const detail = SIZE / 336;
   for (const eye of eyes) {
     const { x, y, rx, ry } = eye;
-    const sample = (Math.round(y) * SIZE + Math.max(0, Math.round(x - rx - 6))) * 4;
+    const sample = (Math.round(y) * SIZE + Math.max(0, Math.round(x - rx - 6 * detail))) * 4;
     ctx.fillStyle = `rgb(${tinted[sample]},${tinted[sample + 1]},${tinted[sample + 2]})`;
-    ctx.beginPath(); ctx.ellipse(x, y, rx + 2, ry + 2, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.save(); ctx.translate(x, y); ctx.strokeStyle = "#211633"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(x, y, rx + 2 * detail, ry + 2 * detail, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.save(); ctx.translate(x, y); ctx.strokeStyle = "#211633"; ctx.lineWidth = 2 * detail;
     ctx.beginPath();
     if (style === "JOYFUL" || style === "BLINK") {
       ctx.moveTo(-rx, 0); ctx.quadraticCurveTo(0, style === "JOYFUL" ? -ry : ry * .3, rx, 0); ctx.stroke();
@@ -71,8 +73,12 @@ function expression(ctx: CanvasRenderingContext2D, style: EyeStyle | "BLINK", ti
       }
       else if (style === "DREAMY") { ctx.moveTo(-rx, 0); ctx.lineTo(rx, 0); ctx.bezierCurveTo(rx, ry * 1.3, -rx, ry * 1.3, -rx, 0); }
       else ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
-      ctx.closePath(); ctx.fillStyle = "#f9c76d"; ctx.fill(); ctx.stroke();
+      ctx.closePath();
+      const iris = ctx.createRadialGradient(-rx * .25, -ry * .3, 1, 0, 0, Math.max(rx, ry) * 1.2);
+      iris.addColorStop(0, "#fff1b2"); iris.addColorStop(.55, "#edba56"); iris.addColorStop(1, "#ac672c");
+      ctx.fillStyle = iris; ctx.fill(); ctx.stroke();
       if (style !== "STARRY") { ctx.fillStyle = "#211633"; ctx.beginPath(); ctx.ellipse(0, style === "DREAMY" ? ry * .4 : 0, rx * .2, ry * .7, 0, 0, Math.PI * 2); ctx.fill(); }
+      ctx.fillStyle = "#fff9e9"; ctx.beginPath(); ctx.ellipse(-rx * .3, style === "DREAMY" ? ry * .23 : -ry * .38, rx * .16, ry * .14, 0, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
   }

@@ -6,6 +6,24 @@ source releases, not proof that a particular server has been deployed.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-28
+
+### Cat presentation polish
+
+- Replaced tiny walking lobby avatars with face-forward seated close-ups,
+  including profile/cosmetic summaries. Increased roster portraits from 45px
+  to 76px (30px to 48px in compact landscape); all eight slots remain visible.
+- Added device-pixel-aware portrait surfaces up to 672px and a higher-resolution
+  seated cache. Hidden menu portraits suspend painting; anonymous silhouettes
+  repaint only when needed, with one cancellable animation loop per portrait.
+- Unified coat shading across gameplay, home, heads and fallen markers:
+  softer saturation, lifted painted midtones, cool shadows, preserved amber
+  eyes/blue fabric/white stars. Anonymous material remains color-blind.
+- Added richer custom-eye highlights and a side-by-side gameplay/lobby review
+  on `/dev/cats`. No movement, collision, role, visibility range or server rules
+  changed. Multiplayer remains compatible with the v0.6.0 room server through
+  the unchanged `silverpine-trust-v8` protocol.
+
 ## [0.6.0] - 2026-10-28
 
 ### Changed

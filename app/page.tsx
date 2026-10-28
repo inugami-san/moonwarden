@@ -3573,6 +3573,7 @@ function SlimeAvatar({
   isBot = false,
   greeting = false,
   homePose = false,
+  lobbyPose = !homePose,
   animated = true,
 }: {
   color: string;
@@ -3582,6 +3583,7 @@ function SlimeAvatar({
   isBot?: boolean;
   greeting?: boolean;
   homePose?: boolean;
+  lobbyPose?: boolean;
   animated?: boolean;
 }) {
   return (
@@ -3591,7 +3593,7 @@ function SlimeAvatar({
       aria-hidden="true"
     >
       <span className="slime-avatar-motion">
-        <SlimePortrait color={color} eyeStyle={eyeStyle} accessory={hat} greeting={greeting} pose={homePose ? "SEATED" : "GAMEPLAY"} animated={animated} />
+        <SlimePortrait color={color} eyeStyle={eyeStyle} accessory={hat} greeting={greeting} pose={lobbyPose ? "LOBBY" : homePose ? "SEATED" : "GAMEPLAY"} animated={animated} />
       </span>
     </div>
   );
@@ -4519,7 +4521,7 @@ function Lobby({
                             </span>
                           </div>
                           <div className="slot-avatar-stage">
-                            <SlimeAvatar color={p.color} hat={p.hat} eyeStyle={p.eyeStyle} size="md" />
+                            <SlimeAvatar color={p.color} hat={p.hat} eyeStyle={p.eyeStyle} size="md" lobbyPose animated={!motionPaused} />
                           </div>
                           <div className="slot-card-meta">
                             <strong className="roster-name">{p.name}</strong>
@@ -4540,7 +4542,7 @@ function Lobby({
                             <span className="slot-ready-pill bot">AUTO</span>
                           </div>
                           <div className="slot-avatar-stage">
-                            <SlimeAvatar color={botColor} hat={botHat} eyeStyle={EYE_STYLES[slotIdx % EYE_STYLES.length]} size="md" isBot />
+                            <SlimeAvatar color={botColor} hat={botHat} eyeStyle={EYE_STYLES[slotIdx % EYE_STYLES.length]} size="md" lobbyPose animated={!motionPaused} isBot />
                           </div>
                           <div className="slot-card-meta">
                             <strong className="roster-name">Bot #{botNum}</strong>

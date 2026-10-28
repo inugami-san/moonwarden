@@ -2,7 +2,31 @@
 
 Updated: 2026-10-28 (Asia/Manila).
 
-## Current release: v0.6.0 / silverpine-trust-v8 — LIVE and verified
+## Cat presentation patch: v0.6.1 — production release in progress
+
+User requested better in-game cat quality and lobby cats after v0.6.0. The
+existing painted art is reused, not a new 3D model. `tintCatFur` now supplies
+one softer, brighter midtone material path for gameplay/seated/fallen cats;
+gold eyes, blue fabric, ink, white stars, alpha and anonymous material are
+preserved. Custom eyes gain iris shading/glints. Seated normalization now
+retains 672px detail with a bounded 12-appearance cache. `SlimePortrait` uses
+ResizeObserver/device-pixel sizing (96–672px), sleeps when hidden, paints
+concealed copies only when dirty, and cancels/restarts a single RAF loop.
+Lobby avatars now use a separate LOBBY close-up (full seated home pose remains
+SEATED); roster cards use 76px, compact 48px portraits, no artificial AI dimming.
+`/dev/cats` compares gameplay with lobby framing. Local HMR preview is on
+http://localhost:3101/ (the old built server may remain on 3100). The user has
+now authorized Vercel production deployment. Package version is 0.6.1; protocol
+remains silverpine-trust-v8. Leave the existing v0.6.0 Render room server unchanged.
+QA: 82 focused art, portrait, movement/visibility and UI checks pass. TypeScript
+and scoped ESLint pass. Browser verified the brighter home cat, shared gameplay
+renderer, and eight close-up lobby cards at the desktop viewport, with no errors
+in the character-review console. Compact landscape CSS was updated but not
+manually verified: the browser viewport override did not affect the target tab
+and was reset. The temporary review room was left after capture.
+Screenshot: `/private/tmp/moonwarden-polished-lobby-cats.png`.
+
+## Previous frontend / current room server: v0.6.0 / silverpine-trust-v8
 
 The user approved the design-review recommendations and production deployment.
 Local implementation includes RestorationLedger (first seal 3–4% baseline,

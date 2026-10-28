@@ -5,6 +5,8 @@
 .mooncat-portrait > canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .mooncat-portrait .cat-portrait-concealed { visibility: hidden; }
 .slime-avatar-motion:has(.mooncat-portrait[data-pose="SEATED"]) { animation: none; }
+.slime-avatar-motion:has(.mooncat-portrait[data-pose="LOBBY"]) { animation: none; }
+.mooncat-portrait[data-pose="LOBBY"] { overflow: hidden !important; border-radius: 24%; background: radial-gradient(ellipse at 40% 35%, #768bad38, #16263d33 72%); box-shadow: inset 0 0 0 1px #9aafd433; }
 .preview-fog .mooncat-portrait .cat-portrait-concealed { visibility: visible; }
 .preview-warden:nth-child(2n) .slime-avatar-motion, .waiting-slot:nth-child(2n) .slime-avatar-motion { animation-delay: -.7s; }
 .preview-warden:nth-child(3n) .slime-avatar-motion, .waiting-slot:nth-child(3n) .slime-avatar-motion { animation-delay: -1.3s; }

@@ -18,7 +18,7 @@ export function catGreetingPhase(progress: number) {
 }
 
 /** High-resolution portrait using the exact same artwork as the live character. */
-export function SlimePortrait({ color, eyeStyle = "FIERCE", accessory, greeting = false, pose = "GAMEPLAY", animated = true }: { color: string; eyeStyle?: EyeStyle; accessory?: Hat; greeting?: boolean; pose?: "GAMEPLAY" | "SEATED"; animated?: boolean }) {
+export function SlimePortrait({ color, eyeStyle = "FIERCE", accessory, greeting = false, pose = "GAMEPLAY", animated = true }: { color: string; eyeStyle?: EyeStyle; accessory?: Hat; greeting?: boolean; pose?: "GAMEPLAY" | "SEATED" | "LOBBY"; animated?: boolean }) {
   const portrait = useRef<HTMLCanvasElement>(null);
   const silhouette = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -27,19 +27,25 @@ export function SlimePortrait({ color, eyeStyle = "FIERCE", accessory, greeting 
     const start = performance.now();
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
     let lastPaint = -Infinity;
+    let shapeDirty = true;
+    let visible = true;
     const paint = (now = performance.now()) => {
     if (!active) return;
-    if (document.hidden) return;
-    if (pose === "SEATED" && animated && !reduced.matches && now - lastPaint < 1000 / 30) { frame = requestAnimationFrame(paint); return; }
+    if (document.hidden || !visible) return;
+    if (pose !== "GAMEPLAY" && animated && !reduced.matches && now - lastPaint < 1000 / 30) { frame = requestAnimationFrame(paint); return; }
     lastPaint = now;
     const progress = (performance.now() - start) / 780;
     const animate = greeting && !reduced.matches && progress < 1;
     const phase = animate ? catGreetingPhase(progress) : 0;
     for (const [canvas, concealed] of [[portrait.current, false], [silhouette.current, true]] as const) {
+      if (concealed && !shapeDirty) continue;
       const context = canvas?.getContext("2d"); if (!canvas || !context) continue;
       context.setTransform(1, 0, 0, 1, 0, 0); context.clearRect(0, 0, canvas.width, canvas.height);
+      context.imageSmoothingEnabled = true; context.imageSmoothingQuality = "high";
       context.scale(canvas.width / 112, canvas.height / 112); context.translate(56, 64);
-      if (pose === "SEATED") {
+      if (pose === "SEATED" || pose === "LOBBY") {
+        // Intentional chest-up framing, not a miniature full-body sprite.
+        if (pose === "LOBBY") { context.translate(0, 19); context.scale(1.4, 1.4); }
         const t = animated && !reduced.matches && !concealed ? now / 1000 : 0;
         const hello = animate ? Math.sin(progress * Math.PI) * -.045 : 0;
         context.translate(0, 30); context.rotate(Math.sin(t * .7) * .004 + hello);
@@ -52,12 +58,28 @@ export function SlimePortrait({ color, eyeStyle = "FIERCE", accessory, greeting 
       if (accessory && !concealed) drawWornAccessory(context, accessory, "SE");
       }
     }
-    if (animate || (pose === "SEATED" && animated && !reduced.matches)) frame = requestAnimationFrame(paint);
+    shapeDirty = false;
+    if (animate || (pose !== "GAMEPLAY" && animated && !reduced.matches)) frame = requestAnimationFrame(paint);
     };
-    const restart = () => { cancelAnimationFrame(frame); lastPaint = -Infinity; paint(); };
-    paint(); void (pose === "SEATED" ? loadSeatedCat() : loadMooncatSprites()).then(() => { if (active) restart(); });
+    const restart = () => { cancelAnimationFrame(frame); lastPaint = -Infinity; shapeDirty = true; paint(); };
+    // Match the displayed portrait to device pixels. Tiny roster icons no longer
+    // allocate hero-size surfaces; the hero no longer upscales a 336px bitmap.
+    const resize = () => {
+      const bounds = portrait.current?.getBoundingClientRect();
+      const wasVisible = visible;
+      visible = Boolean(bounds?.width);
+      if (!bounds?.width) { cancelAnimationFrame(frame); return; }
+      const size = Math.max(96, Math.min(672, Math.ceil(bounds.width * Math.min(2, window.devicePixelRatio || 1))));
+      let changed = false;
+      for (const canvas of [portrait.current, silhouette.current]) if (canvas && canvas.width !== size) { canvas.width = size; canvas.height = size; changed = true; }
+      if (changed || !wasVisible) restart();
+    };
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(resize);
+    if (portrait.current) observer?.observe(portrait.current);
+    resize();
+    restart(); void (pose !== "GAMEPLAY" ? loadSeatedCat() : loadMooncatSprites()).then(() => { if (active) restart(); });
     document.addEventListener("visibilitychange", restart); reduced.addEventListener("change", restart);
-    return () => { active = false; cancelAnimationFrame(frame); document.removeEventListener("visibilitychange", restart); reduced.removeEventListener("change", restart); };
+    return () => { active = false; cancelAnimationFrame(frame); observer?.disconnect(); document.removeEventListener("visibilitychange", restart); reduced.removeEventListener("change", restart); };
   }, [color, eyeStyle, accessory, greeting, pose, animated]);
   return <span className="slime-portrait mooncat-portrait" data-pose={pose} aria-hidden="true">
     <canvas ref={silhouette} className="cat-portrait-concealed" width={336} height={336} />

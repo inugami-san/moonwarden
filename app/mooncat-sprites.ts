@@ -136,15 +136,26 @@ export function tintCatFur(data: Uint8ClampedArray, color: string, concealed = f
   const safe = /^#[\da-f]{6}$/i.test(color) ? color : "#8257cb";
   const rgb = [1, 3, 5].map(offset => parseInt(safe.slice(offset, offset + 2), 16));
   const target = hue(rgb[0], rgb[1], rgb[2]);
+  const targetMax = Math.max(...rgb) / 255, targetMin = Math.min(...rgb) / 255;
+  const targetLight = (targetMax + targetMin) / 2;
+  const targetSaturation = targetMax === targetMin ? 0 : (targetMax - targetMin) / (1 - Math.abs(2 * targetLight - 1));
   for (let i = 0; i < data.length; i += 4) {
     if (!data[i + 3]) continue;
     const r = data[i], g = data[i + 1], b = data[i + 2];
     if (concealed) { data[i] = 120; data[i + 1] = 137; data[i + 2] = 147; }
-    else if (b > g * 1.18 && r > g * 1.12 && b > r * .96) {
+    else if (b > g * 1.12 && r > g * 1.06 && b > r * .96) {
       const max = Math.max(r, g, b) / 255, min = Math.min(r, g, b) / 255, l = (max + min) / 2;
       const s = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
-      const tinted = hsl(target, Math.min(.85, s), l);
-      data[i] = tinted[0]; data[i + 1] = tinted[1]; data[i + 2] = tinted[2];
+      // Preserve the painted ink and stars. Lift the fur's middle values, not
+      // the entire sprite: a bright coat stays soft instead of neon plastic.
+      const weight = Math.max(0, Math.min(1, (b - g * 1.12) / 24, (r - g * 1.06) / 16, (max - .08) * 8));
+      const shadow = Math.max(0, (.28 - l) / .28) * .22;
+      const coolDelta = ((250 - target + 540) % 360) - 180;
+      const light = Math.min(.9, l + .065 * Math.sin(Math.PI * l) * Math.min(1, max * 3));
+      const tinted = hsl((target + coolDelta * shadow + 360) % 360, Math.min(.72, s * .78 + .06, targetSaturation * .5 + .4), light);
+      data[i] = Math.round(r + (tinted[0] - r) * weight);
+      data[i + 1] = Math.round(g + (tinted[1] - g) * weight);
+      data[i + 2] = Math.round(b + (tinted[2] - b) * weight);
     }
   }
 }
@@ -162,23 +173,13 @@ function variant(options: MooncatOptions) {
   const ctx = canvas.getContext("2d", { willReadFrequently: true }); if (!ctx || !base) return;
   ctx.drawImage(base, 0, 0);
   const pixels = ctx.getImageData(0, 0, WIDTH, HEIGHT), data = pixels.data;
-  const rgb = [1, 3, 5].map(offset => parseInt(color.slice(offset, offset + 2), 16));
-  const targetHue = hue(rgb[0], rgb[1], rgb[2]);
-  for (let i = 0; i < data.length; i += 4) {
+  if (mode === "normal") tintCatFur(data, color);
+  else for (let i = 0; i < data.length; i += 4) {
     if (!data[i + 3]) continue;
     const r = data[i], g = data[i + 1], b = data[i + 2];
-    if (mode !== "normal") {
-      // Exactly identical material for every anonymous player; no eyes or runes.
-      const light = mode === "shape" ? 1 : (.45 + (r + g + b) / 1530);
-      data[i] = 120 * light; data[i + 1] = 137 * light; data[i + 2] = 147 * light;
-    } else if (b > g * 1.18 && r > g * 1.12 && b > r * .96) {
-      // Recolor fur only; preserve the amber irises and blue scarf/cuff.
-      const max = Math.max(r, g, b) / 255, min = Math.min(r, g, b) / 255;
-      const light = (max + min) / 2;
-      const saturation = max === min ? 0 : (max - min) / (1 - Math.abs(2 * light - 1));
-      const tinted = hsl(targetHue, Math.min(.85, saturation), light);
-      data[i] = tinted[0]; data[i + 1] = tinted[1]; data[i + 2] = tinted[2];
-    }
+    // Exactly identical material for every anonymous player; no eyes or runes.
+    const light = mode === "shape" ? 1 : (.45 + (r + g + b) / 1530);
+    data[i] = 120 * light; data[i + 1] = 137 * light; data[i + 2] = 147 * light;
   }
   ctx.putImageData(pixels, 0, 0);
   if (mode === "normal" && eyeStyle !== "FIERCE") customizeEyes(ctx, eyeStyle);
@@ -241,6 +242,7 @@ function customizeEyes(ctx: CanvasRenderingContext2D, style: string, height = HE
       } else ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
       const gold = ctx.createLinearGradient(0, -ry, 0, ry); gold.addColorStop(0, "#ffc461"); gold.addColorStop(1, "#fff0a3"); ctx.fillStyle = gold; ctx.fill(); ctx.stroke();
       if (style !== "STARRY") { ctx.fillStyle = "#211633"; ctx.beginPath(); ctx.ellipse(.5, style === "DREAMY" ? ry * .4 : 0, rx * .3, ry * .72, 0, 0, Math.PI * 2); ctx.fill(); }
+      ctx.fillStyle = "#fff9e9"; ctx.beginPath(); ctx.ellipse(-rx * .3, style === "DREAMY" ? ry * .23 : -ry * .35, Math.max(.6, rx * .16), Math.max(.6, ry * .14), 0, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
   }

@@ -63,7 +63,7 @@ export function CatPreview() {
       // Actual-size control: compare silhouette and readability at game scale.
       ctx.save(); ctx.translate(100, 585); drawVectorMooncat(ctx, { color, direction: "SE", stridePhase: time * 8, strideAmount: animate ? .8 : 0, blink: false }); ctx.restore();
       ctx.save(); ctx.translate(265, 585); drawMooncat(ctx, { color, direction: "SE", stridePhase: time * 8, strideAmount: animate ? .8 : 0, blink: false, eyeStyle: eyes }); ctx.restore();
-      ctx.font = "12px system-ui"; ctx.fillStyle = "#39324d"; ctx.fillText("Previous · game scale", 100, 632); ctx.fillText("Updated · game scale", 265, 632);
+      ctx.font = "12px system-ui"; ctx.fillStyle = "#39324d"; ctx.fillText("Vector fallback · game scale", 100, 632); ctx.fillText("Painted cat · game scale", 265, 632);
       frame = requestAnimationFrame(paint);
     };
     frame = requestAnimationFrame(paint); return () => cancelAnimationFrame(frame);
@@ -88,7 +88,10 @@ export function CatPreview() {
       {devour && !playing ? <label>Capture frame <input type="range" min={0} max={1} step={.01} value={captureFrame} onChange={event => setCaptureFrame(Number(event.target.value))} /></label> : null}
       <span style={{ width: 72, height: 72 }}><SlimePortrait color={color} eyeStyle={eyes} /></span>
     </div>
-    <canvas ref={focusCanvas} width={640} height={640} aria-label="Enlarged live moon-cat character" style={{ width: "min(360px, 100%)", display: "block", borderRadius: 20, background: "#f6eedb", marginBottom: 20 }} />
+    <section style={{ display: "flex", flexWrap: "wrap", alignItems: "start", gap: 20, marginBottom: 20 }} aria-label="Gameplay and lobby character review">
+      <div><h2 style={{ fontSize: 16 }}>In-game character</h2><canvas ref={focusCanvas} width={640} height={640} aria-label="Enlarged live moon-cat character" style={{ width: "min(360px, 100%)", display: "block", borderRadius: 20, background: "#f6eedb" }} /></div>
+      <div><h2 style={{ fontSize: 16 }}>Lobby close-up</h2><div style={{ width: 240, height: 240, position: "relative", borderRadius: 20, background: "#25364e", overflow: "hidden" }}><SlimePortrait color={color} eyeStyle={eyes} accessory="moonbell" pose="LOBBY" animated={playing} /></div><p style={{ maxWidth: 240, fontSize: 13 }}>Face-forward framing, painted coat and fitted collar. The home mascot keeps its full seated pose.</p></div>
+    </section>
     <canvas ref={canvas} width={1920} height={1280} aria-label="Eight animated moon-cat directions and an actual-size before-and-after comparison" style={{ width: "min(960px, 100%)", display: "block", borderRadius: 20, background: "#f6eedb" }} />
   </main>;
 }

@@ -191,14 +191,15 @@ body:has(.game-menu-shell) .mw-privacy-launcher { border-color: #526787; color: 
 .game-menu-shell.moon-studio .inroom-profile-summary :is(small, span) { color: var(--menu-muted); font-size: 9px; }
 .game-menu-shell.moon-studio .room-crew-pane { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .game-menu-shell.moon-studio .waiting-slot-grid { flex: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 8px; min-height: 0; margin: 0; }
-.game-menu-shell.moon-studio .warden-slot-card { position: relative; display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: center; align-content: center; min-height: 0; gap: 0 5px; padding: 24px 8px 5px; border: 1px solid #526787; border-radius: 14px; background: #293a53; box-shadow: none; }
+.game-menu-shell.moon-studio .warden-slot-card { position: relative; display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; align-content: center; min-height: 0; gap: 0 5px; padding: 24px 8px 5px; border: 1px solid #526787; border-radius: 14px; background: radial-gradient(ellipse at 30% 50%, #4a567533, transparent 72%), #293a53; box-shadow: none; }
 .game-menu-shell.moon-studio .warden-slot-card.is-you { background: #354463; border-color: #9fc8df; }
 .game-menu-shell.moon-studio .slot-card-top { position: absolute; top: 7px; left: 8px; right: 8px; padding: 0; }
 .game-menu-shell.moon-studio .slot-badges { gap: 3px; }
 .game-menu-shell.moon-studio .roster-badge, .game-menu-shell.moon-studio .slot-ready-pill { padding: 2px 4px; border-color: #687c9e; background: #131d30; color: var(--menu-muted); font-size: 7px; }
 .game-menu-shell.moon-studio .roster-badge.host, .game-menu-shell.moon-studio .slot-ready-pill.ready { color: #dfbd7c; background: #373947; border-color: #847659; }
 .game-menu-shell.moon-studio .slot-avatar-stage { min-height: 0; height: auto; padding: 0; background: transparent; }
-.game-menu-shell.moon-studio .slot-avatar-stage .slime-avatar { width: 45px; height: 46px; }
+.game-menu-shell.moon-studio .slot-avatar-stage .slime-avatar { width: 76px; height: 76px; }
+.game-menu-shell.moon-studio .slot-avatar-stage .slime-avatar.is-bot { opacity: 1; filter: none; }
 .game-menu-shell.moon-studio .slot-card-meta { min-width: 0; padding: 0; text-align: left; }
 .game-menu-shell.moon-studio .slot-card-meta strong { display: block; color: var(--menu-ink); font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .game-menu-shell.moon-studio .slot-card-meta small { color: var(--menu-muted); font-size: 8px; }
@@ -302,10 +303,10 @@ body:has(.game-menu-shell) .mw-privacy-launcher { border-color: #526787; color: 
   .game-menu-shell.moon-studio .waiting-room, .game-menu-shell.moon-studio .waiting-room-controls { gap: 5px; }
   .game-menu-shell.moon-studio .room-crew-pane > .field-label { display: none; }
   .game-menu-shell.moon-studio .waiting-slot-grid { gap: 5px; }
-  .game-menu-shell.moon-studio .warden-slot-card { padding-top: 18px; border-radius: 10px; }
+  .game-menu-shell.moon-studio .warden-slot-card { grid-template-columns: 48px minmax(0, 1fr); padding-top: 18px; border-radius: 10px; }
   .game-menu-shell.moon-studio .slot-card-top { top: 3px; }
   .game-menu-shell.moon-studio .slot-card-meta small { display: none; }
-  .game-menu-shell.moon-studio .slot-avatar-stage .slime-avatar { width: 30px; height: 32px; }
+  .game-menu-shell.moon-studio .slot-avatar-stage .slime-avatar { width: 48px; height: 48px; }
   .game-menu-shell.moon-studio .slot-card-meta strong { font-size: 10px; }
   .game-menu-shell.moon-studio .room-bottom-actions .launch-button, .game-menu-shell.moon-studio .room-bottom-actions > button { min-height: 40px; }
   .game-menu-shell.moon-studio .lobby-comms-box { padding: 6px; gap: 4px; }

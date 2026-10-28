@@ -43,7 +43,7 @@ test("seated home pose remains separate from walking gameplay portraits", async 
   const portrait = await readFile(new URL("../app/cat-portrait.tsx", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(portrait, /pose = "GAMEPLAY"/);
-  assert.match(portrait, /if \(pose === "SEATED"\)/);
+  assert.match(portrait, /if \(pose === "SEATED" \|\| pose === "LOBBY"\)/);
   assert.match(portrait, /drawSeatedCat\(context, color, eyeStyle/);
   assert.match(portrait, /drawWornAccessory\(context, accessory, "SOUTH", false, 0, 0, "SEATED"\)/);
   assert.match(portrait, /direction: "SE"[\s\S]*?walkStyle: "FRAMES"/);
@@ -61,9 +61,9 @@ test("home animation caps paints at 30fps, sleeps when hidden and cleans up ever
   const source = await readFile(new URL("../app/cat-portrait.tsx", import.meta.url), "utf8");
   const live = source.slice(source.indexOf("export function SlimePortrait"), source.indexOf("export function LegacySlimePortrait"));
   assert.match(live, /now - lastPaint < 1000 \/ 30/);
-  assert.match(live, /if \(document.hidden\) return/);
+  assert.match(live, /if \(document.hidden \|\| !visible\) return/);
   assert.match(live, /prefers-reduced-motion: reduce/);
-  assert.match(live, /if \(animate \|\| \(pose === "SEATED" && animated && !reduced.matches\)\) frame = requestAnimationFrame/);
+  assert.match(live, /if \(animate \|\| \(pose !== "GAMEPLAY" && animated && !reduced.matches\)\) frame = requestAnimationFrame/);
   assert.match(live, /document.addEventListener\("visibilitychange", restart\)/);
   assert.match(live, /document.removeEventListener\("visibilitychange", restart\)/);
   assert.match(live, /reduced.addEventListener\("change", restart\)/);
@@ -74,7 +74,7 @@ test("home animation caps paints at 30fps, sleeps when hidden and cleans up ever
 
 test("seated recolor and expression variants are bounded and shared by all portraits", async () => {
   const source = await readFile(new URL("../app/seated-cat-art.ts", import.meta.url), "utf8");
-  assert.match(source, /LIMIT = 12/);
+  assert.match(source, /SIZE = 672, LIMIT = 12/);
   assert.match(source, /if \(loading\) return loading/);
   assert.match(source, /const key = concealed \? "shape"/);
   assert.match(source, /let variant = cache.get\(key\)/);
