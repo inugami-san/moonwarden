@@ -99,7 +99,7 @@ test("eye cosmetics survive create, join, profile updates, discovery, matches, a
   registry.removeRoom(room.code);
 });
 
-test("Multiplayer GameRoom: Lifecycle, Input Sync, Tasks, Meetings, and Voting", async () => {
+test("Multiplayer GameRoom: Lifecycle, Input Sync, Tasks, Meetings, and Voting", async (t) => {
   const registry = new GameServerRegistry();
 
   // 1. Create Room
@@ -112,8 +112,7 @@ test("Multiplayer GameRoom: Lifecycle, Input Sync, Tasks, Meetings, and Voting",
 
   assert.equal(playerA.isHost, true);
   assert.equal(room.clients.size, 1);
-  assert.equal(clientA.lastMessage().type, "ROOM_STATE");
-  assert.equal(clientA.lastMessage().isHost, true);
+  assert.equal(clientA.sent.find(message => message.type === "ROOM_STATE").isHost, true);
 
   // 2. Join Room
   const clientB = createMockClient();
@@ -121,8 +120,7 @@ test("Multiplayer GameRoom: Lifecycle, Input Sync, Tasks, Meetings, and Voting",
 
   assert.equal(playerB.isHost, false);
   assert.equal(room.clients.size, 2);
-  assert.equal(clientB.lastMessage().type, "ROOM_STATE");
-  assert.equal(clientB.lastMessage().isHost, false);
+  assert.equal(clientB.sent.find(message => message.type === "ROOM_STATE").isHost, false);
   // Host should receive notification of guest joining
   assert.equal(clientA.popMessage("PLAYER_JOINED").player.name, "GuestWarden");
 
@@ -162,7 +160,7 @@ test("Multiplayer GameRoom: Lifecycle, Input Sync, Tasks, Meetings, and Voting",
   atStation(room, playerA, "FROST FONT");
   clientB.sent.length = 0;
   const initialTask = room.taskProgress;
-  room.handleMessage("player-a", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT" });
+  finishTask(room, "player-a", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT" });
   assert.equal(room.taskProgress, initialTask, "the gauge is not an instant identity detector");
   room.settleWards(); room.broadcastWorld();
   assert.equal(room.taskProgress, initialTask + wardGain(room));
@@ -175,7 +173,7 @@ test("Multiplayer GameRoom: Lifecycle, Input Sync, Tasks, Meetings, and Voting",
   room.handleMessage("player-a", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT" });
   assert.equal(room.itemCharges.get("player-a").FLASHLIGHT, 1);
   atStation(room, playerB, "FROST FONT");
-  room.handleMessage("player-b", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT" });
+  finishTask(room, "player-b", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT" });
   assert.equal(room.itemCharges.get("player-b").FLASHLIGHT, 1);
   assert.equal(room.taskProgress, initialTask + wardGain(room));
 
@@ -191,6 +189,14 @@ test("Multiplayer GameRoom: Lifecycle, Input Sync, Tasks, Meetings, and Voting",
   assert.ok(meetingMsgA);
   assert.ok(meetingMsgB);
   assert.equal(meetingMsgA.reporter, "HostWarden");
+  assert.equal(meetingMsgA.discussionMs, 10_000);
+  // The room, not only the disabled buttons, enforces discussion first.
+  t.mock.method(Date, "now", () => room.votingOpensAt - 1);
+  room.handleMessage("player-a", { type: "CAST_VOTE", targetId: "player-b" });
+  room.handleMessage("player-b", { type: "CAST_VOTE", targetId: null });
+  assert.equal(room.votes.size, 0);
+  assert.equal(clientA.popMessage("VOTE_RECEIPT").accepted, false);
+  assert.equal(clientB.popMessage("VOTE_RECEIPT").accepted, false);
 
   // 7. Chat Message in Meeting
   room.handleMessage("player-b", { type: "SEND_CHAT", text: "I was at the Star Altar doing tasks!" });
@@ -201,6 +207,7 @@ test("Multiplayer GameRoom: Lifecycle, Input Sync, Tasks, Meetings, and Voting",
   assert.equal(chatMsgB.message.text, "I was at the Star Altar doing tasks!");
 
   // 8. Voting & Conclusion
+  t.mock.method(Date, "now", () => room.votingOpensAt);
   room.handleMessage("player-a", { type: "CAST_VOTE", targetId: null }); // Skip
   room.handleMessage("player-b", { type: "CAST_VOTE", targetId: null }); // Skip
 
@@ -252,6 +259,15 @@ test("Multiplayer GameRoom: Impostor can kill only once per Ordeal", () => {
   registry.removeRoom(room.code);
 });
 
+// Use the real challenge protocol when exercising rewards at an interactive shrine.
+function finishTask(room, id, request) {
+  room.handleMessage(id, { type: "OPEN_RITUAL", stationId: request.stationId, roundId: room.roundId });
+  const entry = room.ritualChallenges.get(id);
+  assert.ok(entry, "an available nearby shrine issues a challenge");
+  entry.openedAt -= entry.challenge.minimumMs ?? 500;
+  room.handleMessage(id, { type: "ANSWER_RITUAL", challengeId: entry.challenge.id, answer: entry.challenge.target, roundId: room.roundId });
+}
+
 function preparedMatch(t, bots = false) {
   const room = new GameServerRegistry().createRoom();
   const clients = [];
@@ -271,17 +287,17 @@ test("each player keeps a private shrine rite after the team seal, without dupli
   const { room, clients } = preparedMatch(t);
   for (const player of room.players.values()) atStation(room, player, "FROST FONT");
   const request = { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT", roundId: room.roundId };
-  room.handleMessage("rite-1", request);
+  finishTask(room, "rite-1", request);
   room.settleWards();
   assert.equal(room.taskProgress, wardGain(room));
-  room.handleMessage("rite-2", request);
-  room.handleMessage("rite-0", request);
+  finishTask(room, "rite-2", request);
+  finishTask(room, "rite-0", request);
   assert.equal(room.taskProgress, wardGain(room), "a teammate cannot add a second restoration; Hollow siphons settle later");
   for (const id of ["rite-0", "rite-1", "rite-2"]) assert.equal(room.itemCharges.get(id).FLASHLIGHT, 1);
   const personal = clients[2].sent.filter(message => message.type === "GEAR_SYNC").at(-1);
   assert.deepEqual(personal.completedStations, ["FROST FONT"]);
   assert.equal(personal.stationCompleted, true);
-  assert.equal(personal.wardProgressGain, 0);
+  assert.equal(personal.wardProgressGain, .5);
   assert.equal(clients[1].sent.find(message => message.type === "GEAR_SYNC").wardProgressGain, wardGain(room));
   assert.ok(!clients[3].sent.some(message => message.type === "GEAR_SYNC"), "private inventories never leak to other clients");
   for (const message of clients[3].sent.filter(message => message.type === "STATION_COMPLETED")) {
@@ -302,11 +318,11 @@ test("fake rites award gear but leave the first real Warden restoration availabl
   const { room } = preparedMatch(t);
   for (const player of room.players.values()) atStation(room, player, "STAR ALTAR");
   const request = { type: "TASK_UPDATE", stationId: "STAR ALTAR", reward: "SONAR", roundId: 1 };
-  room.handleMessage("rite-0", request);
+  finishTask(room, "rite-0", request);
   assert.equal(room.taskProgress, 0);
   assert.equal(room.sealedStations.has("STAR ALTAR"), false);
   room.phase = "ORDEAL";
-  room.handleMessage("rite-1", request);
+  finishTask(room, "rite-1", request);
   const expected = wardGain(room) + ritualProgress(3, false, true);
   room.settleWards();
   assert.equal(room.taskProgress, Math.round(expected * 10) / 10);
@@ -360,6 +376,7 @@ test("Calm announces the upcoming hazard immediately and preserves its seed thro
 test("bots cannot repair from afar: they travel, dwell, claim gear and use the shared team seal", t => {
   const { room } = preparedMatch(t, true);
   const bot = [...room.players.values()].find(player => player.isAi);
+  bot.x = CENTER.x; bot.y = CENTER.y;
   for (const player of room.players.values()) if (player.isAi && player.id !== bot.id) player.alive = false;
   // Keep enough living crew for the match to remain valid while exercising this bot in isolation.
   const human = room.players.get("rite-0");
@@ -771,6 +788,7 @@ test("disconnect during voting no longer stalls the meeting", (t) => {
   room.handleMessage("p0", { type: "START_MATCH", botFill: false, targetPlayers: 4 });
   for (const p of room.players.values()) p.role = p.id === "p0" ? "IMPOSTOR" : "CREWMATE";
   room.startMeeting("TEST", "P0");
+  room.votingOpensAt = 0; // Exercise disconnect handling in the voting window.
   for (const id of ["p0", "p1", "p2"]) room.handleMessage(id, { type: "CAST_VOTE", targetId: null });
   room.handleMessage("p0", { type: "CAST_VOTE", targetId: "missing" });
   assert.equal(room.votes.get("p0"), null);

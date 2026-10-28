@@ -51,6 +51,7 @@ function fixture(t) {
   room.executeKill(room.players.get("e"), room.players.get("b"));
   for (const client of clients.values()) client.messages.length = 0;
   room.handleMessage("a", { type: "TRIGGER_REPORT" });
+  room.votingOpensAt = 0; // These tests exercise ballots after discussion ends.
   return { room, clients, receipt: id => clients.get(id).messages.filter(message => message.type === "VOTE_RECEIPT").at(-1) };
 }
 
@@ -107,6 +108,7 @@ test("skips, non-reporters, and the next emergency meeting are unaffected", t =>
   assert.equal(receipt("a").targetId, null);
   assert.equal(receipt("a").shifted, false);
   room.startMeeting("EMERGENCY MEETING CALLED", "A");
+  room.votingOpensAt = 0;
   room.handleMessage("a", { type: "CAST_VOTE", targetId: "b" });
   assert.equal(receipt("a").targetId, "b");
   assert.equal(receipt("a").shifted, false);

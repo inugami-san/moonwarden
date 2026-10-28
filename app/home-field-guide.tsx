@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 
-const ORDEALS = [
+export const ORDEALS = [
   { icon: "✧", name: "Total Blackout", tag: "FOLLOW THE LIGHT", text: "The sanctuary goes dark. Keep your glowing mushroom close — and your friends closer.", tip: "Nearby light reveals hidden wardens.", tone: "night" },
   { icon: "≋", name: "Thick Sea Fog", tag: "WHO GOES THERE?", text: "Familiar faces become anonymous shapes. Remember who was beside you before the mist rolled in.", tip: "Colors, names, and accessories disappear in the fog.", tone: "mist" },
   { icon: "☼", name: "Moon Glare", tag: "TOO MUCH OF A GOOD THING", text: "The moon floods the glade with light. You can still see silhouettes, but not who they belong to.", tip: "Watch movement, not colors.", tone: "gold" },

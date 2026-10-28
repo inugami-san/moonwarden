@@ -10,6 +10,7 @@ import * as camera from "../app/world-camera.ts";
 import * as reportRules from "../server/report-rules.ts";
 import * as taskHold from "../app/task-hold.ts";
 import * as restoration from "../app/restoration-art.ts";
+import * as design from "../server/sanctuary-design.ts";
 
 const observer = Object.freeze({ id: "you", x: 900, y: 400 });
 const context = overrides => ({ observer, phase: "CALM", hazard: "FOG", obstacles: [], flares: [], ...overrides });
@@ -82,7 +83,7 @@ const resizeJavascript = ts.transpileModule(`function resizeEngine() { const res
 function fixture() {
   const draws = [], audio = [], reports = [];
   const runtime = {
-    ...world, ...rules, ...camera, ...reportRules, ...taskHold, ...restoration, sightAt, W: world.WORLD_WIDTH, H: world.WORLD_HEIGHT,
+    ...world, ...rules, ...camera, ...reportRules, ...taskHold, ...restoration, ...design, sightAt, W: world.WORLD_WIDTH, H: world.WORLD_HEIGHT,
     DEVOUR_SECONDS: 1.6, HEARING_RANGE: 300, KILL_COOLDOWN_SECONDS: 1.6, Math, window: { devicePixelRatio: 2 },
     dist: (a, b) => Math.hypot(a.x - b.x, a.y - b.y), clamp: (n, a, b) => Math.max(a, Math.min(b, n)),
     drawSanctumStatus() {}, drawSlimeConsumption: (...args) => draws.push(["consume", ...args]),
@@ -91,7 +92,7 @@ function fixture() {
   const human = { ...observer, role: "CREWMATE", alive: true, vx: 0, vy: 0, color: "#20d8ed", ai: false };
   const engine = Object.assign(Object.create(Engine.prototype), {
     localPlayerId: "you", players: [human], phase: "CALM", hazard: "FOG", elapsed: 10, phaseTime: 24,
-    obstacles: [], flares: [], particles: [], devourEvents: [], stations: [], bodies: [], reducedMotion: false,
+    obstacles: [], flares: [], particles: [], devourEvents: [], stations: [], bodies: [], rootRipples: [], reducedMotion: false,
     selectedItem: "FLASHLIGHT", itemActiveUntil: 0, moonSightUntil: 0, mouse: { x: 1200, y: 400 },
     audio: { devour: () => audio.push("gulp"), unlock: () => Promise.resolve() }, suspicion: new Map(),
     camera: { x: 400, y: 150 }, viewWidth: 915, viewHeight: 543,

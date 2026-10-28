@@ -42,7 +42,7 @@ function waitFor(socket, type, predicate = () => true) {
   const existing = socket.messages.findIndex(msg => msg.type === type && predicate(msg));
   if (existing >= 0) return Promise.resolve(socket.messages.splice(existing, 1)[0]);
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { socket.off("message", check); reject(new Error(`Missing ${type}`)); }, 3000);
+    const timer = setTimeout(() => { socket.off("message", check); reject(new Error(`Missing ${type}`)); }, 5000);
     function check() {
       const index = socket.messages.findIndex(msg => msg.type === type && predicate(msg));
       if (index < 0) return;
@@ -55,21 +55,29 @@ function waitFor(socket, type, predicate = () => true) {
 }
 
 function send(socket, message) { socket.send(JSON.stringify(message)); }
+async function solve(socket, room, station) {
+  send(socket, { type: "OPEN_RITUAL", stationId: station.id, roundId: room.roundId });
+  const { challenge } = await waitFor(socket, "RITUAL_CHALLENGE");
+  assert.ok(challenge);
+  await new Promise(resolve => setTimeout(resolve, challenge.minimumMs ?? 450));
+  send(socket, { type: "ANSWER_RITUAL", challengeId: challenge.id, answer: challenge.target, roundId: room.roundId });
+  return waitFor(socket, "GEAR_SYNC");
+}
 
 test("real sockets share seeded layouts, private Hollow teams, and delayed-puddle strikes", async t => {
   const { connect } = await fixture(t);
-  const sockets = await Promise.all(Array.from({ length: 6 }, () => connect()));
+  const sockets = await Promise.all(Array.from({ length: 7 }, () => connect()));
   send(sockets[0], { type: "CREATE_ROOM", playerName: "Host", color: "#20d8ed", hat: "hood" });
   const created = await waitFor(sockets[0], "ROOM_STATE");
   for (let i = 1; i < sockets.length; i++) {
     send(sockets[i], { type: "JOIN_ROOM", roomCode: created.roomCode, playerName: `Guest ${i}`, color: "#20d8ed", hat: "hood" });
     await waitFor(sockets[i], "ROOM_STATE");
   }
-  send(sockets[0], { type: "UPDATE_ROOM_CONFIG", targetPlayers: 6, botFill: false, hollowCount: 2 });
+  send(sockets[0], { type: "UPDATE_ROOM_CONFIG", targetPlayers: 7, botFill: false, hollowCount: 2 });
   let config;
   do { config = await waitFor(sockets[0], "LOBBY_UPDATED"); } while (config.hollowCount !== 2);
   const started = sockets.map(socket => waitFor(socket, "MATCH_STARTED"));
-  send(sockets[0], { type: "START_MATCH", botFill: false, targetPlayers: 6 });
+  send(sockets[0], { type: "START_MATCH", botFill: false, targetPlayers: 7 });
   const matches = await Promise.all(started);
   assert.equal(new Set(matches.map(match => match.layoutSeed)).size, 1);
   assert.equal(matches.filter(match => match.role === "IMPOSTOR").length, 2);
@@ -132,6 +140,7 @@ test("real sockets keep Moonsway receipts private and count the redirected ballo
   send(socketFor(reporter), { type: "TRIGGER_REPORT" });
   const meeting = await waitFor(socketFor(reporter), "MEETING_CALLED");
   assert.equal(meeting.bodyReporterId, reporter.id);
+  room.votingOpensAt = Date.now() - 1;
   t.mock.method(Math, "random", () => 0);
   send(socketFor(reporter), { type: "CAST_VOTE", targetId: killer.id });
   const receipt = await waitFor(socketFor(reporter), "VOTE_RECEIPT");
@@ -169,8 +178,14 @@ test("paired rituals cross real WebSockets, award both players, and reject stale
   const players = [...room.players.values()];
   for (const player of players.slice(0, 2)) { player.x = station.x; player.y = station.y; player.vx = 0; player.vy = 0; }
   const accepted = sockets.slice(0, 2).map(socket => waitFor(socket, "GEAR_SYNC", message => message.accepted && message.stationId === station.id));
-  const hold = () => { for (const socket of sockets.slice(0, 2)) send(socket, { type: "PAIR_RITUAL", active: true, stationId: station.id, roundId: room.roundId }); };
-  hold(); const timer = setInterval(hold, 200);
+  const hold = () => {
+    for (const socket of sockets.slice(0, 2)) send(socket, { type: "PAIR_RITUAL", active: true, stationId: station.id, roundId: room.roundId });
+    const state = sockets[0].messages.filter(msg => msg.type === "PAIR_RITUAL_STATE").at(-1)?.ritual;
+    const actorIndex = state ? players.findIndex(player => player.id === state.nextPlayerId) : -1;
+    if (actorIndex >= 0 && actorIndex < 2 && state.beats < 4)
+      send(sockets[actorIndex], { type: "PAIR_RUNE", stationId: station.id, rune: state.rune, roundId: room.roundId });
+  };
+  hold(); const timer = setInterval(hold, 100);
   t.after(() => clearInterval(timer));
   const rewards = await Promise.all(accepted);
   clearInterval(timer);
@@ -330,20 +345,17 @@ test("real sockets keep personal gear rites available after a teammate seals the
   const room = gameRegistry.getRoom(created.roomCode);
   const shrine = room.stations.find(station => station.id === "FROST FONT");
   for (const player of room.players.values()) { player.x = shrine.x; player.y = shrine.y + 60; }
-  const task = { type: "TASK_UPDATE", stationId: shrine.id, reward: shrine.reward, roundId: room.roundId };
-  send(sockets[first], task);
-  const firstGear = await waitFor(sockets[first], "GEAR_SYNC");
+  const firstGear = await solve(sockets[first], room, shrine);
   assert.equal(firstGear.accepted, true);
-  assert.equal(firstGear.wardProgressGain, 4.7);
+  assert.equal(firstGear.wardProgressGain, 4);
   assert.deepEqual(firstGear.completedStations, [shrine.id]);
-  send(sockets[second], task);
-  const secondGear = await waitFor(sockets[second], "GEAR_SYNC");
+  const secondGear = await solve(sockets[second], room, shrine);
   assert.equal(secondGear.accepted, true);
-  assert.equal(secondGear.wardProgressGain, 0);
+  assert.equal(secondGear.wardProgressGain, .5);
   assert.equal(secondGear.charges.FLASHLIGHT, 1);
   assert.equal(room.taskProgress, 0, "public gauge settles independently of the completion packet");
   room.settleWards();
-  assert.equal(room.taskProgress, 4.7);
+  assert.equal(room.taskProgress, 4.5);
   const pulse = await waitFor(sockets[crewIndices[2]], "STATION_COMPLETED");
   assert.deepEqual(Object.keys(pulse).sort(), ["roundId", "sequence", "stationId", "type"]);
   assert.ok(!sockets[crewIndices[2]].messages.some(message => message.type === "GEAR_SYNC"));

@@ -42,12 +42,12 @@ test("garden patches bake once per tier, stay role-blind and keep reduced-motion
   assert.equal(baked, 3, "only three cached patches, not one allocation per shrine/frame");
 });
 
-test("Harmonize explains the shared faster/noisier bargain without changing its timing", async () => {
-  assert.equal(PAIR_RITUAL_SECONDS, 1.25); assert.ok(PAIR_RITUAL_SECONDS < TASK_HOLD_SECONDS);
+test("Harmonize explains its alternating-note, exposed and noisy bargain", async () => {
+  assert.equal(PAIR_RITUAL_SECONDS, 3);
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /Faster with 2 · \$\{PAIR_RITUAL_SECONDS\}s · audible nearby/);
-  assert.match(page, /A Hollow can join too/);
-  assert.match(page, /both earn gear/);
+  assert.match(page, /Take turns · at least \$\{PAIR_RITUAL_SECONDS\}s · audible nearby/);
+  assert.match(page, /a Hollow can join too/);
+  assert.match(page, /Both earn gear/);
   const art = await readFile(new URL("../app/restoration-art.ts", import.meta.url), "utf8");
   assert.doesNotMatch(art, /role|fl[a]res.push|SOUND_CUE|sightAt|Math.random/);
 });

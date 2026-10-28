@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { SLIME_CORE_PATH, SLIME_MATERIAL, SLIME_PATH, SLIME_SKIN_CACHE_LIMIT, SLIME_SPROUT, drawSlimeSprout, slimeEyes, slimeOutline, slimePalette, slimeSkin } from "../app/slime-art.ts";
+import { SLIME_CORE_PATH, SLIME_MATERIAL, SLIME_PATH, SLIME_SKIN_CACHE_LIMIT, SLIME_SPROUT, catHatAnchor, drawAnimatedCat, drawSlimeSprout, resolveCatDirection, sampleCatGait, slimeEyes, slimeOutline, slimePalette, slimeSkin } from "../app/cat-art.ts";
 import { readFile } from "node:fs/promises";
 import { EYE_STYLES, normalizeEyeStyle } from "../server/appearance.ts";
-import { drawEyeShape, eyePath } from "../app/slime-eyes.ts";
-import { SlimeAnimator } from "../app/slime-motion.ts";
-import { DEVOUR_SECONDS, consumptionLayout, devourPose, drawSlimeConsumption } from "../app/slime-devour.ts";
+import { drawEyeShape, eyePath } from "../app/cat-eyes.ts";
+import { SlimeAnimator } from "../app/cat-motion.ts";
+import { DEVOUR_SECONDS, consumptionLayout, devourPose, drawSlimeConsumption } from "../app/cat-devour.ts";
 import { ACCESSORY_FRAME, drawAccessory } from "../app/accessory-art.ts";
 
 test("wardrobe and gameplay share cached accessory artwork without repainting every animation frame", async t => {
@@ -38,7 +38,8 @@ test("canvas headdress choices are contained without distorting or covering thei
   assert.match(icon, /pointer-events: none/);
   assert.match(css, /\.mp-hat-btn \{[^}]*min-width: 0;[^}]*overflow: hidden/s);
   assert.match(studio, /\.moon-studio \.mp-hat-btn \.hat-btn-preview \{ width: min\(72px, 100%\); height: 54px/);
-  assert.match(portrait, /\.slime-avatar \.slime-hat-svg \{[^}]*width: 100%;[^}]*translate: 0 -98\.611111%/);
+  assert.match(portrait, /\.hat-btn-preview \.cat-collar-svg \{ transform: scale\(1\.65\)/);
+  assert.doesNotMatch(portrait, /\.slime-avatar \.cat-collar-svg[^}]*top:/, "neck alignment belongs to the shared renderer");
   assert.match(css, /\.moon-studio \.preview-warden canvas\.slime-hat-svg \{ filter: drop-shadow\([^;]+; \}/);
 });
 
@@ -47,7 +48,8 @@ test("consumption reaches, envelops, swallows, then returns to a neutral pose", 
   const start = devourPose(0), engulf = devourPose(.5), swallowed = devourPose(.8), end = devourPose(1);
   assert.equal(start.reach, 0);
   assert.equal(start.victimScale, 1);
-  assert.ok(engulf.reach > .9 && engulf.scaleX > 1.1 && engulf.scaleX < 1.2, "one controlled swell, not a stretched duplicate body");
+  assert.ok(engulf.reach > .9 && engulf.crouch > 0);
+  assert.equal(engulf.scaleX, 1, "painted cat never becomes a swollen gel body");
   assert.ok(swallowed.victimAlpha < .01 && swallowed.victimScale < .05);
   assert.equal(end.reach, 0);
   assert.equal(end.scaleX, 1);
@@ -77,18 +79,17 @@ test("consumption stays rooted, keeps volume, and crosses stage boundaries conti
   assert.deepEqual(consumptionLayout(event, 0, anchor), { x: 365, y: 275, victimX: 420, victimY: 300 });
   assert.deepEqual(consumptionLayout(event, 1, anchor), { x: 365, y: 275, victimX: 365, victimY: 275 });
 
-  // The first and last body matrix match a living actor's gait exactly.
-  const motion = { offsetY: -3, scaleX: 1.03, scaleY: 1 / 1.03, shear: .04, gazeX: 1, gazeY: -.3, hatTilt: .02, shadowScale: .95, shadowAlpha: .9 };
+  // The cat returns to its contact pose, without inheriting legacy gel scaling.
   for (const progress of [0, 1]) {
     const transforms = [], translations = [];
-    const ctx = new Proxy({}, { get: (_, key) => key === "createLinearGradient" ? () => ({ addColorStop() {} }) : (...args) => {
+    const ctx = new Proxy({}, { get: (_, key) => key === "createLinearGradient" || key === "createRadialGradient" ? () => ({ addColorStop() {} }) : (...args) => {
       if (key === "ellipse") assert.ok(args.length >= 7, "native Canvas ellipse requires rotation, start, and end angles");
       if (key === "transform") transforms.push(args);
       if (key === "translate") translations.push(args);
     }, set: () => true });
-    drawSlimeConsumption(ctx, event, progress, { concealed: true, returnTo: anchor, motion });
-    assert.deepEqual(transforms, [[motion.scaleX, 0, motion.shear, motion.scaleY, 0, 0]]);
-    assert.ok(translations.some(([x, y]) => x === anchor.x && y === anchor.y + motion.offsetY + 31));
+    drawSlimeConsumption(ctx, event, progress, { concealed: true, returnTo: anchor });
+    assert.deepEqual(transforms, []);
+    assert.ok(translations.some(([x, y]) => x === anchor.x && Math.abs(y - (anchor.y + 29)) < 1e-10));
   }
 });
 
@@ -101,7 +102,7 @@ test("concealed consumption hides cosmetics, stays bounded, and never changes pl
     if (key === "save") return () => depth++;
     if (key === "restore") return () => depth--;
     if (key === "drawImage") return () => cosmetics++;
-    if (key === "createLinearGradient") return () => {
+    if (key === "createLinearGradient" || key === "createRadialGradient") return () => {
       const stops = [];
       materials.push(stops);
       return { addColorStop: (offset, color) => stops.push([offset, color]) };
@@ -117,7 +118,7 @@ test("concealed consumption hides cosmetics, stays bounded, and never changes pl
   }
   assert.equal(cosmetics,0);
   assert.ok(materials.length > 0);
-  for (const stops of materials) assert.deepEqual(stops, [[0,"rgba(137,150,157,.94)"],[1,"rgba(63,75,84,.96)"]], "concealment retains the same living silhouette material");
+  for (const stops of materials) for (const [, color] of stops) assert.equal(color, "#788993", "concealment retains the live anonymous cat material");
   assert.equal(event.startX,360); assert.equal(player.x,365);
   const calm = devourPose(.5,true);
   assert.equal(calm.reach,0); assert.equal(calm.scaleX,1); assert.equal(calm.scaleY,1);
@@ -229,7 +230,7 @@ test("reduced motion is neutral and animation never modifies physics or depends 
 test("lobby animates one wrapper for hats and eyes, with a reduced-motion override", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../app/play-menu.css", import.meta.url), "utf8");
-  assert.match(page, /className="slime-avatar-motion">\s*<HatGraphic[\s\S]*?<SlimePortrait/);
+  assert.match(page, /className="slime-avatar-motion">\s*<SlimePortrait[^>]*accessory=\{hat\}/);
   assert.match(css, /@keyframes slime-idle-hop/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.slime-avatar-motion[\s\S]*?animation: none !important/);
   assert.match(page, /motionPreference\?\.removeEventListener\("change"/);
@@ -313,7 +314,7 @@ test("anonymous outline excludes sprout and eyes; muted eyes do not glow", () =>
     get: (target, key) => target[key] ?? ((...args) => calls.push([key, ...args])),
   });
   slimeOutline(ctx);
-  assert.equal(calls.filter(([name]) => name === "bezierCurveTo").length, 7);
+  assert.equal(calls.filter(([name]) => name === "bezierCurveTo").length, 9);
   assert.equal(calls.some(([name]) => name === "ellipse" || name === "fill"), false);
   slimeEyes(ctx, false);
   assert.equal(ctx.fillStyle, "#f5ffef");
@@ -325,13 +326,14 @@ test("anonymous outline excludes sprout and eyes; muted eyes do not glow", () =>
 
 test("lobby and arena share the reference body and skip decorations for silhouettes", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  const portrait = await readFile(new URL("../app/slime-portrait.tsx", import.meta.url), "utf8");
+  const portrait = await readFile(new URL("../app/cat-portrait.tsx", import.meta.url), "utf8");
   assert.match(page, /<SlimePortrait color=\{color\}/);
-  assert.match(portrait, /d=\{SLIME_PATH\}/);
-  assert.match(portrait, /useId\(\)/, "SVG gradients are scoped to each avatar");
+  assert.match(portrait, /drawMooncat\(context, \{ color, eyeStyle/);
+  assert.match(portrait, /direction: "SE"/);
   const renderer = page.slice(page.indexOf("  drawSlime("), page.indexOf("  drawHat("));
-  assert.ok(renderer.indexOf("return;") < renderer.indexOf("slimeSkin("));
-  assert.ok(renderer.indexOf("return;") < renderer.indexOf("slimeEyes("));
+  assert.match(renderer, /concealed: true/);
+  assert.match(renderer, /if \(silhouette\) \{[\s\S]*?return;/);
+  assert.doesNotMatch(renderer, /slimeSkin\(|slimeEyes\(|drawEyes:/);
 });
 
 function recordSkins(t) {
@@ -403,7 +405,7 @@ test("portrait and game material use the same body-space lighting, not bounding-
   for (const light of [volume, glow]) {
     assert.ok(skin.gradients.some(g => g.kind === "createRadialGradient" && JSON.stringify(g.geometry) === JSON.stringify([light.x0, light.y0, light.r0, light.x1, light.y1, light.r1])));
   }
-  const portrait = await readFile(new URL("../app/slime-portrait.tsx", import.meta.url), "utf8");
+  const portrait = await readFile(new URL("../app/cat-portrait.tsx", import.meta.url), "utf8");
   assert.match(portrait, /SLIME_MATERIAL/);
   assert.match(portrait, /gradientUnits="userSpaceOnUse" cx=\{volume.x1\}/);
   assert.match(portrait, /fr=\{glow.r0\}/);
@@ -443,4 +445,90 @@ test("the sprout has independent follow-through and is cached separately from th
   assert.ok(!body.paths.includes(SLIME_SPROUT.stem), "animated sprout does not duplicate a baked stem");
   const moving = animate(200, 0).poses;
   assert.ok(Math.max(...moving.map(p => p.sproutTilt)) - Math.min(...moving.map(p => p.sproutTilt)) > .2);
+});
+
+test("4-legged cat silhouette and Hollow claw/shadow capture stages render cleanly", t => {
+  recordSkins(t);
+  assert.match(SLIME_PATH, /M-8 -12C-9 -20 -6 -28 -2 -33/, "left pointed cat ear");
+  assert.match(SLIME_PATH, /C20 -26 23 -30 26 -32/, "right pointed cat ear");
+  assert.match(SLIME_MATERIAL.bouncePath, /M-6 -19Q-8 -11 -5 -4M-8 -10Q-14 2 1 9Q11 12 21 10/, "defined neck/jaw contour and 4-legged anatomy");
+  const event = Object.freeze({ x: 420, y: 300, startX: 360, startY: 270, killerColor: "#6a42b8", victimColor: "#20d8ed" });
+  for (const progress of [.2, .4, .75]) {
+    let depth = 0, ellipses = 0;
+    const ctx = new Proxy({}, {
+      get: (_, key) => {
+        if (key === "save") return () => depth++;
+        if (key === "restore") return () => depth--;
+        if (key === "ellipse") return (...args) => { assert.ok(args.length >= 7); ellipses++; };
+        if (key === "createLinearGradient" || key === "createRadialGradient") return () => ({ addColorStop() {} });
+        return () => {};
+      },
+      set: () => true,
+    });
+    drawSlimeConsumption(ctx, event, progress, { concealed: false });
+    assert.equal(depth, 0);
+    assert.ok(ellipses >= 3, `Hollow capture stage at ${progress} renders cat and shadow geometry`);
+  }
+});
+
+test("Hollow devour shares painted cats with gameplay instead of legacy gel parts", async () => {
+  const source = await readFile(new URL("../app/cat-devour.ts", import.meta.url), "utf8");
+  assert.match(source, /import \{ drawMooncat \} from/);
+  assert.equal((source.match(/drawMooncat\(ctx,/g) ?? []).length, 2, "both victim and Hollow use the shared cat renderer");
+  assert.doesNotMatch(source, /slimeSkin|slimeEyes|slimeOutline|drawSlimeSprout/);
+  const portrait = await readFile(new URL("../app/consumption-portrait.tsx", import.meta.url), "utf8");
+  assert.match(portrait, /drawCatConsumption\(/);
+  assert.match(portrait, /if \(progress < 1\) frame = requestAnimationFrame/);
+  assert.match(portrait, /cancelAnimationFrame\(frame\)/);
+  assert.match(portrait, /prefers-reduced-motion: reduce/);
+  assert.doesNotMatch(portrait, /consumption-veil|consumption-core|SlimePortrait/);
+});
+
+test("4-legged cat walk cycle steps naturally across all interactive heading directions", () => {
+  assert.equal(resolveCatDirection(1, 0, "EAST"), "EAST");
+  assert.equal(resolveCatDirection(-1, 0, "EAST"), "WEST");
+  assert.equal(resolveCatDirection(0, 1, "EAST"), "SOUTH");
+  assert.equal(resolveCatDirection(0, -1, "EAST"), "NORTH");
+  assert.equal(resolveCatDirection(1, -1, "EAST"), "NE");
+  assert.equal(resolveCatDirection(-1, -1, "EAST"), "NW");
+  assert.equal(resolveCatDirection(0, 0, "NORTH"), "NORTH", "idle cat keeps its last interactive heading");
+
+  const start = sampleCatGait("cat-test", 140, 0, 0, 0, 10, false);
+  const step = sampleCatGait("cat-test", 140, 0, 0, 0, 10.05, false);
+  assert.equal(step.direction, "EAST");
+  assert.ok(step.stridePhase > start.stridePhase, "moving advances quadruped stride phase");
+  assert.ok(step.strideAmount > 0.3, "moving engages quadruped leg swing");
+
+  // Releasing two diagonal keys (e.g. W+D for NE) with a 1-2 frame finger-lift offset keeps the diagonal heading
+  sampleCatGait("cat-diag", 120, -120, 0, 0, 20.0, false);
+  const releaseFrame = sampleCatGait("cat-diag", 95, -10, 0, 0, 20.03, false);
+  assert.equal(releaseFrame.direction, "NE", "diagonal hold prevents snapping to cardinal on key release");
+
+  for (const dir of ["EAST", "WEST", "SOUTH", "NORTH", "SE", "SW", "NE", "NW"]) {
+    let depth = 0, strokes = 0;
+    const ctx = new Proxy({}, {
+      get: (_, key) => {
+        if (key === "save") return () => depth++;
+        if (key === "restore") return () => depth--;
+        if (key === "stroke") return () => strokes++;
+        if (key === "createLinearGradient" || key === "createRadialGradient") return () => ({ addColorStop() {} });
+        return (...args) => { for (const v of args) if (typeof v === "number") assert.ok(Number.isFinite(v)); };
+      },
+      set: () => true,
+    });
+    drawAnimatedCat(ctx, {
+      color: "#6a42b8",
+      direction: dir,
+      stridePhase: Math.PI * 0.5,
+      strideAmount: 1,
+      tailTilt: 0.12,
+      blink: false,
+      eyeStyle: "FIERCE",
+      muted: false,
+    });
+    assert.equal(depth, 0, `balanced canvas stack for direction ${dir}`);
+    assert.ok(strokes >= 5, `4-legged anatomy and outlines drawn for ${dir}`);
+    const anchor = catHatAnchor(dir);
+    assert.ok(Number.isFinite(anchor.x) && Number.isFinite(anchor.y));
+  }
 });

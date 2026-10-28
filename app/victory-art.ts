@@ -1,5 +1,5 @@
-import { drawAccessory } from "./accessory-art";
-import { drawSlimeSprout, slimeEyes, slimeSkin } from "./slime-art";
+import { drawAccessory, isCollar } from "./accessory-art";
+import { drawSlimeSprout, slimeEyes, slimeSkin } from "./cat-art";
 import { seededRandom } from "./banishment";
 import { VICTORY_SECONDS, victoryProgress as progress, type MatchVictory, type VictoryAppearance } from "./match-victory";
 
@@ -14,6 +14,7 @@ export function victoryLayout(width: number, height: number) {
  * companions, not an inferred/revealed roster of multiplayer allegiances. */
 export class VictoryScene {
   private backdrop: HTMLCanvasElement | null = null;
+  private characters = new Map<string, HTMLCanvasElement>();
   private readonly motes: { x: number; y: number; phase: number; size: number }[];
 
   constructor(private readonly victory: MatchVictory) {
@@ -115,10 +116,20 @@ export class VictoryScene {
     ctx.fillStyle = "#080f264d"; ctx.beginPath(); ctx.ellipse(x, foot + 5, 43 * size - hop * .25, 9 * size, 0, 0, TAU); ctx.fill();
     ctx.translate(x, foot - 33 * size - hop + (1 - reveal) * 30);
     ctx.scale(size * squash, size / squash);
-    ctx.drawImage(slimeSkin(look.color, true, false), -48, -54, 96, 112);
-    drawSlimeSprout(ctx, look.color, still ? 0 : Math.sin(t * 6 + phase) * .1 * envelope);
-    slimeEyes(ctx, false, false, look.eyeStyle);
-    ctx.translate(0, -43); drawAccessory(ctx, look.hat, 0, 0, false);
+    const key = `${look.color}:${look.hat}:${look.eyeStyle}`;
+    let portrait = this.characters.get(key);
+    if (!portrait) {
+      portrait = document.createElement("canvas"); portrait.width = 192; portrait.height = 220;
+      const paint = portrait.getContext("2d");
+      if (paint) {
+        paint.translate(96, 115);
+        paint.drawImage(slimeSkin(look.color, true, false), -48, -54, 96, 112);
+        drawSlimeSprout(paint, look.color, 0); slimeEyes(paint, false, false, look.eyeStyle);
+        paint.translate(0, isCollar(look.hat) ? 7 : -43); drawAccessory(paint, look.hat, 0, 0, false);
+        this.characters.set(key, portrait);
+      }
+    }
+    ctx.drawImage(portrait, -96, -115);
     ctx.restore();
   }
 

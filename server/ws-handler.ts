@@ -56,11 +56,18 @@ export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?
       && (typeof msg.playerName !== "string" || typeof msg.color !== "string" || typeof msg.hat !== "string")) return;
     if (msg.type === "JOIN_ROOM" && typeof msg.roomCode !== "string") return;
     if (msg.type === "SEND_CHAT" && typeof msg.text !== "string") return;
+    if (msg.type === "SET_DIFFICULTY" && !["STANDARD", "CHALLENGING"].includes(msg.difficulty)) return;
+    if (msg.type === "SET_MEETING_DURATION" && ![60, 75, 90].includes(msg.seconds)) return;
+    if (msg.type === "SET_UTILITY" && !["WISP_STEP", "WATCHROOT"].includes(msg.utility)) return;
+    if (msg.type === "USE_UTILITY" && (!Number.isFinite(msg.angle) || !Number.isSafeInteger(msg.roundId))) return;
+    if (msg.type === "OPEN_RITUAL" && (typeof msg.stationId !== "string" || !Number.isSafeInteger(msg.roundId))) return;
+    if (msg.type === "ANSWER_RITUAL" && (typeof msg.challengeId !== "string" || !Number.isSafeInteger(msg.roundId) || !Array.isArray(msg.answer) || msg.answer.length > 9 || !msg.answer.every(value => Number.isInteger(value) && value >= 0 && value < 4))) return;
     if (msg.type === "UPDATE_ROOM_CONFIG" && !Number.isFinite(msg.targetPlayers)) return;
     if (msg.type === "START_MATCH" && msg.targetPlayers !== undefined && !Number.isFinite(msg.targetPlayers)) return;
     if ((msg.type === "START_MATCH" || msg.type === "UPDATE_ROOM_CONFIG") && msg.hollowCount !== undefined && !Number.isFinite(msg.hollowCount)) return;
     if ((msg.type === "START_MATCH" || msg.type === "UPDATE_ROOM_CONFIG") && msg.chaosMoonsway !== undefined && typeof msg.chaosMoonsway !== "boolean") return;
     if (msg.type === "PAIR_RITUAL" && (typeof msg.stationId !== "string" || typeof msg.active !== "boolean" || !Number.isSafeInteger(msg.roundId))) return;
+    if (msg.type === "PAIR_RUNE" && (typeof msg.stationId !== "string" || ![0, 1].includes(msg.rune) || !Number.isSafeInteger(msg.roundId))) return;
     if (msg.type === "TRIGGER_KILL" && (typeof msg.victimId !== "string" || (msg.style !== undefined && !["NORMAL", "STEALTH"].includes(msg.style)))) return;
     if (msg.type === "CAST_VOTE" && msg.targetId !== null && typeof msg.targetId !== "string") return;
     if (msg.type === "USE_ITEM" && !["FLASHLIGHT", "FLARE", "SONAR"].includes(msg.item)) return;

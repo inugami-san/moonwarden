@@ -1,4 +1,6 @@
 import type { EyeStyle } from "../server/appearance";
+import type { RitualDifficulty } from "../server/forest-rituals";
+import type { UtilityKind } from "../server/forest-utilities";
 import { GAME_VERSION_MISMATCH, GAME_WORLD_VERSION, isCompatibleServerInfo } from "../server/game-version";
 import type {
   C2SMessage,
@@ -26,6 +28,9 @@ export interface MultiplayerState {
   botFill: boolean;
   hollowCount: number;
   chaosMoonsway: boolean;
+  puzzleDifficulty?: RitualDifficulty;
+  meetingSeconds?: number;
+  utility?: UtilityKind;
   openRooms: RoomSummary[];
   lobbyChat: NetChatMessage[];
   lastError: string;
@@ -66,6 +71,9 @@ export class MultiplayerClient {
   public botFill: boolean = true;
   public hollowCount = 1;
   public chaosMoonsway = false;
+  public puzzleDifficulty: RitualDifficulty = "STANDARD";
+  public meetingSeconds = 75;
+  public utility: UtilityKind = "WISP_STEP";
   public openRooms: RoomSummary[] = [];
   public lobbyChat: NetChatMessage[] = [];
   public lastError: string = "";
@@ -99,6 +107,9 @@ export class MultiplayerClient {
       botFill: this.botFill,
       hollowCount: this.hollowCount,
       chaosMoonsway: this.chaosMoonsway,
+      puzzleDifficulty: this.puzzleDifficulty,
+      meetingSeconds: this.meetingSeconds,
+      utility: this.utility,
       openRooms: [...this.openRooms],
       lobbyChat: [...this.lobbyChat],
       lastError: this.lastError,
@@ -495,6 +506,15 @@ export class MultiplayerClient {
         this.ping = Math.max(1, Math.round(performance.now() - msg.sentAt));
         this.notifyState();
         return;
+      case "RITUAL_SETTINGS":
+        this.meetingSeconds = msg.meetingSeconds ?? this.meetingSeconds;
+        this.puzzleDifficulty = msg.difficulty;
+        this.notifyState();
+        break;
+      case "UTILITY_STATE":
+        this.utility = msg.kind;
+        if (this.state === "LOBBY") this.notifyState();
+        break;
       case "ROOM_STATE":
         this.roomCode = msg.roomCode;
         this.playerId = msg.playerId;
@@ -687,6 +707,17 @@ export class MultiplayerClient {
   public pairRitual(stationId: string, active: boolean, roundId: number) {
     this.send({ type: "PAIR_RITUAL", stationId, active, roundId });
   }
+  public pairRune(stationId: string, rune: number, roundId: number) {
+    this.send({ type: "PAIR_RUNE", stationId, rune, roundId });
+  }
+
+  public setDifficulty(difficulty: RitualDifficulty) { this.send({ type: "SET_DIFFICULTY", difficulty }); }
+  public setMeetingDuration(seconds: number) { this.send({ type: "SET_MEETING_DURATION", seconds }); }
+  public setUtility(utility: UtilityKind) { this.send({ type: "SET_UTILITY", utility }); }
+  public useUtility(angle: number, roundId: number) { this.send({ type: "USE_UTILITY", angle, roundId }); }
+  public openRitual(stationId: string, roundId: number) { this.send({ type: "OPEN_RITUAL", stationId, roundId }); }
+  public answerRitual(challengeId: string, answer: number[], roundId: number) { this.send({ type: "ANSWER_RITUAL", challengeId, answer, roundId }); }
+  public cancelRitual() { this.send({ type: "CANCEL_RITUAL" }); }
 
   public sendChat(text: string) {
     this.send({ type: "SEND_CHAT", text });

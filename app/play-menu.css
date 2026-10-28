@@ -1,26 +1,38 @@
 /* Play-first hierarchy. The wardrobe and decorative preview never gate entry. */
 .slime-avatar-motion { position: absolute; inset: 0; transform-origin: 50% 89%; animation: slime-idle-hop 2.9s cubic-bezier(.37,0,.33,1) infinite; }
 .slime-avatar-motion > .slime-portrait { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 5px 4px #173c3133); }
+.mooncat-portrait { position: relative; display: block; width: 100%; height: 100%; }
+.mooncat-portrait > canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.mooncat-portrait .cat-portrait-concealed { visibility: hidden; }
+.slime-avatar-motion:has(.mooncat-portrait[data-pose="SEATED"]) { animation: none; }
+.preview-fog .mooncat-portrait .cat-portrait-concealed { visibility: visible; }
 .preview-warden:nth-child(2n) .slime-avatar-motion, .waiting-slot:nth-child(2n) .slime-avatar-motion { animation-delay: -.7s; }
 .preview-warden:nth-child(3n) .slime-avatar-motion, .waiting-slot:nth-child(3n) .slime-avatar-motion { animation-delay: -1.3s; }
 .slime-avatar .slime-portrait-eyes { transform-box: fill-box; transform-origin: center; animation: slime-eye-blink 5.8s linear infinite; }
 @keyframes slime-idle-hop {
-  0%, 100% { transform: translateY(0) scale(1.025, .976); }
-  22% { transform: translateY(-.8%) scale(.988, 1.012); }
-  46% { transform: translateY(-2.8%) scale(.963, 1.038); }
-  72% { transform: translateY(-.4%) scale(1.037, .965); }
+  0%, 100% { transform: translateY(0) rotate(-.35deg); }
+  50% { transform: translateY(-.6%) rotate(.35deg); }
 }
 @keyframes slime-eye-blink {
   0%, 94%, 98%, 100% { transform: scaleY(1); }
   96% { transform: scaleY(.08); }
 }
-/* 96×72 accessory frame; match the arena's -43 head anchor in the 96-unit portrait. */
-.slime-avatar .slime-hat-svg { position: absolute; width: 100%; height: auto; left: 0; top: 50%; bottom: auto; translate: 0 -98.611111%; margin: 0; z-index: 2; }
+/* Worn accessories are painted inside the shared character canvas. Only picker
+   thumbnails use standalone accessory canvases; no independent CSS neck anchor. */
+.hat-btn-preview .cat-collar-svg { transform: scale(1.65); transform-origin: center; }
 .preview-fog .slime-detail { visibility: hidden; }
 .preview-fog .slime-gel { fill: #7b8889; stroke: #7b8889; }
 .preview-fog .slime-portrait { filter: none; }
 .vote-slime, .tally-slime { width: 48px; height: 48px; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .vote-slime .slime-portrait, .tally-slime .slime-portrait { display: block; width: 100%; height: 100%; }
+.cat-head { display: block; width: 100%; height: 100%; object-fit: contain; }
+.vote-slime:has(.cat-head), .tally-slime:has(.cat-head) { background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+.chat-avatar:has(.cat-head) { width: 32px; height: 32px; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+.impostor-reveal .reveal-core { opacity: 1; animation-name: cat-reveal-core-arrive; }
+.reveal-cat-sigil { position: absolute; top: 0; left: 50%; translate: -50% 0; display: block; width: min(24vh, 174px); aspect-ratio: 1; filter: drop-shadow(0 0 22px #d18be54d); }
+.warden-theme .reveal-cat-sigil { filter: drop-shadow(0 0 24px #8ae7d966); }
+.impostor-theme .reveal-cat-sigil { filter: drop-shadow(0 0 24px #e7749b66); }
+@keyframes cat-reveal-core-arrive { from { opacity: 0; scale: .3; rotate: -18deg; } to { opacity: 1; scale: 1; rotate: 0deg; } }
 .eye-customizer { margin: 16px 0 0; padding: 0; border: 0; min-width: 0; }
 .eye-customizer legend { display: flex; justify-content: space-between; gap: 12px; width: 100%; margin-bottom: 10px; color: #53705a; font-size: 12px; font-weight: 700; letter-spacing: .06em; }
 .eye-customizer legend span { color: #75876d; font-weight: 400; letter-spacing: 0; }

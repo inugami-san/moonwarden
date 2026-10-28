@@ -1,0 +1,449 @@
+/* App shell: navigation replaces document scrolling. Privacy pages stay independent. */
+.game-menu-shell.moon-studio {
+  --menu-ink: #e4ecf6;
+  --menu-muted: #adbed4;
+  --menu-panel: #1c2940;
+  --menu-tile: #293a53;
+  --menu-line: #40516d;
+  --menu-gold: #dfbd7c;
+  --studio-ink: var(--menu-ink);
+  --studio-muted: var(--menu-muted);
+  --home-ink: var(--menu-ink);
+  --home-muted: var(--menu-muted);
+  --home-paper: var(--menu-panel);
+  --home-gold: var(--menu-gold);
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overflow: hidden;
+  overscroll-behavior: none;
+  color: var(--menu-ink);
+  background: radial-gradient(ellipse at 70% 0, #3b4368 0, transparent 60%), #131d30;
+  color-scheme: dark;
+}
+.game-menu-shell.moon-studio [hidden], .playful-game [hidden] { display: none !important; }
+.game-menu-shell::before, .game-menu-shell::after { display: none; }
+.game-menu-shell.moon-studio .home-atmosphere { opacity: .23; pointer-events: none; background: transparent; }
+.game-menu-shell.moon-studio .home-atmosphere::after { display: none; }
+.game-menu-shell.moon-studio .home-aurora { opacity: .2; }
+.game-menu-shell.moon-studio .studio-frame { width: 100%; max-width: 1440px; height: 100%; min-height: 0; margin: auto; display: grid; grid-template-rows: 64px minmax(0, 1fr) 30px; border: 0; border-radius: 0; background: transparent; box-shadow: none; overflow: hidden; }
+.game-menu-shell.moon-studio .lobby-nav { height: auto; min-height: 0; margin: 0; padding: 0 24px; gap: 16px; border-bottom: 1px solid #9fc8df20; background: transparent; }
+.game-menu-shell.moon-studio .brand, .game-menu-shell.moon-studio .brand-name b { color: var(--menu-ink); }
+.game-menu-shell.moon-studio .brand-mark { background: #293a53; border-color: #6d809f; }
+.game-menu-shell.moon-studio .nav-status { margin-left: auto; color: var(--menu-muted); font-size: 8px; }
+.game-menu-shell.moon-studio .nav-status > span, .game-menu-shell.moon-studio .status-dot { background: #9fc8df; box-shadow: 0 0 12px #9fc8df55; }
+.game-menu-shell.moon-studio .home-motion-toggle { min-height: 36px; margin-left: auto; padding: 6px 10px; border: 1px solid var(--menu-line); background: #1c2940; color: var(--menu-muted); }
+.game-menu-shell.moon-studio .menu-screen-heading { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.game-menu-shell.moon-studio .menu-screen-heading h1 { margin: 0; font-size: 18px; line-height: 1.15; outline: none; }
+.game-menu-shell.moon-studio .room-header-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.game-menu-shell.moon-studio .room-header-actions > span { max-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; }
+.game-menu-shell.moon-studio .room-header-actions button { min-height: 40px; }
+.game-menu-shell.moon-studio .menu-back { min-height: 44px; padding: 8px 14px; border: 1px solid var(--menu-line); border-radius: 12px; color: var(--menu-ink); background: #293a53; }
+.game-menu-shell.moon-studio .lobby-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); align-items: stretch; gap: 30px; width: 100%; max-width: 1200px; min-height: 0; margin: 0 auto; padding: clamp(12px, 3vh, 32px) 28px; overflow: hidden; }
+.game-menu-shell:not([data-menu="HOME"]):not([data-menu="LOOK"]) .lobby-grid { grid-template-columns: minmax(0, 1fr); max-width: 960px; }
+.game-menu-shell.moon-studio .lobby-footer { min-height: 0; padding: 0 24px 0 140px; margin: 0; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #9fc8df20; color: var(--menu-muted); background: transparent; font-size: 8px; }
+.game-menu-shell.moon-studio .lobby-footer { flex-wrap: nowrap; white-space: nowrap; }
+body:has(.game-menu-shell) .mw-privacy-launcher { border-color: #526787; color: #c8d6e8; background: #1c2940; }
+.game-menu-shell.moon-studio button { cursor: pointer; font-family: inherit; -webkit-tap-highlight-color: transparent; transition: background .16s, border-color .16s, translate .16s, box-shadow .16s; }
+.game-menu-shell.moon-studio button:disabled { cursor: not-allowed; opacity: .45; }
+.game-menu-shell.moon-studio button:not(:disabled):active { translate: 0 3px; }
+.game-menu-shell.moon-studio :is(button, input, select):focus-visible { outline: 3px solid #dfbd7c; outline-offset: 3px; }
+.game-menu-shell.moon-studio .game-menu { align-self: center; display: grid; gap: 12px; min-width: 0; }
+.game-menu-shell.moon-studio .menu-eyebrow { color: var(--menu-gold); font: 650 9px/1.5 var(--font-geist-mono), monospace; letter-spacing: .12em; }
+.game-menu-shell.moon-studio .game-menu h1 { margin: 0; font-size: clamp(34px, 4.8vw, 65px); line-height: 1.03; letter-spacing: -.055em; font-weight: 850; }
+.game-menu-shell.moon-studio .game-menu h1 em { color: #b9c5ef; font-style: normal; }
+.game-menu-shell.moon-studio .game-menu > p { margin: 0 0 8px; max-width: 330px; color: var(--menu-muted); font-size: 13px; line-height: 1.5; }
+.game-menu-shell.moon-studio .game-menu > button { display: flex; align-items: center; gap: 16px; min-height: 74px; padding: 14px 20px; border: 1px solid #687c9e; border-radius: 18px; color: var(--menu-ink); background: #293a53; text-align: left; font-size: 20px; font-weight: 750; box-shadow: 0 4px 0 #080f1d77; }
+.game-menu-shell.moon-studio .game-menu > button > span:first-child { font-size: 28px; }
+.game-menu-shell.moon-studio .game-menu > button > span:last-child { margin-left: auto; }
+.game-menu-shell.moon-studio .game-menu > button small { display: block; margin-top: 4px; font-size: 11px; font-weight: 500; opacity: .8; }
+.game-menu-shell.moon-studio .game-menu > .menu-play { background: #dfbd7c; color: #202b41; border-color: #f4dfb6; box-shadow: 0 4px 0 #92764d; }
+.game-menu-shell.moon-studio .game-menu > button:hover { border-color: #e6d4ad; }
+.game-menu-shell.moon-studio .menu-secondary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.game-menu-shell.moon-studio .menu-secondary button, .game-menu-shell.moon-studio .menu-inline-nav button { min-height: 44px; padding: 9px 12px; color: var(--menu-ink); border: 1px solid var(--menu-line); border-radius: 12px; background: #1c2940; font-size: 12px; font-weight: 650; }
+.game-menu-shell.moon-studio .menu-beta-note { margin-top: 5px; color: var(--menu-muted); font-size: 10px; line-height: 1.4; }
+
+/* The existing animated grove is the menu's character stage, not another page. */
+.game-menu-shell.moon-studio .lobby-copy.studio-stage { position: relative; top: auto; grid-column: 2; grid-row: 1; display: flex; min-height: 0; height: 100%; width: 100%; border-radius: 28px; overflow: hidden; background: #222c47; border: 1px solid #687c9e77; }
+.game-menu-shell.moon-studio .studio-view-switch { position: absolute; top: 10px; left: 50%; z-index: 9; translate: 0 0; transform: translateX(-50%); background: #131d30e6; border: 1px solid #687c9e; }
+.game-menu-shell.moon-studio .studio-view-switch button { min-height: 34px; color: #c3d0e2; }
+.game-menu-shell.moon-studio .studio-view-switch button[aria-pressed="true"] { background: #dfbd7c; color: #202b41; }
+.game-menu-shell.moon-studio .sanctuary-preview { width: 100%; height: 100%; min-height: 0; margin: 0; border: 0; border-radius: 0; background: #26334c; }
+.game-menu-shell.moon-studio .studio-stage-title { top: 62px; }
+.game-menu-shell.moon-studio .studio-stage-title h2 { font-size: clamp(19px, 2vw, 28px); color: #f0f0fb; margin: 6px 0; }
+.game-menu-shell.moon-studio .studio-stage-title :is(small, p) { color: #d2d9ec; }
+.game-menu-shell.moon-studio .studio-stage-title small { font-size: 8px; }
+.game-menu-shell.moon-studio .studio-stage-title p { padding: 0 10px; font-size: 10px; }
+.game-menu-shell.moon-studio .preview-heading, .game-menu-shell.moon-studio .preview-caption { display: none; }
+.game-menu-shell.moon-studio .preview-circle { top: 114px; bottom: 120px; }
+/* Menu showcase only: a portrait-sized mascot, never the arena actor scale. */
+.game-menu-shell.moon-studio .studio-view-warden .is-you .slime-avatar { width: min(40vh, 330px); height: min(40vh, 330px); }
+.game-menu-shell.moon-studio .stage-quick-bar { bottom: 78px; top: auto; }
+.game-menu-shell.moon-studio .stage-quick-bar button { min-height: 32px; }
+.game-menu-shell.moon-studio .preview-dialogue { bottom: 46px; max-width: calc(100% - 20px); color: #e4ecf6; background: #131d30ed; border-color: #687c9e; font-size: 10px; }
+.game-menu-shell.moon-studio .preview-weather { bottom: 8px; }
+.game-menu-shell.moon-studio .preview-weather button { min-height: 30px; padding: 5px 8px; border: 1px solid #687c9e; color: #e4ecf6; background: #1c2940; }
+.game-menu-shell.moon-studio .preview-weather button[aria-pressed="true"] { background: #dfbd7c; color: #202b41; }
+.game-menu-shell.moon-studio .preview-warden.is-you .preview-name { color: #e4ecf6; background: #131d30cc; }
+
+/* Compact, consistent configuration panels. No green skin, no identity recoloring. */
+.game-menu-shell.moon-studio .lobby-console { display: flex; flex-direction: column; grid-row: 1; grid-column: 1; min-height: 0; width: 100%; max-width: 850px; height: 100%; margin: auto; border: 1px solid var(--menu-line); border-radius: 22px; background: #1c2940ee; box-shadow: 0 10px 36px #060c1944; overflow: hidden; }
+.game-menu-shell.moon-studio .console-head { min-height: 35px; padding: 10px 18px; border-color: var(--menu-line); background: #293a5380; color: var(--menu-muted); font-size: 9px; }
+.game-menu-shell.moon-studio .console-body { flex: 1; display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: none; min-height: 0; height: auto; margin: 0; padding: clamp(12px, 2vh, 22px); overflow: hidden; }
+.game-menu-shell.moon-studio .console-panel-stage { flex: 1; min-height: 0; height: auto; animation: menu-screen-in .22s ease-out; }
+.game-menu-shell.moon-studio :is(.mp-config, .home-entry-column, .home-social-column) { display: flex; flex-direction: column; min-height: 0; height: 100%; gap: 16px; }
+.game-menu-shell.moon-studio .mp-config { grid-template-columns: none; }
+.game-menu-shell.moon-studio .play-name { display: grid; gap: 8px; color: var(--menu-ink); font-size: 13px; }
+.game-menu-shell.moon-studio :is(.mp-field, .chat-composer input) { width: 100%; min-height: 44px; padding: 10px 12px; color: var(--menu-ink); border: 1px solid #627697; border-radius: 12px; background: #131d30; font-size: 16px; box-shadow: none; }
+.game-menu-shell.moon-studio .mp-field::placeholder { color: #9dabc4; }
+.game-menu-shell.moon-studio .play-name .mp-field { background: #131d30; color: #e4ecf6; }
+.game-menu-shell.moon-studio .mp-actions-grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; min-height: 0; }
+.game-menu-shell.moon-studio .mp-action-card { display: flex; flex-direction: column; justify-content: center; gap: 12px; min-height: 0; margin: 0; padding: 20px; border: 1px solid var(--menu-line); border-radius: 18px; background: #293a53; box-shadow: none; }
+.game-menu-shell.moon-studio .mp-card-header small { color: var(--menu-muted); font-size: 8px; }
+.game-menu-shell.moon-studio .mp-card-header { display: flex; flex-direction: column; }
+.game-menu-shell.moon-studio .mp-card-header b { color: var(--menu-ink); font-size: 22px; }
+.game-menu-shell.moon-studio .mp-card-desc { margin: 0; color: var(--menu-muted); font-size: 12px; }
+.game-menu-shell.moon-studio .mp-code-entry-form { display: grid; gap: 10px; }
+.game-menu-shell.moon-studio :is(.mp-btn-primary, .launch-button, .ready-toggle-btn, .copy-code-btn, .open-room-join-btn) { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 46px; height: auto; margin: 0; padding: 10px 16px; border: 1px solid #f4dfb6; border-radius: 12px; background: #dfbd7c; color: #202b41; box-shadow: 0 3px 0 #92764d; font-size: 12px; font-weight: 800; letter-spacing: 0; }
+.game-menu-shell.moon-studio :is(.mp-btn-primary, .launch-button, .ready-toggle-btn, .copy-code-btn, .open-room-join-btn):hover:not(:disabled) { background: #eed4a5; color: #202b41; }
+.game-menu-shell.moon-studio :is(.mp-btn-secondary, .mp-random-btn, .mp-refresh-btn, .wardrobe-toggle-btn, .ghost-code-btn, .wardrobe-surprise-pill) { min-height: 44px; margin: 0; padding: 8px 12px; border: 1px solid #687c9e; border-radius: 12px; color: var(--menu-ink); background: #293a53; box-shadow: none; font-size: 11px; }
+.game-menu-shell.moon-studio .menu-inline-nav { display: flex; justify-content: space-between; gap: 10px; margin-top: auto; }
+.game-menu-shell.moon-studio .field-label { margin: 0; display: flex; justify-content: space-between; gap: 8px; color: var(--menu-ink); font-size: 10px; line-height: 1.5; }
+.game-menu-shell.moon-studio .field-label span { color: var(--menu-muted); font-size: 9px; }
+.game-menu-shell.moon-studio .solo-settings { height: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; align-content: center; align-items: center; }
+.game-menu-shell.moon-studio .practice-profile { grid-column: 1/-1; display: flex; align-items: center; gap: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--menu-line); }
+.game-menu-shell.moon-studio .practice-profile button { margin-left: auto; min-height: 44px; border: 0; background: transparent; color: #dfbd7c; font-size: 12px; }
+.game-menu-shell.moon-studio .solo-practice-note { grid-column: 1/-1; margin: 0 0 6px; color: var(--menu-muted); font-size: 11px; }
+.game-menu-shell.moon-studio .practice-setting { display: grid; gap: 7px; min-width: 0; }
+.game-menu-shell.moon-studio .practice-setting .range-labels { display: none; }
+.game-menu-shell.moon-studio .player-range { margin: 0; min-height: 44px; accent-color: #dfbd7c; }
+.game-menu-shell.moon-studio .role-switch { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 0; border: 0; background: transparent; }
+.game-menu-shell.moon-studio .role-switch button { min-height: 44px; padding: 6px; border: 1px solid #687c9e; border-radius: 10px; color: var(--menu-ink); background: #293a53; font-size: 11px; }
+.game-menu-shell.moon-studio .role-switch button.active { background: #b9c5ef; color: #202b41; border-color: #d4defc; box-shadow: none; }
+.game-menu-shell.moon-studio .chaos-setting { display: flex; align-items: center; gap: 10px; margin: 0; padding: 8px 10px; border: 1px solid var(--menu-line); border-radius: 12px; color: var(--menu-ink); background: #131d3066; font-size: 12px; }
+.game-menu-shell.moon-studio .chaos-setting small { color: var(--menu-muted); font-size: 10px; }
+.game-menu-shell.moon-studio .chaos-setting input, .game-menu-shell.moon-studio .bot-checkbox-row input { width: 20px; height: 20px; accent-color: #dfbd7c; }
+.game-menu-shell.moon-studio .solo-settings > .launch-button { grid-column: 1/-1; margin-top: 8px; }
+.game-menu-shell.moon-studio .role-note { margin: 0; color: var(--menu-muted); font-size: 11px; }
+.game-menu-shell.moon-studio .puzzle-feedback.error { flex-shrink: 0; margin: 0 !important; padding: 8px 10px; color: #ffd0d8; background: #402b41; border: 1px solid #a56479; font-size: 11px; }
+
+/* Wardrobe has explicit categories, so it never becomes a scrolling form. */
+.game-menu-shell.moon-studio :is(.home-wardrobe, .mp-customizer-card, .mp-customizer-controls, .inroom-wardrobe-drawer) { margin: 0; min-height: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.game-menu-shell.moon-studio .wardrobe-summary-bar { min-height: 64px; padding: 0 0 10px; background: transparent; border: 0; color: var(--menu-ink); }
+.game-menu-shell.moon-studio .wardrobe-summary-bar :is(small, em) { color: var(--menu-muted); }
+.game-menu-shell.moon-studio .wardrobe-summary-bar strong { color: var(--menu-ink); }
+.game-menu-shell.moon-studio .wardrobe-summary-bar em { font-size: 9px; }
+.game-menu-shell.moon-studio .menu-tabs { display: flex; gap: 6px; padding: 4px; border: 1px solid var(--menu-line); border-radius: 14px; background: #131d30; }
+.game-menu-shell.moon-studio .menu-tabs button { flex: 1; min-height: 44px; padding: 8px; border: 0; border-radius: 10px; color: var(--menu-muted); background: transparent; font-size: 12px; font-weight: 650; }
+.game-menu-shell.moon-studio .menu-tabs button[aria-pressed="true"] { color: #202b41; background: #b9c5ef; }
+.game-menu-shell.moon-studio .look-tabs { margin-bottom: 12px; }
+.game-menu-shell.moon-studio .look-name { margin-bottom: 12px; }
+.game-menu-shell.moon-studio .look-name .field-label { margin-bottom: 5px; }
+.game-menu-shell.moon-studio .mp-palette { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 14px 4px 0; }
+.game-menu-shell.moon-studio .mp-color-btn { justify-self: center; width: 48px; height: 48px; min-height: 44px; margin: 0; border: 3px solid #f0f0fb; box-shadow: 0 0 0 1px #627697; }
+.game-menu-shell.moon-studio .mp-color-btn.active { box-shadow: 0 0 0 4px #dfbd7c; }
+.game-menu-shell.moon-studio .mp-hat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.game-menu-shell.moon-studio .mp-hat-btn { min-height: 82px; padding: 8px 4px; color: var(--menu-muted); border: 1px solid #627697; background: #293a53; border-radius: 12px; }
+.game-menu-shell.moon-studio .mp-hat-btn.active { background: #454f70; border-color: #dfbd7c; color: #fff1d3; box-shadow: none; }
+.game-menu-shell.moon-studio .mp-hat-btn b { font-size: 9px; color: inherit; }
+.game-menu-shell.moon-studio .hat-btn-preview { width: 58px; height: 42px; margin: 0 auto; }
+.game-menu-shell.moon-studio .eye-customizer { margin: 8px 0 0; }
+.game-menu-shell.moon-studio .eye-customizer legend { color: var(--menu-muted); font-size: 10px; }
+.game-menu-shell.moon-studio .eye-customizer p { display: none; }
+.game-menu-shell.moon-studio .eye-style-options { grid-template-columns: repeat(5, 1fr); }
+.game-menu-shell.moon-studio .eye-style-options button { min-height: 72px; color: #c0cde2; border-color: #627697; background: #293a53; }
+.game-menu-shell.moon-studio .eye-style-options button[aria-pressed="true"] { color: #fff1d3; background: #454f70; border-color: #dfbd7c; box-shadow: none; }
+
+/* Room directory is paginated rather than making the app taller. */
+.game-menu-shell.moon-studio .mp-open-rooms { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; margin: 0; padding: 0; background: transparent; border: 0; }
+.game-menu-shell.moon-studio .mp-open-rooms-list { flex: 1; min-height: 0; max-height: none; display: grid; grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 8px; overflow: hidden; }
+.game-menu-shell.moon-studio .open-room-item { min-height: 0; padding: 8px 14px; border: 1px solid var(--menu-line); border-radius: 14px; background: #293a53; }
+.game-menu-shell.moon-studio .open-room-host { min-width: 0; }
+.game-menu-shell.moon-studio .open-room-host > div { min-width: 0; }
+.game-menu-shell.moon-studio .open-room-host strong { color: var(--menu-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.game-menu-shell.moon-studio .open-room-host small { color: var(--menu-muted); font-size: 10px; }
+.game-menu-shell.moon-studio .open-room-code { color: #dfbd7c; }
+.game-menu-shell.moon-studio .mp-open-rooms-empty { flex: 1; display: grid; place-items: center; margin: 0; padding: 15px; color: var(--menu-muted); background: #131d3066; border-color: var(--menu-line); font-size: 13px; }
+.game-menu-shell.moon-studio .menu-pagination { display: flex; align-items: center; justify-content: center; gap: 20px; margin-top: auto; color: var(--menu-muted); font-size: 12px; }
+.game-menu-shell.moon-studio .menu-pagination button { min-width: 48px; min-height: 44px; border: 1px solid #687c9e; border-radius: 12px; background: #293a53; color: var(--menu-ink); font-size: 20px; }
+.game-menu-shell.moon-studio .compact-guide { display: flex; flex-direction: column; height: 100%; min-height: 0; max-width: 750px; margin: auto; padding: clamp(16px, 4vh, 40px); border: 1px solid var(--menu-line); border-radius: 24px; background: #1c2940e8; }
+.game-menu-shell.moon-studio .compact-guide article { margin: auto 0; }
+.game-menu-shell.moon-studio .guide-rune { float: right; padding-left: 20px; color: #dfbd7c; font-size: clamp(35px, 9vh, 85px); }
+.game-menu-shell.moon-studio .compact-guide small { color: #dfbd7c; font-size: 9px; letter-spacing: .1em; }
+.game-menu-shell.moon-studio .compact-guide h2 { margin: 12px 0; font-size: clamp(23px, 4vh, 38px); letter-spacing: -.04em; line-height: 1.1; }
+.game-menu-shell.moon-studio .compact-guide p { max-width: 580px; font-size: 15px; line-height: 1.7; color: var(--menu-muted); }
+.game-menu-shell.moon-studio .guide-tip { color: #dfbd7c !important; font-size: 12px !important; }
+
+/* Waiting room: permanent actions, one content page, all eight slots. */
+.game-menu-shell.moon-studio .waiting-room { height: 100%; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.game-menu-shell.moon-studio .waiting-room-controls { display: flex; flex: 1; flex-direction: column; gap: 10px; min-height: 0; border: 0; margin: 0; padding: 0; }
+.game-menu-shell.moon-studio .room-code-banner { display: flex; justify-content: space-between; gap: 10px; min-height: 0; margin: 0; padding: 8px 12px; background: #293a53; border: 1px solid var(--menu-line); border-radius: 14px; }
+.game-menu-shell.moon-studio .room-code-display small { color: var(--menu-muted); font-size: 8px; }
+.game-menu-shell.moon-studio .room-code-row strong { font-size: 24px; color: #dfbd7c; letter-spacing: .16em; }
+.game-menu-shell.moon-studio .room-ping-pill { background: #131d30; color: var(--menu-muted); }
+.game-menu-shell.moon-studio .room-ping-pill i { background: #9fc8df; }
+.game-menu-shell.moon-studio .inroom-profile-bar { min-height: 52px; margin: 0; padding: 0; background: transparent; border: 0; }
+.game-menu-shell.moon-studio .inroom-profile-summary { min-width: 0; }
+.game-menu-shell.moon-studio .inroom-profile-summary strong { color: var(--menu-ink); font-size: 13px; }
+.game-menu-shell.moon-studio .inroom-profile-summary :is(small, span) { color: var(--menu-muted); font-size: 9px; }
+.game-menu-shell.moon-studio .room-crew-pane { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.game-menu-shell.moon-studio .waiting-slot-grid { flex: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 8px; min-height: 0; margin: 0; }
+.game-menu-shell.moon-studio .warden-slot-card { position: relative; display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: center; align-content: center; min-height: 0; gap: 0 5px; padding: 24px 8px 5px; border: 1px solid #526787; border-radius: 14px; background: #293a53; box-shadow: none; }
+.game-menu-shell.moon-studio .warden-slot-card.is-you { background: #354463; border-color: #9fc8df; }
+.game-menu-shell.moon-studio .slot-card-top { position: absolute; top: 7px; left: 8px; right: 8px; padding: 0; }
+.game-menu-shell.moon-studio .slot-badges { gap: 3px; }
+.game-menu-shell.moon-studio .roster-badge, .game-menu-shell.moon-studio .slot-ready-pill { padding: 2px 4px; border-color: #687c9e; background: #131d30; color: var(--menu-muted); font-size: 7px; }
+.game-menu-shell.moon-studio .roster-badge.host, .game-menu-shell.moon-studio .slot-ready-pill.ready { color: #dfbd7c; background: #373947; border-color: #847659; }
+.game-menu-shell.moon-studio .slot-avatar-stage { min-height: 0; height: auto; padding: 0; background: transparent; }
+.game-menu-shell.moon-studio .slot-avatar-stage .slime-avatar { width: 45px; height: 46px; }
+.game-menu-shell.moon-studio .slot-card-meta { min-width: 0; padding: 0; text-align: left; }
+.game-menu-shell.moon-studio .slot-card-meta strong { display: block; color: var(--menu-ink); font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.game-menu-shell.moon-studio .slot-card-meta small { color: var(--menu-muted); font-size: 8px; }
+.game-menu-shell.moon-studio .slot-empty-sigil { min-height: 0; padding: 0; font-size: 28px; color: var(--menu-muted); }
+.game-menu-shell.moon-studio .room-bottom-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.game-menu-shell.moon-studio .room-bottom-actions .launch-button { width: auto; min-width: 180px; }
+.game-menu-shell.moon-studio .room-bottom-actions .launch-button span { font-size: 10px; font-weight: 500; }
+.game-menu-shell.moon-studio .room-host-wait { color: var(--menu-muted); font-size: 11px; }
+.game-menu-shell.moon-studio .host-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; align-items: center; margin: 0; padding: 0; border: 0; background: transparent; }
+.game-menu-shell.moon-studio .host-panel > .role-note { grid-column: 1/-1; }
+.game-menu-shell.moon-studio .host-config-header { display: contents; }
+.game-menu-shell.moon-studio .slot-Count-pills { display: flex; gap: 5px; }
+.game-menu-shell.moon-studio .slot-Count-pills button { min-width: 44px; min-height: 44px; border-color: #627697; background: #293a53; color: var(--menu-ink); }
+.game-menu-shell.moon-studio .slot-Count-pills button.active { background: #b9c5ef; color: #202b41; }
+.game-menu-shell.moon-studio .host-panel .player-range { display: none; }
+.game-menu-shell.moon-studio .bot-checkbox-row { min-height: 44px; margin: 0; color: var(--menu-ink); font-size: 11px; }
+.game-menu-shell.moon-studio .waiting-status { margin: 16px 0; color: var(--menu-ink); background: transparent; border-color: var(--menu-line); }
+.game-menu-shell.moon-studio .waiting-status span { color: var(--menu-muted); }
+.game-menu-shell.moon-studio .lobby-comms-box { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; margin: 0; padding: 10px; background: #131d3066; border: 1px solid var(--menu-line); border-radius: 12px; }
+.game-menu-shell.moon-studio .lobby-comms-head { padding: 0; color: var(--menu-muted); font-size: 10px; }
+.game-menu-shell.moon-studio .quick-comms-chips button { min-height: 30px; padding: 5px 10px; color: var(--menu-ink); background: #293a53; border-color: var(--menu-line); }
+.game-menu-shell.moon-studio .lobby-comms-feed { flex: 1; min-height: 0; max-height: none; height: auto; margin: 0; padding: 8px; color: var(--menu-ink); background: transparent; overflow-y: auto; overscroll-behavior: contain; }
+.game-menu-shell.moon-studio .lobby-comms-line.system, .game-menu-shell.moon-studio .lobby-comms-empty { color: var(--menu-muted); }
+.game-menu-shell.moon-studio .lobby-comms-form { margin: 0; padding: 0; border: 0; }
+.game-menu-shell.moon-studio .lobby-comms-form button { min-height: 44px; background: #b9c5ef; color: #202b41; border-color: #d4defc; }
+.game-menu-shell.moon-studio .inroom-wardrobe-drawer .wardrobe-row { display: flex; align-items: center; gap: 12px; }
+.game-menu-shell.moon-studio .inroom-wardrobe-drawer .mp-input-with-btn { flex: 1; }
+.game-menu-shell.moon-studio .inroom-wardrobe-drawer .mp-palette { grid-template-columns: repeat(8, 1fr); }
+
+@keyframes menu-screen-in { from { opacity: 0; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }
+@media (max-width: 900px) {
+  .game-menu-shell.moon-studio .lobby-nav { padding-inline: 14px; gap: 10px; }
+  .game-menu-shell.moon-studio .nav-status { display: none; }
+  .game-menu-shell.moon-studio .lobby-grid { padding: 12px 16px; gap: 18px; }
+  .game-menu-shell.moon-studio .game-menu { gap: 10px; }
+  .game-menu-shell.moon-studio .game-menu > button { padding: 12px 14px; font-size: 17px; }
+  .game-menu-shell.moon-studio .game-menu h1 { font-size: 42px; }
+  .game-menu-shell.moon-studio .warden-slot-card { grid-template-columns: 42px minmax(0, 1fr); padding-inline: 5px; }
+  .game-menu-shell.moon-studio .slot-avatar-stage .slime-avatar { width: 38px; height: 40px; }
+}
+@media (max-height: 550px) and (orientation: landscape) {
+  .game-menu-shell.moon-studio .studio-frame { grid-template-rows: 48px minmax(0, 1fr) 36px; }
+  .game-menu-shell.moon-studio .lobby-grid { padding-block: 8px; gap: 16px; }
+  .game-menu-shell.moon-studio .brand-name small, .game-menu-shell.moon-studio .home-motion-toggle { display: none; }
+  .game-menu-shell.moon-studio .room-header-actions > span { display: none; }
+  .game-menu-shell.moon-studio .menu-screen-heading h1 { font-size: 15px; }
+  .game-menu-shell.moon-studio .game-menu { gap: 8px; }
+  .game-menu-shell.moon-studio .game-menu h1 { font-size: clamp(27px, 6.8vh, 37px); }
+  .game-menu-shell.moon-studio .game-menu > p { display: none; }
+  .game-menu-shell.moon-studio .game-menu > button { min-height: 56px; padding: 7px 14px; border-radius: 13px; font-size: 15px; }
+  .game-menu-shell.moon-studio .game-menu > button small { font-size: 9px; margin-top: 2px; }
+  .game-menu-shell.moon-studio .menu-beta-note { display: none; }
+  .game-menu-shell.moon-studio .menu-eyebrow { font-size: 7px; }
+  .game-menu-shell.moon-studio .studio-view-switch { top: 5px; }
+  .game-menu-shell.moon-studio .studio-view-switch button { min-height: 28px; }
+  .game-menu-shell.moon-studio .studio-stage-title { top: 42px; }
+  .game-menu-shell.moon-studio .studio-stage-title :is(small, p) { display: none; }
+  .game-menu-shell.moon-studio .studio-stage-title h2 { font-size: 18px; }
+  .game-menu-shell.moon-studio .preview-circle { top: 65px; bottom: 50px; }
+  .game-menu-shell.moon-studio .studio-view-warden .is-you .slime-avatar { width: 40vh; height: 40vh; }
+  .game-menu-shell.moon-studio .stage-quick-bar { bottom: 8px; }
+  .game-menu-shell.moon-studio .preview-dialogue, .game-menu-shell.moon-studio .preview-weather { display: none; }
+  .game-menu-shell.moon-studio .console-head { display: none; }
+  .game-menu-shell.moon-studio .console-body { padding: 10px 14px; gap: 5px; }
+  .game-menu-shell.moon-studio .mp-config, .game-menu-shell.moon-studio .home-entry-column { gap: 8px; }
+  .game-menu-shell.moon-studio .play-name { display: flex; align-items: center; gap: 12px; }
+  .game-menu-shell.moon-studio .play-name input { flex: 1; }
+  .game-menu-shell.moon-studio .mp-action-card { padding: 10px 14px; gap: 8px; }
+  .game-menu-shell.moon-studio .mp-card-header b { font-size: 17px; }
+  .game-menu-shell.moon-studio .mp-card-header small, .game-menu-shell.moon-studio .mp-card-desc { display: none; }
+  .game-menu-shell.moon-studio .mp-code-entry-form { grid-template-columns: minmax(80px, 1fr) 1fr; }
+  .game-menu-shell.moon-studio .menu-inline-nav button { min-height: 38px; }
+  .game-menu-shell.moon-studio .solo-settings { gap: 5px 18px; }
+  .game-menu-shell.moon-studio .solo-settings > .solo-practice-note { display: none; }
+  .game-menu-shell.moon-studio .practice-profile { padding: 0; border: 0; }
+  .game-menu-shell.moon-studio .practice-profile .slime-avatar { width: 30px; height: 32px; }
+  .game-menu-shell.moon-studio .solo-settings > .launch-button { margin-top: 0; }
+  .game-menu-shell.moon-studio .wardrobe-summary-bar { min-height: 44px; padding: 0 0 5px; }
+  .game-menu-shell.moon-studio .wardrobe-summary-bar > .slime-avatar, .game-menu-shell.moon-studio .wardrobe-summary-bar em, .game-menu-shell.moon-studio .wardrobe-summary-bar small { display: none; }
+  .game-menu-shell.moon-studio .look-tabs { margin-bottom: 5px; padding: 2px; }
+  .game-menu-shell.moon-studio .menu-tabs button { min-height: 40px; padding: 5px 8px; }
+  .game-menu-shell.moon-studio .look-name { display: flex; gap: 12px; align-items: center; margin-bottom: 5px; }
+  .game-menu-shell.moon-studio .look-name .mp-field { flex: 1; min-width: 0; }
+  .game-menu-shell.moon-studio .look-name .field-label span { display: none; }
+  .game-menu-shell.moon-studio .mp-palette { grid-template-columns: repeat(8, 1fr); gap: 5px; margin-top: 12px; }
+  .game-menu-shell.moon-studio .mp-color-btn { width: 34px; height: 44px; border-radius: 12px; }
+  .game-menu-shell.moon-studio .mp-hat-row { margin-top: 6px; }
+  .game-menu-shell.moon-studio .mp-hat-btn { min-height: 66px; }
+  .game-menu-shell.moon-studio .hat-btn-preview { height: 35px; width: 47px; }
+  .game-menu-shell.moon-studio .eye-style-options button { min-height: 64px; }
+  .game-menu-shell.moon-studio .compact-guide { padding: 16px 24px; }
+  .game-menu-shell.moon-studio .compact-guide h2 { margin: 5px 0; font-size: 23px; }
+  .game-menu-shell.moon-studio .compact-guide p { font-size: 12px; line-height: 1.55; margin-block: 8px; }
+  .game-menu-shell.moon-studio .room-code-banner { padding: 0 10px; align-items: center; }
+  .game-menu-shell.moon-studio .room-code-display small { display: none; }
+  .game-menu-shell.moon-studio .room-banner-actions button { min-height: 36px; }
+  .game-menu-shell.moon-studio .room-code-row strong { font-size: 21px; }
+  .game-menu-shell.moon-studio .inroom-profile-bar { position: absolute; right: 28px; top: 7px; width: auto; min-height: 0; z-index: 2; }
+  .game-menu-shell.moon-studio .inroom-profile-summary { display: none; }
+  .game-menu-shell.moon-studio .inroom-profile-actions button { min-height: 36px; padding: 5px 10px; }
+  .game-menu-shell.moon-studio .waiting-room, .game-menu-shell.moon-studio .waiting-room-controls { gap: 5px; }
+  .game-menu-shell.moon-studio .room-crew-pane > .field-label { display: none; }
+  .game-menu-shell.moon-studio .waiting-slot-grid { gap: 5px; }
+  .game-menu-shell.moon-studio .warden-slot-card { padding-top: 18px; border-radius: 10px; }
+  .game-menu-shell.moon-studio .slot-card-top { top: 3px; }
+  .game-menu-shell.moon-studio .slot-card-meta small { display: none; }
+  .game-menu-shell.moon-studio .slot-avatar-stage .slime-avatar { width: 30px; height: 32px; }
+  .game-menu-shell.moon-studio .slot-card-meta strong { font-size: 10px; }
+  .game-menu-shell.moon-studio .room-bottom-actions .launch-button, .game-menu-shell.moon-studio .room-bottom-actions > button { min-height: 40px; }
+  .game-menu-shell.moon-studio .lobby-comms-box { padding: 6px; gap: 4px; }
+  .game-menu-shell.moon-studio .lobby-comms-head > span { display: none; }
+  .game-menu-shell.moon-studio .lobby-comms-feed { padding: 2px; font-size: 11px; }
+  .game-menu-shell.moon-studio .host-panel { gap: 4px 18px; }
+  .game-menu-shell.moon-studio .host-panel > .role-note { display: none; }
+  .game-menu-shell.moon-studio .inroom-wardrobe-drawer .wardrobe-row > .field-label { display: none; }
+  .game-menu-shell.moon-studio .inroom-wardrobe-drawer .wardrobe-row { margin-bottom: 4px; }
+  .game-menu-shell.moon-studio .inroom-wardrobe-drawer > div > .field-label { display: none; }
+}
+@media (max-width: 900px) and (max-height: 550px) and (orientation: landscape) {
+  .game-menu-shell.moon-studio[data-menu="LOOK"] .lobby-grid { grid-template-columns: 1fr; max-width: 800px; }
+  .game-menu-shell.moon-studio[data-menu="LOOK"] .studio-stage { display: none; }
+  .game-menu-shell.moon-studio[data-menu="LOOK"] .wardrobe-summary-bar > .slime-avatar { display: block; width: 36px; height: 38px; }
+}
+@media (orientation: portrait) and (max-width: 650px) {
+  .game-menu-shell.moon-studio .studio-frame { grid-template-rows: 54px minmax(0, 1fr) 40px; }
+  .game-menu-shell.moon-studio .lobby-grid { grid-template-columns: 1fr; padding: 14px; }
+  .game-menu-shell.moon-studio .lobby-copy.studio-stage { display: none; }
+  .game-menu-shell.moon-studio .lobby-nav .home-motion-toggle, .game-menu-shell:not([data-menu="HOME"]) .lobby-nav > .brand { display: none; }
+  .game-menu-shell.moon-studio .game-menu { max-width: 400px; margin: auto; }
+  .game-menu-shell.moon-studio .game-menu h1 { font-size: 48px; }
+  .game-menu-shell.moon-studio .mp-actions-grid { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  .game-menu-shell.moon-studio .mp-action-card { padding: 15px; gap: 10px; }
+  .game-menu-shell.moon-studio .solo-settings { grid-template-columns: 1fr; gap: 7px; }
+  .game-menu-shell.moon-studio .solo-settings > .solo-practice-note, .game-menu-shell.moon-studio .solo-settings .field-label span { display: none; }
+  .game-menu-shell.moon-studio .waiting-slot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(4, minmax(0, 1fr)); }
+  .game-menu-shell.moon-studio .warden-slot-card { padding-top: 20px; }
+  .game-menu-shell.moon-studio .room-code-display small, .game-menu-shell.moon-studio .inroom-profile-summary span { display: none; }
+  .game-menu-shell.moon-studio .inroom-profile-summary .slime-avatar { display: none; }
+  .game-menu-shell.moon-studio .inroom-profile-actions button { padding: 6px 8px; font-size: 10px; }
+  .game-menu-shell.moon-studio .room-crew-pane > .field-label { display: none; }
+  .game-menu-shell.moon-studio .room-bottom-actions { gap: 8px; }
+  .game-menu-shell.moon-studio .room-bottom-actions .launch-button { min-width: 0; flex: 1; }
+  .game-menu-shell.moon-studio .room-bottom-actions .launch-button span { display: none; }
+  .game-menu-shell.moon-studio .inroom-wardrobe-drawer .mp-palette { grid-template-columns: repeat(4, 1fr); }
+  .game-menu-shell.moon-studio .host-panel { grid-template-columns: 1fr; }
+  .game-menu-shell.moon-studio .slot-Count-pills button { flex: 1; }
+  .game-menu-shell.moon-studio .compact-guide { padding: 22px; }
+  .game-menu-shell.moon-studio .guide-rune { float: none; display: block; }
+  .game-menu-shell.moon-studio .lobby-footer > span:last-child { display: none; }
+  .game-menu-shell.moon-studio .lobby-footer > span:first-child { display: none; }
+  .game-menu-shell.moon-studio .open-room-host .slime-avatar { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .game-menu-shell.moon-studio *, .game-menu-shell.moon-studio *::before, .game-menu-shell.moon-studio *::after { animation: none !important; transition: none !important; } }
+
+/* Meetings always fit the screen; only message/note history can scroll internally. */
+.playful-game .meeting-backdrop { padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+.playful-game .meeting-card { display: flex; flex-direction: column; width: min(1000px, 100%); height: min(680px, calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom))); max-height: none; min-height: 0; overflow: hidden; }
+.playful-game .meeting-alert { flex-shrink: 0; min-height: 64px; gap: 12px; padding: 12px 20px; grid-template-columns: 36px minmax(0, 1fr) auto; }
+.playful-game .meeting-alert > span { width: 36px; height: 36px; font-size: 21px; }
+.playful-game .meeting-alert h2 { font-size: 21px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.playful-game .meeting-toolbar { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; gap: 8px; padding: 4px 16px 0; }
+.playful-game .meeting-toolbar p { margin: 0; color: #c6d7ee; font-size: 12px; }
+.playful-game .meeting-toolbar strong { color: #f0d59f; font-variant-numeric: tabular-nums; }
+.playful-game .meeting-toolbar button { min-height: 44px; flex-shrink: 0; padding: 6px 12px; border: 1px solid #40516d; border-radius: 12px; background: #131d30; color: #c6d7ee; font-size: 12px; font-weight: 700; }
+.playful-game .meeting-toolbar button[aria-expanded="true"] { background: #b9c5ef; color: #202b41; }
+.playful-game .meeting-content { display: flex; flex: 1; flex-direction: column; gap: 8px; min-height: 0; padding: 12px 16px 16px; }
+.playful-game .meeting-content > .vote-receipt { flex-shrink: 0; display: flex; gap: 10px; margin: 0; padding: 6px 10px; line-height: 1.3; font-size: 11px; }
+.playful-game .vote-receipt strong { margin: 0; flex-shrink: 0; font-size: 11px; letter-spacing: 0; }
+.playful-game .discussion-layout { flex: 1; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: 0; height: 100%; gap: 12px; }
+.playful-game .vote-panel { grid-column: 1; grid-row: 1; width: 100%; min-height: 0; min-width: 0; }
+.playful-game .vote-panel > p { flex-shrink: 0; margin: 0 0 8px; font-size: 12px; }
+.playful-game .vote-panel .moonsway-rule { margin: 0 0 6px; padding: 5px 10px; font-size: 10px; }
+.playful-game .discussion-layout .vote-grid { flex: 1; min-height: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.playful-game .discussion-layout .vote-grid button { min-width: 0; min-height: 44px; display: grid; grid-template-columns: 56px minmax(0, 1fr); grid-template-rows: auto auto; align-content: center; align-items: center; justify-items: start; gap: 3px 8px; padding: 12px; animation-delay: 0s; }
+.playful-game .vote-grid button > .vote-slime { grid-row: 1/3; width: 54px; height: 57px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.playful-game .vote-grid button > b { min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 750 13px/1.3 var(--font-geist-sans), sans-serif; }
+.playful-game .vote-grid button > small { font-size: 8px; }
+.playful-game .vote-grid button:disabled { opacity: 1; background: #202d44; }
+.playful-game .vote-grid button[data-alive="false"] { opacity: .55; }
+.playful-game .skip-vote { flex-shrink: 0; margin-top: 10px; min-height: 44px; padding: 8px; }
+.playful-game .meeting-chat { grid-column: 2; grid-row: 1; width: 100%; height: 100%; min-height: 0; min-width: 0; }
+.playful-game .chat-heading { flex-shrink: 0; min-height: 40px; padding: 6px 12px; }
+.playful-game .chat-log { flex: 1; min-height: 0; max-height: none; overscroll-behavior: contain; }
+.playful-game .chat-composer { flex-shrink: 0; padding: 8px; }
+.playful-game .chat-composer input { font-size: 16px; }
+.playful-game .chat-rule { flex-shrink: 0; padding-bottom: 6px; }
+.playful-game .meeting-notes-page { grid-column: 2; grid-row: 1; display: flex; min-height: 0; min-width: 0; }
+.playful-game .notes-panel { flex: 1; display: flex; flex-direction: column; gap: 8px; margin: 0; min-height: 0; padding: 10px 14px; }
+.playful-game .notes-panel > p { margin: 0; font-size: 11px; }
+.playful-game .notes-panel .observation-composer { flex-shrink: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.playful-game .notes-panel .observation-composer label:first-child { grid-column: auto; }
+.playful-game .notes-panel .observation-actions { grid-column: 1/-1; }
+.playful-game .notes-panel .observation-list { flex: 1; min-height: 0; max-height: none; margin: 0; overscroll-behavior: contain; }
+.playful-game .vote-tally-screen { flex: 1; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.playful-game .vote-verdict { flex-shrink: 0; padding: 8px 12px; }
+.playful-game .vote-verdict h3 { margin: 0; font-size: 20px; }
+.playful-game .tally-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.playful-game .tally-card { min-height: 0; min-width: 0; display: grid; grid-template-columns: 42px auto 1fr; grid-template-rows: auto auto; align-content: center; align-items: center; gap: 5px; padding: 10px; animation-delay: 0s; }
+.playful-game .tally-name { grid-column: 1/-1; padding: 0; font-size: 12px; text-align: left; }
+.playful-game .tally-slime { width: 40px; height: 43px; margin: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.playful-game .tally-skip-mark { width: 40px; height: 43px; margin: 0; display: grid; place-items: center; font-size: 26px; }
+.playful-game .tally-card strong { font-size: 24px; line-height: 1; }
+.playful-game .tally-card > small { padding: 0; font-size: 8px; }
+.playful-game .tally-status { position: absolute; right: 6px; bottom: 4px; margin: 0; padding: 0; background: transparent; font-size: 7px; color: #dfbd7c; }
+.playful-game .continue-vote { flex-shrink: 0; width: 100%; min-height: 44px; margin: 0; padding: 10px; border: 1px solid #e6d4ad; border-radius: 12px; background: #dfbd7c; color: #202b41; }
+@media (max-height: 550px) and (orientation: landscape) {
+  .playful-game .meeting-backdrop { padding: max(6px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+  .playful-game .meeting-card { height: calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); border-radius: 16px; }
+  .playful-game .meeting-alert { min-height: 46px; padding: 6px 12px; gap: 8px; grid-template-columns: 28px minmax(0, 1fr) auto; }
+  .playful-game .meeting-alert > span { width: 28px; height: 28px; font-size: 17px; }
+  .playful-game .meeting-alert small { font-size: 7px; }
+  .playful-game .meeting-alert h2 { font-size: 16px; margin: 2px 0 0; }
+  .playful-game .meeting-toolbar { padding: 0 10px; }
+  .playful-game .meeting-toolbar p { font-size: 10px; }
+  .playful-game .meeting-toolbar button { font-size: 11px; }
+  .playful-game .meeting-content { padding: 6px 10px 10px; gap: 5px; }
+  .playful-game .vote-panel > p { margin-bottom: 5px; font-size: 10px; }
+  .playful-game .discussion-layout { gap: 8px; }
+  .playful-game .discussion-layout .vote-grid { gap: 4px; }
+  .playful-game .discussion-layout .vote-grid button { grid-template-columns: 28px minmax(0, 1fr); gap: 0 4px; padding: 3px 5px; border-radius: 10px; min-height: 36px; }
+  .playful-game .vote-grid button > .vote-slime { width: 28px; height: 30px; }
+  .playful-game .vote-grid button > small { font-size: 7px; }
+  .playful-game .chat-heading { min-height: 30px; padding: 4px 8px; }
+  .playful-game .chat-composer { padding: 5px; }
+  .playful-game .chat-rule { display: none; }
+  .playful-game .vote-grid button > b { font-size: 11px; }
+  .playful-game .skip-vote { margin-top: 6px; }
+  .playful-game .vote-verdict { padding: 5px 10px; }
+  .playful-game .vote-verdict h3 { font-size: 16px; }
+  .playful-game .vote-tally-screen { gap: 6px; }
+  .playful-game .tally-card { padding: 5px 8px; grid-template-columns: 28px auto 1fr; gap: 2px 4px; border-radius: 10px; }
+  .playful-game .tally-name { font-size: 10px; }
+  .playful-game .tally-slime, .playful-game .tally-skip-mark { width: 26px; height: 28px; }
+  .playful-game .tally-card strong { font-size: 19px; }
+  .playful-game .tally-card > small { font-size: 7px; }
+  .playful-game .notes-panel { padding: 5px 8px; gap: 5px; }
+  .playful-game .notes-panel .observation-composer { gap: 4px; }
+  .playful-game .notes-panel .observation-composer { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .playful-game .notes-panel .observation-composer select { padding: 4px; font-size: 11px; min-width: 0; }
+  .playful-game .death-reveal { padding: 12px; }
+  .playful-game .death-reveal-card { width: min(700px, 100%); padding: 18px; display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 6px 16px; text-align: left; justify-items: start; }
+  .playful-game .death-reveal-card > * { grid-column: 2; }
+  .playful-game .death-reveal-card .consumption-portrait { grid-column: 1; grid-row: 1/7; align-self: center; margin: 0; }
+  .playful-game .death-reveal-card h2 { margin: 0; font-size: 27px; }
+  .playful-game .death-reveal-card > strong { font-size: 23px; }
+  .playful-game .death-reveal-card > p { margin: 0; font-size: 11px; }
+  .playful-game .death-reveal-card > button { min-height: 44px; padding: 8px 12px; }
+}

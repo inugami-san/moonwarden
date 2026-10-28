@@ -2,8 +2,8 @@ import {
   BANISHMENT_TIMELINE, clamp01, easeIn, easeInOut, easeOut, easeOutBack, seededRandom, span,
   type BanishmentOutcome,
 } from "./banishment";
-import { drawAccessory } from "./accessory-art";
-import { slimeEyes, slimeSkin } from "./slime-art";
+import { drawAccessory, isCollar } from "./accessory-art";
+import { slimeEyes, slimeSkin } from "./cat-art";
 
 /**
  * Code-native Canvas art for "The Moon's Judgment". The voted slime uses the
@@ -615,7 +615,7 @@ export class BanishmentScene {
     paint.globalAlpha = 1;
     if (this.outcome.hat) {
       paint.save();
-      paint.translate(0, -43);
+      paint.translate(0, isCollar(this.outcome.hat) ? 7 : -43);
       paint.rotate(state.tilt * .6);
       drawAccessory(paint, this.outcome.hat, 0, 0, false);
       paint.restore();

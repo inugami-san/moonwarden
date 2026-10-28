@@ -41,7 +41,7 @@ export type ConcludedMeeting = {
 };
 
 const ROLE_KIND: Record<Role, BanishmentKind> = { CREWMATE: "WARDEN", IMPOSTOR: "HOLLOW" };
-const HATS: readonly Hat[] = ["antlers", "hood", "moth", "mooncap"];
+const HATS: readonly Hat[] = ["moonbell", "leafband", "starlock", "mothbow", "antlers", "hood", "moth", "mooncap"];
 
 /** Names on the local roster carry a "(YOU)" marker that is not part of the name. */
 export function displayName(name: string): string {

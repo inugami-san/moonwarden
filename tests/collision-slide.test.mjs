@@ -92,7 +92,7 @@ test("room authority uses the same tangent and stops motion against Rootwake and
   close(player.vx, 0); close(player.vy, 0);
 });
 
-test("Rootwalk still bypasses solid roots and trunks without exceeding the movement speed cap", () => {
+test("Rootwalk bypasses roots but respects solid trunks and the movement speed cap", () => {
   const registry = new GameServerRegistry();
   const room = registry.createRoom();
   room.addClient("rootwalk-host", { readyState: 1, send() {}, close() {} }, "Host", "#20d8ed", "hood");
@@ -100,6 +100,6 @@ test("Rootwalk still bypasses solid roots and trunks without exceeding the movem
   player.role = "IMPOSTOR";
   room.state = "PLAYING"; room.phase = "ORDEAL"; room.hazard = "ROOTWAKE"; room.phaseTime = 5;
   room.handleMessage(player.id, { type: "PLAYER_INPUT", x: obstacle.x, y: obstacle.y, vx: 184, vy: 184, angle: 0, flashlight: false, seq: 1 });
-  close(player.x, obstacle.x); close(player.y, obstacle.y);
+  assert.ok(Math.hypot(player.x - obstacle.x, player.y - obstacle.y) >= obstacle.r + 22);
   close(Math.hypot(player.vx, player.vy), 184);
 });

@@ -1,6 +1,7 @@
 import type { Hazard, Phase } from "./game-types";
 import { isOccludedByObstacle } from "./ordeal-rules";
 import { sharesRootCell, type SanctuaryObstacle, type WorldPoint } from "./sanctuary-map";
+import { sameShade } from "./sanctuary-design";
 
 export type SightKind = "HIDDEN" | "SHAPE" | "IDENTIFIED";
 export type Sight = { kind: SightKind; alpha: number };
@@ -29,7 +30,7 @@ export function sightAt(target: SightPoint, context: SightContext): Sight {
   const local = target.id !== undefined && target.id === observer.id;
   if (!Number.isFinite(target.x) || !Number.isFinite(target.y) || !Number.isFinite(observer.x) || !Number.isFinite(observer.y)) return hidden;
   if (context.moonSight) return { kind: "IDENTIFIED", alpha: 1 };
-  if (local) return { kind: anonymous ? "SHAPE" : "IDENTIFIED", alpha: 1 };
+  if (local) return { kind: anonymous && !(hazard === "MOONGLARE" && sameShade(observer, target)) ? "SHAPE" : "IDENTIFIED", alpha: 1 };
   if (ordeal && hazard === "ROOTWAKE" && !sharesRootCell(observer, target)) return hidden;
   if (isOccludedByObstacle(observer, target, context.obstacles)) return hidden;
 
@@ -49,7 +50,7 @@ export function sightAt(target: SightPoint, context: SightContext): Sight {
   // for a temporal fade that could reveal movement behind an obstacle.
   const fade = Math.min(1, (radius - distance) / Math.min(76, radius * .42));
   const alpha = fade * fade * (3 - 2 * fade);
-  if (anonymous) return { kind: "SHAPE", alpha };
+  if (anonymous) return { kind: hazard === "MOONGLARE" && distance < SIGHT_RANGES.identity && sameShade(observer, target) ? "IDENTIFIED" : "SHAPE", alpha };
   const obscured = ordeal && (hazard === "FOG" || hazard === "MIRROR_POOL");
   return { kind: obscured && !lit && distance >= SIGHT_RANGES.identity ? "SHAPE" : "IDENTIFIED", alpha };
 }

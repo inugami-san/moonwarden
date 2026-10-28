@@ -13,6 +13,11 @@ import type {
   S2CMessage,
 } from "./game-types";
 import { availablePlayerColor, availablePlayerName, PLAYER_COLORS as COLORS } from "./palette";
+import { MEETING_DISCUSSION_MS } from "./match-rules";
+import { RestorationLedger } from "./match-rules";
+import { rootwakeEnvelope, rootwakeMove, overgrownStationIndex, lurePoint } from "./sanctuary-design";
+import { createRitual, normalizeDifficulty, ritualAnswerIsCorrect, type RitualChallenge, type RitualDifficulty } from "./forest-rituals";
+import { ForestUtilities } from "./forest-utilities";
 import { EYE_STYLES, isEyeStyle, normalizeEyeStyle, type EyeStyle } from "./appearance";
 import {
   ECHO_RANGE,
@@ -41,7 +46,7 @@ import { ejectionVerdict } from "./role-presentation";
 import { createMatchLayout } from "./match-layout";
 import { PAIR_RITUAL_RANGE, PairedRituals } from "./pair-ritual";
 import { advanceEmergency, afterMeeting, finishFirstOrdeal, initialEmergencyState, reportAvailability } from "./report-rules";
-import { clampHollowCount, hollowVictory, ritualProgress, resolveReporterVote, type VoteReceipt, WARD_SETTLE_SECONDS, STEALTH_BODY_DELAY_SECONDS, STEALTH_COOLDOWN_SECONDS, STEALTH_ORDEAL_LOCKOUT } from "./match-rules";
+import { clampHollowCount, hollowVictory, resolveReporterVote, type VoteReceipt, WARD_SETTLE_SECONDS, STEALTH_BODY_DELAY_SECONDS, STEALTH_COOLDOWN_SECONDS, STEALTH_ORDEAL_LOCKOUT } from "./match-rules";
 
 export interface IWebSocketClient {
   send(data: string): void;
@@ -51,7 +56,7 @@ export interface IWebSocketClient {
 }
 
 const BOT_NAMES = ["Mochi", "Bubbles", "Gloop", "Pebble", "Nori", "Fizz", "Pip", "Wobble"];
-const HATS: readonly Hat[] = ["antlers", "hood", "moth", "mooncap"];
+const HATS: readonly Hat[] = ["moonbell", "leafband", "starlock", "mothbow", "antlers", "hood", "moth", "mooncap"];
 const STATION_INTERACTION_RANGE = 104;
 const BOT_RITUAL_SECONDS = 2.6;
 const KILL_COOLDOWN_MS = 1500;
@@ -66,9 +71,7 @@ function choose<T>(items: readonly T[] | T[]): T {
 
 function rootwakeStrength(phase: Phase, hazard: Hazard, phaseTime: number) {
   if (phase !== "ORDEAL" || hazard !== "ROOTWAKE") return 0;
-  const risen = Math.max(0, Math.min(1, (10 - phaseTime) / 0.75));
-  const receding = Math.max(0, Math.min(1, phaseTime / 0.55));
-  return Math.min(risen, receding);
+  return rootwakeEnvelope(phaseTime);
 }
 
 export class GameRoom {
@@ -79,6 +82,12 @@ export class GameRoom {
   botFill: boolean = true;
   hollowCount = 1;
   chaosMoonsway = false;
+  puzzleDifficulty: RitualDifficulty = "STANDARD";
+  meetingSeconds = 75;
+  utilities = new ForestUtilities();
+  private ritualAttempts = new Map<string, number>();
+  private ritualChallenges = new Map<string, { stationId: string; challenge: RitualChallenge; roundId: number; openedAt: number }>();
+  private ritualRetryAt = new Map<string, number>();
   private pairedRituals = new PairedRituals();
   layoutSeed = 0;
   stations = [...STATIONS];
@@ -86,6 +95,7 @@ export class GameRoom {
   private startingWardens = 0;
   private startingHollows = 1;
   private pendingWardDelta = 0;
+  private restorationLedger = new RestorationLedger();
   private wardSettleTimer = 0;
   private strikeSpent = new Set<string>();
   private stealthUntil = new Map<string, number>();
@@ -107,7 +117,7 @@ export class GameRoom {
   ordealSeed = 1;
   abilityUsed = new Set<string>();
   sightUntil = new Map<string, number>();
-  private echoes: { x: number; y: number; until: number; nextAt: number }[] = [];
+  private echoes: { x: number; y: number; angle: number; until: number; nextAt: number }[] = [];
   private footsteps = new Map<string, { x: number; y: number; at: number }>();
   private soundSequence = 0;
   sealedStations = new Set<string>();
@@ -123,6 +133,7 @@ export class GameRoom {
 
   meetingReason: string = "";
   meetingReporter: string = "";
+  private votingOpensAt = 0;
   private meetingBodyReporterId: string | null = null;
   private voteReceipts = new Map<string, VoteReceipt>();
   meetingTally: NetVoteTally[] | null = null;
@@ -183,6 +194,8 @@ export class GameRoom {
       chaosMoonsway: this.chaosMoonsway,
       chatHistory: this.chatHistory,
     });
+    this.sendTo(client, { type: "RITUAL_SETTINGS", difficulty: this.puzzleDifficulty, meetingSeconds: this.meetingSeconds });
+    this.syncUtility(playerId);
 
     // Broadcast to others
     this.broadcastExcept(playerId, {
@@ -194,6 +207,8 @@ export class GameRoom {
   }
 
   removeClient(playerId: string) {
+    this.ritualChallenges.delete(playerId); this.ritualRetryAt.delete(playerId);
+    this.utilities.choices.delete(playerId); this.utilities.charges.delete(playerId); this.utilities.cooldowns.delete(playerId);
     if (!this.players.has(playerId)) return;
     this.clients.delete(playerId);
     this.players.delete(playerId);
@@ -262,6 +277,12 @@ export class GameRoom {
     if (!player) return;
 
     switch (msg.type) {
+      case "SET_MEETING_DURATION":
+        if (player.isHost && this.state === "LOBBY" && [60, 75, 90].includes(msg.seconds)) {
+          this.meetingSeconds = msg.seconds;
+          this.broadcast({ type: "RITUAL_SETTINGS", difficulty: this.puzzleDifficulty, meetingSeconds: this.meetingSeconds });
+        }
+        break;
       case "UPDATE_PROFILE":
         if (this.state === "LOBBY") {
           const requestedName = msg.playerName.trim().slice(0, 16);
@@ -318,6 +339,13 @@ export class GameRoom {
         }
         break;
 
+      case "PAIR_RUNE": {
+        const station = this.stations.find(s => s.id === msg.stationId);
+        if (this.state === "PLAYING" && this.phase !== "DISCUSSION" && player.alive && station
+          && dist(player, station) <= PAIR_RITUAL_RANGE && Math.hypot(player.vx, player.vy) < 12)
+          this.pairedRituals.pulse(player.id, station.id, msg.rune, msg.roundId, Date.now());
+        break;
+      }
       case "PAIR_RITUAL": {
         if (msg.roundId !== this.roundId) break;
         const station = this.stations.find(station => station.id === msg.stationId);
@@ -339,15 +367,14 @@ export class GameRoom {
           const { x: nextX, y: nextY } = clampWorldPoint(msg.x, msg.y);
           const impostorPhasing = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && player.role === "IMPOSTOR";
           const rootChecked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && !impostorPhasing
-            ? keepInRootCell(player, { x: nextX, y: nextY })
+            ? rootwakeMove(player, { x: nextX, y: nextY }, this.phaseTime)
             : { x: nextX, y: nextY };
           const velocityX = rootChecked.x !== nextX || nextX !== msg.x ? 0 : msg.vx;
           const velocityY = rootChecked.y !== nextY || nextY !== msg.y ? 0 : msg.vy;
           const inputSpeed = Math.hypot(velocityX, velocityY);
           const speedScale = inputSpeed > 184 ? 184 / inputSpeed : 1;
-          const next = impostorPhasing
-            ? { ...rootChecked, vx: velocityX * speedScale, vy: velocityY * speedScale }
-            : resolveObstacleMovement(rootChecked.x, rootChecked.y, velocityX, velocityY, 22, this.obstacles);
+          const next = resolveObstacleMovement(rootChecked.x, rootChecked.y, velocityX * speedScale, velocityY * speedScale, 22, this.obstacles);
+          if (impostorPhasing && !sharesRootCell(player, next)) this.soundAt(next.x, next.y, "ROOT_RIPPLE");
           player.x = next.x;
           player.y = next.y;
           player.vx = next.vx;
@@ -391,7 +418,7 @@ export class GameRoom {
             const scale = Math.min(1, ECHO_RANGE / distance);
             let point = clampWorldPoint(player.x + (msg.x - player.x) * scale, player.y + (msg.y - player.y) * scale);
             if (this.hazard === "ROOTWAKE") point = keepInRootCell(player, point);
-            this.echoes.push({ ...point, until: Date.now() + ECHO_SECONDS * 1000, nextAt: 0 });
+            this.echoes.push({ ...point, angle: Math.atan2(msg.y - player.y, msg.x - player.x), until: Date.now() + ECHO_SECONDS * 1000, nextAt: 0 });
           }
         }
         this.syncAbility(playerId, valid);
@@ -434,8 +461,65 @@ export class GameRoom {
         }
         break;
 
+      case "CANCEL_RITUAL":
+        this.ritualChallenges.delete(playerId);
+        break;
+      case "SET_DIFFICULTY":
+        if (this.state === "LOBBY" && player.isHost) { this.puzzleDifficulty = normalizeDifficulty(msg.difficulty); this.broadcast({ type: "RITUAL_SETTINGS", difficulty: this.puzzleDifficulty }); }
+        break;
+      case "SET_UTILITY":
+        if (this.state === "LOBBY") { this.utilities.select(playerId, msg.utility); this.syncUtility(playerId); }
+        break;
+      case "OPEN_RITUAL": {
+        const station = this.stations.find(value => value.id === msg.stationId);
+        if (this.state !== "PLAYING" || !player.alive || this.phase === "DISCUSSION" || msg.roundId !== this.roundId || !station
+          || !["ROOT", "MOON", "FIREFLY"].includes(station.puzzle ?? "") || dist(player, station) > 84 || this.completedStations.get(playerId)?.has(station.id)
+          || Date.now() < (this.ritualRetryAt.get(playerId) ?? 0)) {
+          this.sendTo(this.clients.get(playerId)!, { type: "RITUAL_CHALLENGE", stationId: msg.stationId, roundId: this.roundId, challenge: null, error: "Approach an available shrine and try again." }); break;
+        }
+        const key = `${playerId}:${station.id}`, attempt = (this.ritualAttempts.get(key) ?? 0) + 1;
+        this.ritualRetryAt.set(playerId, Date.now() + 250);
+        this.ritualAttempts.set(key, attempt);
+        const challenge = createRitual(station.puzzle as "ROOT" | "MOON" | "FIREFLY", this.puzzleDifficulty, this.layoutSeed + this.stations.indexOf(station), attempt);
+        if (this.phase === "ORDEAL" && this.stations[overgrownStationIndex(this.roundId, this.layoutSeed, this.stations.length)]?.id === station.id) {
+          challenge.minimumMs = 3000;
+          this.soundAt(station.x, station.y, "RITUAL");
+        }
+        this.ritualChallenges.set(playerId, { stationId: station.id, challenge, roundId: this.roundId, openedAt: Date.now() });
+        this.pairedRituals.release(playerId);
+        this.sendTo(this.clients.get(playerId)!, { type: "RITUAL_CHALLENGE", stationId: station.id, roundId: this.roundId, challenge });
+        break;
+      }
+      case "ANSWER_RITUAL": {
+        const entry = this.ritualChallenges.get(playerId);
+        if (!entry || entry.challenge.id !== msg.challengeId) break;
+        this.ritualChallenges.delete(playerId); // Every submitted answer spends the attempt, including incorrect answers.
+        const station = this.stations.find(value => value.id === entry.stationId)!;
+        if (msg.roundId !== this.roundId || entry.roundId !== this.roundId || Date.now() - entry.openedAt < (entry.challenge.minimumMs ?? 400) || !ritualAnswerIsCorrect(entry.challenge, msg.answer)
+          || !this.completeRitual(player, station.id, station.reward, msg.roundId)) {
+          this.ritualRetryAt.set(playerId, Date.now() + 1500);
+          this.sendTo(this.clients.get(playerId)!, { type: "RITUAL_FAILED", stationId: entry.stationId, roundId: this.roundId });
+        }
+        break;
+      }
+      case "USE_UTILITY": {
+        if (this.state !== "PLAYING" || !player.alive || this.phase !== "ORDEAL" || msg.roundId !== this.roundId || this.ritualChallenges.has(playerId)) { this.syncUtility(playerId, false); break; }
+        const from = { x: player.x, y: player.y };
+        const effect = this.utilities.use(playerId, player, msg.angle, Date.now(), this.obstacles, rootwakeStrength(this.phase, this.hazard, this.phaseTime) > .72, this.phaseTime);
+        if (effect?.kind === "WISP_STEP") {
+          player.x = effect.destination.x; player.y = effect.destination.y; player.vx = 0; player.vy = 0;
+          for (const [id, client] of this.clients) {
+            const viewer = this.players.get(id);
+            if (viewer?.alive && dist(viewer, from) <= HEARING_RANGE && !isOccludedByObstacle(viewer, from, this.obstacles) && (this.hazard !== "ROOTWAKE" || sharesRootCell(viewer, from))) this.sendTo(client, { type: "UTILITY_TRAIL", from, to: effect.destination });
+          }
+        }
+        this.syncUtility(playerId, !!effect, effect?.kind === "WISP_STEP" ? effect.destination : undefined);
+        break;
+      }
       case "TASK_UPDATE":
-        this.completeRitual(player, msg.stationId, msg.reward, msg.roundId);
+        // New interactive rituals must be answered through their issued challenge.
+        if (["ROOT", "MOON", "FIREFLY"].includes(this.stations.find(s => s.id === msg.stationId)?.puzzle ?? "")) this.syncGear(player.id, false, { stationId: msg.stationId });
+        else this.completeRitual(player, msg.stationId, msg.reward, msg.roundId);
         break;
 
       case "SEND_CHAT":
@@ -484,11 +568,13 @@ export class GameRoom {
     completed.add(stationId);
     this.publicSeals.add(stationId);
     charges[reward] = Math.min(3, charges[reward] + 1);
+    this.utilities.earn(player.id);
+    this.syncUtility(player.id);
     // A shared seal advances the ward only once, but never takes another player's personal rite away.
     const hollow = player.role === "IMPOSTOR";
     const wardens = [...this.players.values()].filter(p => p.alive && p.role === "CREWMATE").length;
-    const progressGain = hollow || !this.sealedStations.has(stationId)
-      ? ritualProgress(wardens, this.phase === "ORDEAL", hollow, this.startingHollows) : 0;
+    const overgrown = this.stations[overgrownStationIndex(this.roundId, this.layoutSeed, this.stations.length)]?.id === stationId;
+    const progressGain = this.restorationLedger.claim(stationId, wardens, this.phase === "ORDEAL", hollow, this.startingHollows, overgrown);
     if (progressGain) {
       if (!hollow) this.sealedStations.add(stationId);
       this.pendingWardDelta += progressGain;
@@ -517,7 +603,12 @@ export class GameRoom {
     if (client) this.sendTo(client, { type: "ABILITY_STATE", accepted, used: this.abilityUsed.has(playerId), sightRemainingMs: this.phase === "ORDEAL" ? Math.max(0, (this.sightUntil.get(playerId) ?? 0) - Date.now()) : 0, roundId: this.roundId });
   }
 
-  private soundAt(x: number, y: number, kind?: "RITUAL") {
+  private syncUtility(playerId: string, accepted?: boolean, destination?: { x: number; y: number }) {
+    const client = this.clients.get(playerId);
+    if (client) this.sendTo(client, { type: "UTILITY_STATE", ...this.utilities.state(playerId, Date.now()), accepted, destination });
+  }
+
+  private soundAt(x: number, y: number, kind?: "RITUAL" | "WATCHROOT" | "ROOT_RIPPLE") {
     // Real footsteps and lures deliberately have the same public payload. No role/source leak.
     const cue = { id: `${this.roundId}-${++this.soundSequence}`, x, y, expiresAt: Date.now() + 1000, ...(kind ? { kind } : {}) };
     for (const [id, client] of this.clients) {
@@ -536,6 +627,7 @@ export class GameRoom {
   }
 
   private startMatch(botFill: boolean, targetCount: number) {
+    this.utilities.reset(); this.ritualChallenges.clear(); this.ritualAttempts.clear(); this.ritualRetryAt.clear();
     this.pairedRituals.clear();
     this.state = "PLAYING";
     this.phase = "CALM";
@@ -543,6 +635,7 @@ export class GameRoom {
     this.announceNextOrdeal();
     this.taskProgress = 0;
     this.pendingWardDelta = 0;
+    this.restorationLedger.reset();
     this.wardSettleTimer = 0;
     this.emergency = initialEmergencyState();
     this.strikeSpent.clear();
@@ -687,6 +780,8 @@ export class GameRoom {
   }
 
   private resetStationsForRound() {
+    this.restorationLedger.reset();
+    this.ritualChallenges.clear(); this.utilities.roots = [];
     this.pairedRituals.clear();
     this.roundId += 1;
     this.sealedStations.clear();
@@ -741,6 +836,7 @@ export class GameRoom {
   }
 
   private startMeeting(reason: string, reporter: string, bodyReporterId: string | null = null) {
+    this.ritualChallenges.clear(); this.utilities.roots = [];
     // A body report may end the first Ordeal early; it still counts as ended.
     if (this.phase === "ORDEAL") this.emergency = finishFirstOrdeal(this.emergency);
     this.pairedRituals.clear();
@@ -749,6 +845,7 @@ export class GameRoom {
     this.phase = "DISCUSSION";
     this.meetingReason = reason;
     this.meetingReporter = reporter;
+    this.votingOpensAt = Date.now() + MEETING_DISCUSSION_MS;
     this.meetingBodyReporterId = bodyReporterId;
     this.meetingTally = null;
     this.votes.clear();
@@ -767,13 +864,15 @@ export class GameRoom {
 
     this.broadcast({
       type: "MEETING_CALLED",
+      discussionMs: MEETING_DISCUSSION_MS,
+      durationMs: this.meetingSeconds * 1000,
       reason,
       reporter,
       bodyReporterId,
       candidates,
     });
 
-    // Simulate AI bot votes after 3–6 seconds
+    // Bots also wait for discussion, then take a little time to choose.
     const livingBots = Array.from(this.players.values()).filter((p) => p.alive && p.isAi);
     for (const bot of livingBots) {
       this.scheduleMeeting(() => {
@@ -782,7 +881,7 @@ export class GameRoom {
           const votePick = Math.random() < 0.25 ? null : choose(candidatesToVote)?.id || null;
           this.castVote(bot.id, votePick);
         }
-      }, 2500 + Math.random() * 3000);
+      }, MEETING_DISCUSSION_MS + 2500 + Math.random() * 3000);
     }
     this.scheduleMeeting(() => {
       if (this.phase !== "DISCUSSION" || this.meetingTally) return;
@@ -790,7 +889,7 @@ export class GameRoom {
         if (player.alive && !this.votes.has(player.id)) this.votes.set(player.id, null);
       }
       this.concludeMeeting();
-    }, 45_000);
+    }, this.meetingSeconds * 1000);
   }
 
   private castVote(playerId: string, targetId: string | null) {
@@ -800,6 +899,10 @@ export class GameRoom {
       if (client) this.sendTo(client, { type: "VOTE_RECEIPT", accepted, ...receipt });
     };
     if (this.phase !== "DISCUSSION" || !player?.alive || this.meetingTally) return;
+    if (Date.now() < this.votingOpensAt) {
+      reply(false, { targetId: null, shifted: false });
+      return;
+    }
     if (this.votes.has(playerId)) {
       reply(true, this.voteReceipts.get(playerId) ?? { targetId: this.votes.get(playerId) ?? null, shifted: false });
       return; // A repeated click or packet cannot reroll a ballot.
@@ -975,6 +1078,7 @@ export class GameRoom {
     if (this.phase !== "DISCUSSION") {
       this.tickBots(dt);
       this.tickPairedRituals(dt, now);
+      for (const root of this.utilities.tick([...this.players.values()], now)) this.soundAt(root.x, root.y, "WATCHROOT");
     }
     if (this.state !== "PLAYING") return;
 
@@ -999,6 +1103,7 @@ export class GameRoom {
           this.killUsedThisOrdeal = false;
           this.strikeSpent.clear(); this.ordealNumber += 1;
         } else if (this.phase === "ORDEAL") {
+          this.restoreTrueColors();
           this.emergency = finishFirstOrdeal(this.emergency);
           this.phase = "CALM";
           this.phaseTime += CALM_SECONDS;
@@ -1012,7 +1117,10 @@ export class GameRoom {
     if (this.phase !== "ORDEAL") { this.echoes = []; this.sightUntil.clear(); }
     this.echoes = this.echoes.filter(echo => echo.until > now);
     for (const echo of this.echoes) {
-      if (now >= echo.nextAt) { this.soundAt(echo.x, echo.y); echo.nextAt = now + 360; }
+      if (now >= echo.nextAt) {
+        const point = lurePoint(echo, echo.angle, 1 - (echo.until - now) / (ECHO_SECONDS * 1000), this.hazard === "ROOTWAKE");
+        this.soundAt(point.x, point.y); echo.nextAt = now + 360;
+      }
     }
     this.flares = this.flares.filter((f) => (f.life -= elapsed) > 0);
     for (const body of this.bodies) body.age += elapsed;
@@ -1050,7 +1158,7 @@ export class GameRoom {
 
   private broadcastWorld() {
     this.worldSyncTimer = 0;
-    this.broadcast({ type: "SYNC_WORLD", emergency: { ...this.emergency }, serverTime: Date.now(), roundId: this.roundId, ordealSeed: this.ordealSeed, phase: this.phase, time: Math.max(0, this.phaseTime), hazard: this.hazard, taskProgress: this.taskProgress, bodies: this.bodies, flares: this.flares, completedStations: Array.from(this.publicSeals) });
+    this.broadcast({ type: "SYNC_WORLD", watchroots: this.utilities.roots, emergency: { ...this.emergency }, serverTime: Date.now(), roundId: this.roundId, ordealSeed: this.ordealSeed, phase: this.phase, time: Math.max(0, this.phaseTime), hazard: this.hazard, taskProgress: this.taskProgress, bodies: this.bodies, flares: this.flares, completedStations: Array.from(this.publicSeals) });
     for (const player of this.players.values()) if (player.role === "IMPOSTOR") { this.syncAbility(player.id); const client = this.clients.get(player.id); if (client) this.sendTo(client, { type: "STRIKE_STATE", ...this.strikeState(player.id) }); }
   }
 
@@ -1075,9 +1183,10 @@ export class GameRoom {
       const { x: nextX, y: nextY } = clampWorldPoint(bot.x + bot.vx * dt, bot.y + bot.vy * dt);
       const impostorPhasing = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && bot.role === "IMPOSTOR";
       const rootChecked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && !impostorPhasing
-        ? keepInRootCell(bot, { x: nextX, y: nextY })
+        ? rootwakeMove(bot, { x: nextX, y: nextY }, this.phaseTime)
         : { x: nextX, y: nextY };
-      const next = impostorPhasing ? rootChecked : resolveObstaclePosition(rootChecked.x, rootChecked.y, 22, this.obstacles);
+      const next = resolveObstaclePosition(rootChecked.x, rootChecked.y, 22, this.obstacles);
+      if (impostorPhasing && !sharesRootCell(bot, next)) this.soundAt(next.x, next.y, "ROOT_RIPPLE");
       if (next.x !== nextX) bot.vx *= -0.2;
       if (next.y !== nextY) bot.vy *= -0.2;
       bot.x = next.x;
@@ -1142,7 +1251,11 @@ export class GameRoom {
   private tickPairedRituals(dt: number, now: number) {
     const actors = [...this.players.values()].filter(player => player.isAi || this.clients.get(player.id)?.readyState === 1);
     const result = this.pairedRituals.tick(actors, this.stations, (id, stationId) => this.completedStations.get(id)?.has(stationId) ?? true, this.roundId, now, dt);
+    for (const [id, intent] of this.pairedRituals.intents) if (this.players.get(id)?.isAi)
+      this.pairedRituals.autoPulse(id, intent.stationId, this.roundId, now);
     for (const { playerId, ...ritual } of result.updates) {
+      if (ritual.nextPlayerId && this.players.get(ritual.nextPlayerId)?.isAi)
+        this.pairedRituals.pulse(ritual.nextPlayerId, ritual.stationId, ritual.rune ?? 0, this.roundId, now);
       const client = this.clients.get(playerId);
       if (client) this.sendTo(client, { type: "PAIR_RITUAL_STATE", ritual });
     }

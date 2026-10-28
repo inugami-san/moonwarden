@@ -1,5 +1,6 @@
 import { CENTER, ROOM, SANCTUARY_CLEARINGS, SANCTUARY_TRAILS, WORLD_HEIGHT, WORLD_WIDTH } from "../server/sanctuary-map";
 import { FOREST_PALETTE } from "./forest-art";
+import { drawForestAsset, FOREST_GRASS_PATCHES } from "./forest-sprites";
 
 /** A full-size world floor baked once. The camera crops it; the forest is not scaled up. */
 export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
@@ -29,11 +30,11 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
 
   const width = ROOM.right - ROOM.left, height = ROOM.bottom - ROOM.top;
   // A continuous visible rim matches authority boundaries exactly.
-  ctx.fillStyle = "#233d43";
+  ctx.fillStyle = "#182d3b";
   ctx.beginPath(); ctx.roundRect(ROOM.left - 12, ROOM.top + 14, width + 24, height + 18, 36); ctx.fill();
   const rim = ctx.createLinearGradient(0, ROOM.top, 0, ROOM.bottom);
-  rim.addColorStop(0, "#a7adb0"); rim.addColorStop(.22, "#808e89"); rim.addColorStop(1, "#677d7b");
-  ctx.fillStyle = rim; ctx.strokeStyle = "#b2b8b260"; ctx.lineWidth = 1;
+  rim.addColorStop(0, "#536f76"); rim.addColorStop(.22, "#3d5863"); rim.addColorStop(1, "#293e4c");
+  ctx.fillStyle = rim; ctx.strokeStyle = "#8aada233"; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.roundRect(ROOM.left, ROOM.top, width, height, 26); ctx.fill(); ctx.stroke();
 
   ctx.save(); ctx.beginPath(); ctx.roundRect(ROOM.left + 12, ROOM.top + 12, width - 24, height - 24, 20); ctx.clip();
@@ -44,23 +45,34 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
   // Spacious, independently placed clearings give each destination its own identity.
   for (const clearing of SANCTUARY_CLEARINGS) {
     ctx.save(); ctx.translate(clearing.x, clearing.y); ctx.scale(1, clearing.ry / clearing.rx);
-    glow(0, 0, clearing.rx + 45, `${clearing.color}4a`); ctx.restore();
-    ellipse(clearing.x, clearing.y + 14, clearing.rx, clearing.ry, "#e1ddbb0b");
+    glow(0, 0, clearing.rx + 45, `${clearing.color}1c`); ctx.restore();
+    ellipse(clearing.x, clearing.y + 14, clearing.rx, clearing.ry, "#88aaa609");
   }
   for (let i = 0; i < 210; i++) {
     const x = ROOM.left + 20 + ((i * 173) % (width - 40)), y = ROOM.top + 24 + ((i * 197) % (height - 48));
-    ellipse(x, y, 8 + i % 30, 3 + i % 8, i % 2 ? "#d1dbab0c" : "#1d4c3a09");
+    ellipse(x, y, 8 + i % 30, 3 + i % 8, i % 2 ? "#82ad9212" : "#163b471c");
   }
   // Broad, low-contrast pigment strokes give the ground painterly variation.
   // This entire surface is baked once; none of these marks are collision props.
   for (let i = 0; i < 310; i++) {
     const x = ROOM.left + 16 + (i * 271 % (width - 32)), y = ROOM.top + 16 + (i * 193 % (height - 32));
-    ellipse(x, y, 18 + i % 39, 4 + i % 11, ["#c7bbd215", "#d1c8b316", "#415f6310", "#9dac901a"][i % 4]);
+    ellipse(x, y, 18 + i % 39, 4 + i % 11, ["#789d9718", "#496e7130", "#253c5926", "#84a58a16"][i % 4]);
+  }
+  // Soft moss islands with feathered, irregular edges. All baked ground paint:
+  // no wall, light source, visibility effect or per-frame texture work.
+  for (let i = 0; i < 100; i++) {
+    const x = ROOM.left + 45 + (i * 283 % (width - 90));
+    const y = ROOM.top + 46 + (i * 179 % (height - 92));
+    const rx = 20 + i % 7 * 6, ry = 9 + i % 5 * 3;
+    for (let edge = 3; edge >= 0; edge--) {
+      ellipse(x + Math.sin(i * 2.7 + edge) * 8, y + Math.cos(i + edge) * 3,
+        rx + edge * 5, ry + edge * 2, ["#68a3970b", "#183f4820", "#6b9c8120"][i % 3]);
+    }
   }
   ctx.lineCap = "round";
   for (let i = 0; i < 2900; i++) {
     const x = ROOM.left + 14 + (i * 137.7 % (width - 28)), y = ROOM.top + 14 + (i * 73.9 % (height - 28));
-    ctx.strokeStyle = ["#e1dccb1c", "#3f565e18", "#b8b2c51c", "#c1c5aa20"][i % 4]; ctx.lineWidth = .5 + i % 3 * .4;
+    ctx.strokeStyle = ["#9bbdb61b", "#18333f22", "#7196931c", "#acc59c18"][i % 4]; ctx.lineWidth = .5 + i % 3 * .4;
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 2 + i % 6, y - 1 - i % 2); ctx.stroke();
   }
 
@@ -71,22 +83,33 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
     ctx.bezierCurveTo(points[2], points[3], points[4], points[5], points[6], points[7]); ctx.stroke();
   };
   for (const { points, width: trailWidth } of SANCTUARY_TRAILS) {
-    trail(points, trailWidth + 25, "#c9c0b012"); trail(points, trailWidth, "#d2c9b13d");
-    trail(points, trailWidth - 26, "#e0d7c221"); trail(points, trailWidth - 48, "#ece1cf15");
+    trail(points, trailWidth + 28, "#1d364c22"); trail(points, trailWidth + 12, "#647b6b25");
+    trail(points, trailWidth, "#9c897444"); trail(points, trailWidth - 24, "#b6a08425");
+    trail(points, trailWidth - 48, "#c0ac8e16");
+    // Broken soil brushwork follows the real curves, not a separate fake path.
+    for (let step = 0; step < 60; step++) {
+      const t = step / 59, s = 1 - t;
+      const px = s ** 3 * points[0] + 3 * s * s * t * points[2] + 3 * s * t * t * points[4] + t ** 3 * points[6];
+      const py = s ** 3 * points[1] + 3 * s * s * t * points[3] + 3 * s * t * t * points[5] + t ** 3 * points[7];
+      const shift = Math.sin(step * 5.3 + points[0]) * trailWidth * .32;
+      ellipse(px + shift, py + Math.cos(step * 2.7) * 12, 3 + step % 9, 1 + step % 3,
+        step % 2 ? "#d1b89712" : "#31484e25");
+    }
   }
   // Sparse ground fern strokes, leaves and gravel: visibly flat and walkable.
   for (let i = 0; i < 230; i++) {
     const x = ROOM.left + 26 + i * 97 % (width - 52), y = ROOM.top + 30 + i * 211 % (height - 60);
-    ctx.strokeStyle = i % 3 ? "#c6ceba35" : "#d6c8b640"; ctx.lineWidth = .8;
+    ctx.strokeStyle = i % 3 ? "#87b8a238" : "#b3a48130"; ctx.lineWidth = .8;
     ctx.beginPath(); ctx.moveTo(x - 5, y + 1); ctx.quadraticCurveTo(x, y - 4, x + 5, y - 1); ctx.stroke();
-    ellipse(x + 4, y - 1, 2.4, .8, i % 2 ? "#d4c4b050" : "#525e6950");
+    ellipse(x + 4, y - 1, 2.4, .8, i % 2 ? "#a3927650" : "#263c4a60");
   }
   // Small floor inlays read as texture, rather than confusable collision props.
+  for (const patch of FOREST_GRASS_PATCHES) {
+    drawForestAsset(ctx, patch.asset, patch.x, patch.y, patch.width, patch.width * .48);
+  }
   for (let i = 0; i < 168; i++) {
     const x = 170 + i * 137 % 1570, y = 190 + i * 73 % 790;
-    ctx.fillStyle = i % 3 ? "#e6e1bd12" : "#e7ebce20";
-    ctx.beginPath(); ctx.moveTo(x - 9, y); ctx.lineTo(x + 5, y - 4);
-    ctx.lineTo(x + 13, y + 2); ctx.lineTo(x - 4, y + 6); ctx.closePath(); ctx.fill();
+    ellipse(x, y, 2 + i % 4, 1 + i % 2, i % 3 ? "#b4b6a72b" : "#203d4d40");
   }
 
   // Frost Hollow: icy fern mosaics, leaving the actual shrine approachable.
@@ -142,10 +165,10 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
     ellipse(x + rx * .3, y + ry * .18, 7, 4, "#bad3aa91");
   }
   // A welcoming central meeting place stays open for player movement.
-  glow(CENTER.x, CENTER.y, 210, "#e6d6ba3d"); ellipse(CENTER.x, CENTER.y, 124, 84, "#dcd2c22b");
-  ctx.strokeStyle = "#e3e6c167"; ctx.lineWidth = 2;
+  glow(CENTER.x, CENTER.y, 210, "#8bc9c522"); ellipse(CENTER.x, CENTER.y, 124, 84, "#78968b25");
+  ctx.strokeStyle = "#adc3ab50"; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.ellipse(CENTER.x, CENTER.y, 124, 84, 0, .15, Math.PI * 1.85); ctx.stroke();
-  ellipse(CENTER.x - 5, CENTER.y - 4, 39, 32, "#e9e4d272"); ellipse(CENTER.x + 8, CENTER.y - 14, 35, 29, "#8c9d9c");
+  ellipse(CENTER.x - 5, CENTER.y - 4, 39, 32, "#71949288"); ellipse(CENTER.x + 8, CENTER.y - 14, 35, 29, "#53757c");
 
   ctx.textAlign = "center"; ctx.font = "700 12px ui-monospace, monospace"; ctx.fillStyle = "#e5ecd19c";
   for (const [label, x, y] of [
@@ -155,23 +178,23 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
   ctx.font = "600 10px ui-monospace, monospace"; ctx.fillStyle = "#e9ecd080";
   ctx.fillText("WARDEN COURTYARD", CENTER.x, CENTER.y + 66); ctx.restore();
 
-  // Decorative trees stay outside the play boundary. Actual trunks are shared data.
+  // Decorative canopy mushrooms stay outside the play boundary. Actual trunks are shared data.
   const pine = (x: number, y: number, height: number) => {
-    ctx.save(); ctx.translate(x, y); ellipse(7, 5, height * .23, 10, "#1a364750");
-    ctx.fillStyle = "#6b6651"; ctx.fillRect(-3, -height * .65, 6, height * .68);
-    for (let tier = 0; tier < 4; tier++) {
-      const tip = -height + tier * height * .19, spread = height * (.17 + tier * .034);
-      const needles = ctx.createLinearGradient(-spread, tip, spread, tip + 44);
-      needles.addColorStop(0, "#a1b1b0"); needles.addColorStop(.5, "#718b85"); needles.addColorStop(1, "#4c686d");
-      ctx.fillStyle = needles; ctx.beginPath(); ctx.moveTo(0, tip);
-      ctx.bezierCurveTo(-spread * .15, tip + 17, -spread * .9, tip + 28, -spread, tip + height * .33);
-      ctx.quadraticCurveTo(0, tip + height * .26, spread, tip + height * .33);
-      ctx.bezierCurveTo(spread * .85, tip + 25, spread * .15, tip + 17, 0, tip); ctx.fill();
-      ctx.strokeStyle = "#d9d5cf2e"; ctx.lineWidth = .8;
-      for (let needle = 0; needle < 13; needle++) {
-        const ny = tip + 10 + needle * height * .019, nx = spread * (needle / 16);
-        ctx.beginPath(); ctx.moveTo(-nx, ny + 2); ctx.lineTo(0, ny - 3); ctx.lineTo(nx * .8, ny + 1); ctx.stroke();
-      }
+    if (drawForestAsset(ctx, Math.floor(x + y) % 3, x, y + 4, height * 1.12, height)) return;
+    ctx.save(); ctx.translate(x, y); ellipse(7, 5, height * .23, 10, "#10173066");
+    ctx.fillStyle = "#5c6082"; ctx.fillRect(-4, -height * .58, 8, height * .62);
+    for (let tier = 0; tier < 2; tier++) {
+      const tip = -height * (.92 - tier * .24), spread = height * (.26 - tier * .06);
+      const capGrad = ctx.createLinearGradient(-spread, tip, spread, tip + 34);
+      capGrad.addColorStop(0, "#4c6edb"); capGrad.addColorStop(.55, "#32499e"); capGrad.addColorStop(1, "#1e2759");
+      ctx.fillStyle = capGrad; ctx.beginPath(); ctx.moveTo(0, tip);
+      ctx.bezierCurveTo(-spread * .45, tip + 4, -spread * 1.05, tip + 16, -spread, tip + height * .26);
+      ctx.quadraticCurveTo(0, tip + height * .32, spread, tip + height * .26);
+      ctx.bezierCurveTo(spread * 1.05, tip + 16, spread * .45, tip + 4, 0, tip); ctx.fill();
+      ellipse(0, tip + height * .26, spread * .78, height * .055, "#3ef3ff66");
+      ellipse(-spread * .34, tip + height * .13, spread * .16, height * .038, "#6dfaffd8");
+      ellipse(spread * .28, tip + height * .15, spread * .13, height * .032, "#6dfaffd8");
+      ellipse(0, tip + height * .08, spread * .18, height * .04, "#a8ffffe0");
     }
     ctx.restore();
   };
@@ -183,8 +206,11 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
   for (let i = 0; i < 22; i++) pine(155 + i * 76, 1134, 64 + i % 2 * 12);
   for (let i = 0; i < 40; i++) {
     const x = 174 + i * 83 % 1580, y = i % 2 ? 1063 : 92;
-    glow(x, y, 14, "#e1ecc55c"); ellipse(x, y, 4, 2.8, "#d2deb2");
-    ctx.fillStyle = "#8da58d"; ctx.fillRect(x - 1, y, 2, 4);
+    glow(x, y, 16, "#3ef3ff5c");
+    ctx.fillStyle = "#5c6082"; ctx.fillRect(x - 1.2, y, 2.4, 4.5);
+    ellipse(x, y, 4.8, 3.1, "#3553b8");
+    ellipse(x - 1.2, y - .5, 1.4, .9, "#7ef9ff");
+    ellipse(x + 1.3, y + .2, 1.1, .8, "#7ef9ff");
   }
   ctx.textAlign = "center"; ctx.font = "600 12px Georgia, serif"; ctx.fillStyle = "#dce7d0b0";
   ctx.fillText("SILVERPINE MOON GLADE  ·  A FOREST WORTH RESTORING", CENTER.x, 1105);

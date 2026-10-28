@@ -72,10 +72,11 @@ test("paired rites require two explicit, stationary, current-round participants 
   assert.ok(result.updates.some(update => update.playerId === "a" && update.progress === 0));
   actors[1].vx = 0;
   let completions = [];
-  for (let i = 0; i < 13; i++) {
+  for (let i = 0; i < 35; i++) {
     const now = 400 + i * 100;
     for (const actor of actors) ritual.hold(actor.id, shrine.id, 1, now);
     result = ritual.tick(actors, [shrine], () => false, 1, now, .1);
+    for (const id of ["a", "b"]) ritual.autoPulse(id, shrine.id, 1, now);
     completions.push(...result.completions);
   }
   assert.deepEqual(completions.map(value => value.playerId), ["a", "b"]);
@@ -132,9 +133,11 @@ test("server-authoritative cooperation rewards both roles once, preserves batchi
     player.vx = 0; player.vy = 0;
   }
   for (const client of clients.values()) client.sent.length = 0;
-  for (let i = 0; i < 13; i++) {
+  for (let i = 0; i < 35; i++) {
     for (const id of ["a", "b"]) room.handleMessage(id, { type: "PAIR_RITUAL", active: true, stationId: station.id, roundId: 1 });
-    room.tickPairedRituals(.1, now); now += 100;
+    room.tickPairedRituals(.1, now);
+    for (const id of ["a", "b"]) room.pairedRituals.autoPulse(id, station.id, 1, now);
+    now += 100;
   }
   for (const id of ["a", "b"]) {
     assert.equal(room.itemCharges.get(id)[station.reward], 1);

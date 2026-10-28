@@ -1,4 +1,5 @@
 import type { ItemKind } from "./game-types";
+import type { RitualKind } from "./forest-rituals";
 
 /** One coordinate system for room authority, navigation, collision, and scenery. */
 export const WORLD_WIDTH = 1920;
@@ -26,17 +27,17 @@ export type SanctuaryStation = WorldPoint & {
   label: string;
   side: "top" | "right" | "bottom" | "left";
   reward: ItemKind;
-  puzzle?: "MATH" | "LINK";
+  puzzle?: "MATH" | "LINK" | RitualKind;
   pulse: number;
 };
 
 export const STATIONS: readonly SanctuaryStation[] = [
-  { id: "FROST FONT", label: "FROST FONT", x: 375, y: 156, side: "top", reward: "FLASHLIGHT", puzzle: "MATH", pulse: 0 },
-  { id: "STAR ALTAR", label: "STAR ALTAR", x: 960, y: 156, side: "top", reward: "SONAR", puzzle: "LINK", pulse: 1.2 },
-  { id: "OWL TOTEM", label: "OWL TOTEM", x: 1557, y: 156, side: "top", reward: "FLARE", puzzle: "LINK", pulse: 2.4 },
+  { id: "FROST FONT", label: "FROST FONT", x: 375, y: 156, side: "top", reward: "FLASHLIGHT", puzzle: "MOON", pulse: 0 },
+  { id: "STAR ALTAR", label: "STAR ALTAR", x: 960, y: 156, side: "top", reward: "SONAR", puzzle: "FIREFLY", pulse: 1.2 },
+  { id: "OWL TOTEM", label: "OWL TOTEM", x: 1557, y: 156, side: "top", reward: "FLARE", puzzle: "MOON", pulse: 2.4 },
   { id: "EAST WARD", label: "EAST WARD", x: 1746, y: 585, side: "right", reward: "FLASHLIGHT", puzzle: "MATH", pulse: 3.1 },
   { id: "MOONWELL", label: "MOONWELL", x: 1266, y: 987, side: "bottom", reward: "FLARE", pulse: 4.2 },
-  { id: "ROOT SEAL", label: "ROOT SEAL", x: 174, y: 603, side: "left", reward: "SONAR", puzzle: "LINK", pulse: 5.1 },
+  { id: "ROOT SEAL", label: "ROOT SEAL", x: 174, y: 603, side: "left", reward: "SONAR", puzzle: "ROOT", pulse: 5.1 },
 ];
 
 export type ObstacleKind = "CRYSTAL_SPIRE" | "RUNED_MONOLITH" | "ANCIENT_TREE" | "WEEPING_WILLOW" | "MOSS_PILLAR";

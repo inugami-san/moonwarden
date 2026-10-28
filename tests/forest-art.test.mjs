@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { drawForestObstacle, drawGroundResponse, forestCanopyAlpha, FOREST_PALETTE } from "../app/forest-art.ts";
 import { SANCTUARY_OBSTACLES } from "../server/sanctuary-map.ts";
 import { drawForestSanctum } from "../app/sanctum-art.ts";
-import { SLIME_EYE_SCALE } from "../app/slime-art.ts";
+import { SLIME_EYE_SCALE } from "../app/cat-art.ts";
 
 function recorder() {
   const calls = [], stack = [], state = { globalAlpha: 1 };
@@ -89,17 +89,20 @@ test("six shrine crowns are distinct while task state remains separate from deco
 
 test("portrait and arena share smaller eyes and new surface effects cannot leak Ordeal identities", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  const portrait = await readFile(new URL("../app/slime-portrait.tsx", import.meta.url), "utf8");
-  const material = await readFile(new URL("../app/slime-art.ts", import.meta.url), "utf8");
+  const portrait = await readFile(new URL("../app/cat-portrait.tsx", import.meta.url), "utf8");
+  const material = await readFile(new URL("../app/cat-art.ts", import.meta.url), "utf8");
   assert.equal(SLIME_EYE_SCALE, .84);
   assert.match(portrait, /scale\(\$\{SLIME_EYE_SCALE\}\)/);
   assert.match(material, /ctx\.scale\(SLIME_EYE_SCALE, SLIME_EYE_SCALE\)/);
   assert.match(page, /this\.phase === "CALM" && !silhouette && !colorMuted[^)]*\) \{\s*drawGroundResponse/);
   assert.match(page, /drawForestObstacle\(ctx, obs, this\.elapsed, this\.human, this\.reducedMotion/);
-  // Readable midtones; a new hue must not silently become another darkness pass.
+  // Medium-value, blue-teal forest soil: not the old washed-out gray floor,
+  // nor near-black ground that would obscure dark characters.
   for (const color of [FOREST_PALETTE.floorLight, FOREST_PALETTE.floorMid, FOREST_PALETTE.floorShade]) {
     const rgb = color.match(/[a-f\d]{2}/gi).map(v => parseInt(v, 16));
-    assert.ok(rgb.reduce((a, b) => a + b) / 3 >= 120);
+    const value = rgb.reduce((a, b) => a + b) / 3;
+    assert.ok(value >= 60 && value <= 125);
+    assert.ok(rgb[2] >= rgb[0] && rgb[1] >= rgb[0], "cool soil supports cyan mushrooms");
   }
 });
 

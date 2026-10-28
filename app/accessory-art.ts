@@ -1,4 +1,7 @@
 import type { Hat } from "../server/game-types";
+import { mooncatHatAnchor } from "./mooncat-renderer";
+import type { CatDirection } from "./cat-art";
+import { bodyPose, idleBodyPose } from "./cat-walk-rig";
 
 /** Same frame and head anchor in the picker, portraits, and arena. */
 export const ACCESSORY_FRAME = Object.freeze({ width: 96, height: 72, anchorX: 48, anchorY: 34, pixelRatio: 2 });
@@ -34,7 +37,7 @@ function paintAccessory(ctx: CanvasRenderingContext2D, hat: Hat, muted: boolean)
   ctx.lineWidth = .9; ctx.strokeStyle = edge;
 
   if (hat === "antlers") {
-    // A woven circlet seats the branches on the gel instead of a flat black disk.
+    // A woven circlet seats the branches above the ears, not over the face.
     ctx.fillStyle = color("#61786d", "#6c7b7c");
     ctx.beginPath(); ctx.ellipse(0, 13, 23, 4.5, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     for (const side of [-1, 1]) {
@@ -163,8 +166,88 @@ function paintAccessory(ctx: CanvasRenderingContext2D, hat: Hat, muted: boolean)
 }
 
 const cache = new Map<string, HTMLCanvasElement>();
-export function drawAccessory(ctx: CanvasRenderingContext2D, hat: Hat, x = 0, y = 0, muted = false) {
-  const key = `${hat}:${muted}`;
+export const isCollar = (hat: Hat) => ["moonbell", "leafband", "starlock", "mothbow"].includes(hat);
+export function collarAnchor(direction: string) {
+  const x = direction === "SOUTH" || direction === "NORTH" ? 0 : direction === "EAST" || direction === "WEST" ? 23 : ["NE", "NW"].includes(direction) ? 12 : 23;
+  return { x: ["WEST", "SW", "NW"].includes(direction) ? -x : x, y: ["NORTH", "NE", "NW"].includes(direction) ? -15 : 0 };
+}
+
+export type AccessoryPose = "GAMEPLAY" | "SEATED";
+
+/** Paint-space fit, shared by the arena, home portrait and customization preview.
+ * Side bands are foreshortened; the charm remains round and hangs vertically. */
+export function accessoryFit(hat: Hat, direction: CatDirection, pose: AccessoryPose = "GAMEPLAY") {
+  const collar = isCollar(hat), seated = pose === "SEATED";
+  const rear = !seated && ["NORTH", "NE", "NW"].includes(direction);
+  const side = !seated && ["EAST", "WEST"].includes(direction);
+  const front = seated || direction === "SOUTH" || direction === "NORTH";
+  const mirror = ["WEST", "SW", "NW"].includes(direction) ? -1 : 1;
+  const anchor = seated ? { x: 0, y: collar ? 4 : -49 } : collar ? collarAnchor(direction) : mooncatHatAnchor(direction);
+  return {
+    x: anchor.x, y: anchor.y - (collar || seated ? 0 : 12),
+    scaleX: collar ? side ? .48 : front ? .76 : .62 : side ? .58 : .66,
+    scaleY: collar ? .68 : .66,
+    angle: collar && !front ? (side ? -.20 : -.12) * mirror : 0,
+    charmScale: seated ? .70 : .66,
+    rear,
+  };
+}
+
+/** Portrait and live arena use identical body-space placement, not CSS overlays. */
+export function drawWornAccessory(ctx: CanvasRenderingContext2D, hat: Hat, direction: CatDirection, muted = false, phase = 0, amount = 0, pose: AccessoryPose = "GAMEPLAY", idlePhase = 0) {
+  const collar = isCollar(hat), fit = accessoryFit(hat, direction, pose);
+  const body = bodyPose(phase, amount);
+  const idle = idleBodyPose(idlePhase, amount); body.y += idle.y; body.lean += idle.lean;
+  ctx.save(); ctx.translate(body.x, body.y + 8); ctx.rotate(body.lean); ctx.translate(0, -8);
+  ctx.translate(fit.x, fit.y);
+  ctx.save(); ctx.rotate(fit.angle); ctx.scale(fit.scaleX, fit.scaleY);
+  drawAccessoryPart(ctx, hat, muted, collar ? "BAND" : "FULL"); ctx.restore();
+  if (collar && !fit.rear) {
+    // The short hanging charm does not squash sideways with the neckband.
+    ctx.scale(fit.charmScale, fit.charmScale);
+    drawAccessoryPart(ctx, hat, muted, "CHARM");
+  }
+  ctx.restore();
+}
+function paintCollar(ctx: CanvasRenderingContext2D, hat: Hat, muted: boolean, part: "FULL" | "BAND" | "CHARM" = "FULL") {
+  const color = (value: string) => muted ? "#81939a" : value;
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.strokeStyle = "#1b223d"; ctx.lineWidth = 1;
+  const band = ctx.createLinearGradient(0, -4, 0, 5);
+  band.addColorStop(0, color(hat === "leafband" ? "#a6d0a9" : hat === "starlock" ? "#ba9cdd" : "#a7d6e7"));
+  band.addColorStop(1, color(hat === "leafband" ? "#3e7864" : hat === "starlock" ? "#665092" : "#44758f"));
+  if (part !== "CHARM") {
+    ctx.fillStyle = band;
+    ctx.beginPath(); ctx.moveTo(-15, -4); ctx.quadraticCurveTo(0, 5, 15, -4); ctx.lineTo(13, 1); ctx.quadraticCurveTo(0, 10, -13, 1); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = color("#dce9df"); ctx.lineWidth = .5;
+    ctx.beginPath(); ctx.moveTo(-12, -2); ctx.quadraticCurveTo(0, 5, 12, -2); ctx.stroke();
+  }
+  if (part === "BAND") return;
+  ctx.strokeStyle = "#1b223d"; ctx.lineWidth = 1; ctx.fillStyle = band;
+  if (hat === "leafband") {
+    ctx.beginPath(); ctx.moveTo(-8, 2); ctx.lineTo(0, 15); ctx.lineTo(9, 2); ctx.quadraticCurveTo(0, 7, -8, 2); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = color("#d5ead0"); ctx.lineWidth = .7;
+    ctx.beginPath(); ctx.moveTo(0, 6); ctx.lineTo(0, 12); ctx.moveTo(-3, 7); ctx.lineTo(0, 9); ctx.lineTo(3, 7); ctx.stroke();
+  } else if (hat === "mothbow") {
+    ctx.fillStyle = color("#d7b6d7");
+    for (const side of [-1, 1]) { ctx.beginPath(); ctx.moveTo(0, 5); ctx.bezierCurveTo(side * 15, -5, side * 16, 14, side * 3, 9); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    ctx.fillStyle = color("#f2dfba"); ctx.beginPath(); ctx.ellipse(0, 6, 2.5, 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  } else {
+    ctx.fillStyle = color("#e4c185");
+    ctx.beginPath(); ctx.ellipse(0, 6, 1.4, 2.4, 0, 0, Math.PI * 2); ctx.stroke();
+    if (hat === "starlock") {
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 2.2 : 5; if (i) ctx.lineTo(Math.cos(a) * r, 11 + Math.sin(a) * r); else ctx.moveTo(Math.cos(a) * r, 11 + Math.sin(a) * r); }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.ellipse(0, 11, 4.4, 4.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = color("#55607b"); ctx.beginPath(); ctx.ellipse(0, 13, .7, 1.2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = color("#fff0c4"); ctx.beginPath(); ctx.moveTo(-2, 8); ctx.quadraticCurveTo(-3, 9, -2.5, 11); ctx.stroke();
+    }
+  }
+}
+function accessorySprite(hat: Hat, muted: boolean, part: "FULL" | "BAND" | "CHARM") {
+  const key = part === "FULL" ? `${hat}:${muted}` : `${hat}:${muted}:${part}`;
   let sprite = cache.get(key);
   if (!sprite) {
     const { width, height, anchorX, anchorY, pixelRatio } = ACCESSORY_FRAME;
@@ -173,7 +256,17 @@ export function drawAccessory(ctx: CanvasRenderingContext2D, hat: Hat, x = 0, y 
     const paint = sprite.getContext("2d");
     if (!paint) return;
     paint.scale(pixelRatio, pixelRatio); paint.translate(anchorX, anchorY);
-    paintAccessory(paint, hat, muted); cache.set(key, sprite);
+    if (isCollar(hat)) paintCollar(paint, hat, muted, part);
+    else paintAccessory(paint, hat, muted);
+    cache.set(key, sprite);
   }
-  ctx.drawImage(sprite, x - ACCESSORY_FRAME.anchorX, y - ACCESSORY_FRAME.anchorY, ACCESSORY_FRAME.width, ACCESSORY_FRAME.height);
+  return sprite;
+}
+function drawAccessoryPart(ctx: CanvasRenderingContext2D, hat: Hat, muted: boolean, part: "FULL" | "BAND" | "CHARM") {
+  const sprite = accessorySprite(hat, muted, part);
+  if (sprite) ctx.drawImage(sprite, -ACCESSORY_FRAME.anchorX, -ACCESSORY_FRAME.anchorY, ACCESSORY_FRAME.width, ACCESSORY_FRAME.height);
+}
+export function drawAccessory(ctx: CanvasRenderingContext2D, hat: Hat, x = 0, y = 0, muted = false) {
+  const sprite = accessorySprite(hat, muted, "FULL");
+  if (sprite) ctx.drawImage(sprite, x - ACCESSORY_FRAME.anchorX, y - ACCESSORY_FRAME.anchorY, ACCESSORY_FRAME.width, ACCESSORY_FRAME.height);
 }

@@ -1,10 +1,15 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./lobby-studio.css";
 import "./play-menu.css";
 import "./home-welcome.css";
 import "./consumption.css";
 import AnalyticsConsentControls from "./analytics-consent";
+
+export const viewport: Viewport = {
+  width: "device-width", initialScale: 1, viewportFit: "cover", interactiveWidget: "resizes-content",
+  themeColor: "#131d30",
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),

@@ -67,8 +67,8 @@ test("the built site serves uncached version metadata without room or secret dat
 
 test("homepage and social metadata introduce The Hollow without the old role name", async () => {
   const html = await (await render()).text();
-  assert.match(html, /One friend is secretly The Hollow/);
-  assert.match(html, /Uncover The Hollow hiding in your circle/);
+  assert.match(html, /One dangerous circle/);
+  assert.match(html, /uncover The Hollow hiding in your circle/i);
   for (const attribute of ['name="description"', 'property="og:description"', 'name="twitter:description"']) {
     const tag = html.match(new RegExp(`<meta[^>]*${attribute}[^>]*>`))?.[0] ?? "";
     assert.match(tag, /The Hollow/);
@@ -78,11 +78,12 @@ test("homepage and social metadata introduce The Hollow without the old role nam
 
 test("homepage prioritizes multiplayer with an accessible, clearly labeled local preview", async () => {
   const html = await (await render()).text();
-  const modes = html.match(/<div class="lobby-mode-switch"[\s\S]*?<\/div>/)?.[0];
-  assert.match(modes ?? "", /aria-selected="true"[^>]*><span>✦ MULTIPLAYER/);
-  assert.match(modes ?? "", /aria-selected="false"[\s\S]*?Practice with AI/);
-  assert.ok(html.indexOf("CREATE ROOM") < html.indexOf('class="home-wardrobe"'), "room actions come before the optional wardrobe");
-  assert.match(html, /INTERACTIVE PREVIEW/);
+  const menu = html.match(/<nav class="game-menu"[\s\S]*?<\/nav>/)?.[0] ?? "";
+  assert.match(menu, /Play with friends/);
+  assert.match(menu, /Practice with AI/);
+  assert.ok(menu.indexOf("Play with friends") < menu.indexOf("Practice with AI"));
+  assert.match(html, /data-menu="HOME"/);
+  assert.match(html, /<div[^>]*hidden=""[^>]*class="lobby-console/);
   assert.match(html, /aria-label="Meet the preview wardens"/);
   assert.match(html, /aria-label="Preview an Ordeal"/);
   assert.match(html, /Moonlit calm/);
@@ -99,38 +100,34 @@ test("homepage prioritizes multiplayer with an accessible, clearly labeled local
 test("play-first menu exposes entry and name before optional customization", async () => {
   const html = await (await render()).text();
   assert.match(html, /class="lobby-shell moon-studio /);
-  assert.match(html, /<aside class="studio-guide" aria-label="Moonwarden game guide"/);
+  assert.match(html, /<nav class="game-menu" aria-label="Main menu"/);
   assert.match(html, /class="lobby-copy studio-stage"/);
   assert.match(html, /class="lobby-console lobby-console-multi/);
   assert.match(html, /aria-label="Character preview view"/);
   assert.match(html, /aria-pressed="true">Your warden/);
   assert.match(html, /aria-pressed="false">The circle/);
-  assert.match(html, /class="home-wardrobe"/);
-  assert.doesNotMatch(html, /class="home-wardrobe" open/);
-  assert.match(html, /PLAY WITH FRIENDS/);
+  assert.doesNotMatch(html, /class="home-wardrobe"/);
+  assert.match(html, /Play with friends/);
   assert.match(html, /JOIN WITH CODE/);
   assert.match(html, /Your name/);
-  assert.match(html, /How to Play/);
+  assert.match(html, /How to play/);
   assert.ok(html.indexOf('id="play-nickname"') < html.indexOf("CREATE ROOM"));
-  assert.match(html, /SURPRISE ME/);
-  assert.match(html, /class="home-play-shortcuts"/);
-  assert.ok(html.indexOf('class="home-play-shortcuts"') < html.indexOf('class="lobby-copy studio-stage"'), "quick play is available before the decorative scene");
-  assert.match(html, /href="#home-room-code"/);
-  assert.match(html, /<details class="home-wardrobe"/);
+  assert.ok(html.indexOf('class="game-menu"') < html.indexOf('class="lobby-copy studio-stage"'));
+  assert.doesNotMatch(html, /href="#home-room-code"|<details class="home-wardrobe"/);
   assert.match(html, /Pause animations/);
-  assert.match(html, /class="home-entry-column"/);
-  assert.match(html, /class="home-social-column"/);
+  assert.match(html, /class="home-entry-column" hidden=""/);
+  assert.match(html, /class="home-social-column" hidden=""/);
   assert.doesNotMatch(html, /Brainwave|3D Boy Character|Dome Light|Add 3D objects|Export/);
 });
 
-test("home field guide exposes all six ordeals without changing match rules", async () => {
+test("home field guide is a separate navigation page, not a scrolling landing section", async () => {
   const html = await (await render()).text();
-  assert.match(html, /Explore the six Ordeals/);
-  for (const title of ["Total Blackout", "Thick Sea Fog", "Moon Glare", "Rootwake", "Phantom Procession", "Mirror Pool"]) assert.ok(html.includes(title));
-  const guide = html.match(/class="home-ordeal-menu"[\s\S]*?<article/)?.[0] ?? "";
-  assert.equal((guide.match(/<button/g) ?? []).length, 6);
-  assert.equal((guide.match(/aria-pressed="true"/g) ?? []).length, 1);
-  assert.match(html, /id="home-ordeal-story"[\s\S]*?aria-live="polite"/);
+  assert.match(html, /How to play/);
+  assert.doesNotMatch(html, /class="home-discover"|class="home-game-loop"/);
+  const source = await readFile(new URL("../app/game-menu.tsx", import.meta.url), "utf8");
+  assert.match(source, /Previous guide page/);
+  assert.match(source, /Next guide page/);
+  assert.match(source, /LESSONS\.length \+ ORDEALS\.length/);
 });
 
 test("welcome forest has layered decorative trees and a twilight palette without changing player colors", async () => {
@@ -144,15 +141,10 @@ test("welcome forest has layered decorative trees and a twilight palette without
   assert.doesNotMatch(css, /filter:\s*hue-rotate/, "recolor the scenery, not players' selected colors");
 });
 
-test("wardrobe offers five labeled eye styles with exactly one selected", async () => {
+test("wardrobe is opened deliberately instead of embedded in the play form", async () => {
   const html = await (await render()).text();
-  const picker = html.match(/class="eye-style-options"[\s\S]*?<\/div>/)?.[0] ?? "";
-  for (const label of ["Fierce", "Round", "Dreamy", "Joyful", "Starry"]) {
-    assert.ok(picker.includes(`aria-label="${label} eyes"`));
-  }
-  assert.equal((picker.match(/<button/g) ?? []).length, 5);
-  assert.equal((picker.match(/aria-pressed="true"/g) ?? []).length, 1);
-  assert.match(html, /Hidden when an Ordeal conceals your identity/);
+  assert.match(html, /Customize/);
+  assert.doesNotMatch(html, /class="eye-style-options"/);
 });
 
 test("join field uses a neutral code hint, not a sample room invitation", async () => {
@@ -172,7 +164,7 @@ test("includes the complete social-deduction simulation", async () => {
   assert.match(source, /ROOTWAKE/);
   assert.match(source, /PHANTOM PROCESSION/);
   assert.match(source, /FALSE ECHO/);
-  assert.match(source, /keepInRootCell/);
+  assert.match(source, /rootwakeMove/);
   assert.match(source, /drawRootwakeOcclusion/);
   assert.match(source, /LOCAL WARD/);
   assert.match(source, /sharesRootCell/);
@@ -180,10 +172,11 @@ test("includes the complete social-deduction simulation", async () => {
   assert.match(source, /saturate\(\.34\) brightness\(\.72\)/);
   assert.match(source, /startMeeting/);
   assert.match(source, /VOTES COUNTED/);
-  assert.match(source, /WARDEN CHANNEL/);
+  assert.match(source, /What did you see\?/);
   assert.match(source, /sendChatMessage/);
   assert.match(source, /Ghosts cannot speak to the living/);
-  assert.match(source, /Vote totals by player/);
+  const roster = await readFile(new URL("../app/meeting-roster.tsx", import.meta.url), "utf8");
+  assert.match(roster, /Vote totals by player/);
   assert.match(source, /resolveMeeting/);
   assert.match(source, /createMathPuzzle/);
   assert.match(source, /createLinkPuzzle/);
@@ -206,13 +199,13 @@ test("includes the complete social-deduction simulation", async () => {
   assert.match(source, /KILLED BY/);
   assert.match(source, /CONTINUE AS SPECTATOR/);
   assert.match(source, /kill-notice/);
-  assert.match(source, /A Warden was dissolved/);
+  assert.match(source, /A Warden has fallen/);
   assert.match(source, /hostile-moon\.mp3/);
   assert.match(source, /moonlit-deduction\.mp3/);
   assert.match(source, /crossfadeTo/);
   assert.match(source, /<GameplaySettings/);
   assert.match(source, /onMusicToggle=\{toggleBackgroundMusic\}/);
-  assert.match(source, /WARDENS GATHERED/);
+  assert.match(source, /Start practice/);
 });
 
 test("shared kill notice is compact, non-blocking, and preserves private killer reveal", async () => {
@@ -221,7 +214,7 @@ test("shared kill notice is compact, non-blocking, and preserves private killer 
   const notice = source.match(/\{killNotice && \(([\s\S]*?)\n      \)\}/)?.[1];
   assert.ok(notice);
   assert.match(notice, /role="status" aria-live="polite" aria-atomic="true"/);
-  assert.match(notice, /A Warden was dissolved/);
+  assert.match(notice, /A Warden has fallen/);
   assert.doesNotMatch(notice, /killerName|killerColor|victim|aria-modal|role="dialog"/);
   const style = css.match(/\.kill-notice \{([^}]+)\}/)?.[1];
   assert.match(style ?? "", /top: 64px/);
@@ -258,10 +251,9 @@ test("wrong answers use a small non-blocking alert without a modal or focus capt
 
 test("Moonsway explains the risk, confirms the actual destination, and preserves meeting chat", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(source, /Chaos Moonsway: the body reporter’s player vote has a/);
-  assert.match(source, /Standard voting: your vote stays on the player you choose/);
-  assert.match(source, /MOONSWAY — YOUR VOTE SHIFTED/);
-  assert.match(source, /Your vote counts toward/);
+  assert.match(source, /Reporter votes may shift/);
+  assert.match(source, /Vote shifted/);
+  assert.match(source, /Counts toward/);
   assert.match(source, /next\.candidates !== discussionCandidates/);
   assert.match(source, /!!meeting\.localVote \|\| !!meeting\.votePending/);
   assert.match(source, /className=\{`vote-receipt[^\n]*role="status"/);

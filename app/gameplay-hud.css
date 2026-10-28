@@ -14,6 +14,7 @@
   background: var(--play-panel);
 }
 .playful-game::before { display: none; }
+.playful-game { --floating-nav-height: 64px; }
 .playful-game button, .playful-game summary { -webkit-tap-highlight-color: transparent; }
 .playful-game button { font-family: inherit; transition: translate .18s ease, scale .3s cubic-bezier(.34, 1.56, .64, 1), box-shadow .18s ease, background .18s ease; }
 .playful-game button:not(:disabled):active { scale: .94; translate: 0 3px; box-shadow: var(--play-shadow); }
@@ -555,4 +556,30 @@
 @media (prefers-reduced-motion: reduce) {
   .playful-game *, .playful-game *::before, .playful-game *::after { animation: none !important; transition: none !important; }
   .playful-game button:not(:disabled):active { scale: none; translate: none; filter: brightness(.94); }
+}
+
+/* The arena continues behind the status strip: no opaque header or empty rail.
+   Keep individual status/control surfaces legible and let gaps pass input through. */
+.playful-game .game-nav {
+  margin-bottom: calc(-1 * var(--floating-nav-height));
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  pointer-events: none;
+}
+.playful-game .game-nav .brand { display: none; }
+.playful-game .game-nav .phase-chip { grid-column: 2; pointer-events: auto; }
+.playful-game .game-nav-actions { grid-column: 3; pointer-events: auto; }
+.playful-game :is(.task-hud, .warden-preparation, .private-role, .crew-count,
+  .current-landmark, .chaos-match-badge, .forest-map-dock, .notebook-open,
+  .ordeal-preparation) { translate: 0 var(--floating-nav-height); }
+@media (max-width: 760px) {
+  .playful-game { --floating-nav-height: 58px; }
+}
+@media (max-height: 540px) and (min-width: 761px) {
+  .playful-game { --floating-nav-height: 50px; }
+}
+@media (orientation: landscape) and (max-height: 540px) {
+  .playful-game { --floating-nav-height: 48px; }
 }

@@ -27,11 +27,11 @@ export function reportAvailability({ emergency = initialEmergencyState(), phase,
   blocked?: boolean;
 }) {
   const cooldown = Math.ceil(Math.max(0, emergency.cooldownRemaining));
-  const bodyException = " Nearby puddles can always be reported.";
-  if (!alive) return { allowed: false, label: "Report", hint: "Spectators cannot report puddles or call meetings." };
+  const bodyException = " Nearby fallen cats can always be reported.";
+  if (!alive) return { allowed: false, label: "Report", hint: "Spectators cannot report fallen cats or call meetings." };
   if (blocked || phase === "DISCUSSION") return { allowed: false, label: "Report", hint: "Finish the current meeting or interaction first." };
   // Finding a body takes priority over every emergency-bell restriction.
-  if (nearbyBody) return { allowed: true, label: "Report", hint: "Report the nearby jelly puddle. Bell cooldown does not apply." };
+  if (nearbyBody) return { allowed: true, label: "Report", hint: "Report the nearby fallen cat. Bell cooldown does not apply." };
   if (!emergency.firstOrdealComplete) return { allowed: false, label: "Locked", hint: `The emergency bell unlocks after the first Ordeal ends.${bodyException}` };
   if (cooldown > 0) return { allowed: false, label: `${cooldown}s`, hint: `Emergency bell recharging: ${cooldown}s remaining.${bodyException}` };
   if (phase !== "CALM") return { allowed: false, label: "Calm only", hint: `The emergency bell can only be rung during Calm.${bodyException}` };

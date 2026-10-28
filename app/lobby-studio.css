@@ -287,34 +287,19 @@
     transform: scale(1, 1) translateY(0) rotate(0deg);
   }
   18% {
-    transform: scale(1.16, 0.82) translateY(7px) rotate(-3deg);
+    transform: translateY(1px) rotate(-1deg);
   }
   45% {
-    transform: scale(0.9, 1.14) translateY(-18px) rotate(4deg);
+    transform: translateY(-3px) rotate(2deg);
   }
   70% {
-    transform: scale(1.06, 0.94) translateY(3px) rotate(-2deg);
+    transform: translateY(0) rotate(-1deg);
   }
   86% {
-    transform: scale(0.98, 1.02) translateY(-3px) rotate(1deg);
+    transform: translateY(-1px) rotate(.5deg);
   }
   100% {
     transform: scale(1, 1) translateY(0) rotate(0deg);
-  }
-}
-
-@keyframes wardenGroupWave {
-  0%, 100% {
-    transform: translateY(0) scale(1, 1) rotate(0deg);
-  }
-  25% {
-    transform: translateY(5px) scale(1.12, 0.88) rotate(-4deg);
-  }
-  55% {
-    transform: translateY(-20px) scale(0.92, 1.12) rotate(6deg);
-  }
-  80% {
-    transform: translateY(2px) scale(1.04, 0.96) rotate(-2deg);
   }
 }
 
@@ -613,7 +598,7 @@
   animation: wardenBoopBounce 0.56s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .moon-studio .preview-warden.is-waving .slime-avatar {
-  animation: wardenGroupWave 0.64s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: none;
 }
 .moon-studio .preview-warden.is-waving:nth-child(1) .slime-avatar { animation-delay: 0s; }
 .moon-studio .preview-warden.is-waving:nth-child(2) .slime-avatar { animation-delay: 0.055s; }

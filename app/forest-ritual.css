@@ -1,0 +1,36 @@
+.forest-ritual { color: #e4ecfa; }
+.ritual-loadout { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 12px; grid-column: 1/-1; min-width: 0; }
+.ritual-loadout label { display: grid; gap: 3px; color: #c3d0e5; font-size: 12px; }
+.ritual-loadout select { min-height: 36px; width: 100%; min-width: 0; border: 1px solid #7088ad; border-radius: 9px; background: #233650; color: #ecf2ff; padding: 4px 8px; }
+.ritual-loadout > small { grid-column: 1/-1; color: #b9c7db; font-size: 10px; }
+.room-settings-pane > .ritual-loadout { margin-bottom: 10px; }
+.ritual-pieces.root-board { display: grid; grid-template-columns: repeat(4, 44px); grid-auto-rows: 44px; gap: 0; margin: 4px auto; }
+.ritual-pieces.root-board > button { width: 44px; min-height: 44px; border-radius: 7px; padding: 0; }
+.root-endpoint { display: grid; place-items: center; color: #f4d897; font-size: 28px; }
+.forest-ritual > p { margin: 0 0 12px; font-size: 14px; line-height: 1.4; }
+.ritual-pieces, .ritual-memory-input, .ritual-actions { display: flex; justify-content: center; gap: 10px; margin: 10px 0; }
+.ritual-pieces > button, .firefly-memory { display: grid; place-items: center; gap: 3px; width: 76px; min-width: 44px; min-height: 76px; padding: 6px; border: 1px solid #7088ad; border-radius: 16px; background: #233650; color: #f4d897; font-size: 27px; }
+.ritual-pieces small { font-size: 14px; color: #b8cbea; }
+.ritual-pieces b { font-size: 30px; }
+.ritual-pieces svg { width: 100%; max-width: 64px; fill: none; stroke: #f4d897; stroke-width: 6; stroke-linecap: round; }
+.ritual-pieces svg .root-guide { stroke: #8299bf; stroke-width: 14; stroke-dasharray: 2 4; }
+.ritual-memory-input button, .ritual-actions button { min-width: 44px; min-height: 44px; border: 1px solid #7088ad; border-radius: 12px; background: #263a57; color: #ecf2ff; padding: 8px 14px; }
+.ritual-memory-input button { font-size: 24px; }
+.ritual-actions .ritual-activate { background: #dfbd7c; color: #172236; font-weight: 800; min-width: 120px; }
+.forest-ritual button:active:not(:disabled) { transform: scale(.95); }
+.forest-ritual button:focus-visible { outline: 3px solid #c5d8ff; outline-offset: 3px; }
+.forest-ritual button:disabled { opacity: .45; }
+.forest-ritual > small { display: block; color: #bccbe1; text-align: center; font-size: 11px; }
+@media (max-height: 550px) and (orientation: landscape) {
+  .ritual-loadout select { min-height: 30px; }
+  .ritual-loadout > small { display: none; }
+  .room-settings-pane > .ritual-loadout { margin-bottom: 5px; }
+  .playful-game .task-puzzle-card { max-height: calc(100dvh - 16px); }
+  .playful-game .task-puzzle-head { padding: 8px 16px; }
+  .playful-game .task-puzzle-head h2 { font-size: 20px; }
+  .playful-game .task-puzzle-body { padding: 10px 16px; }
+  .forest-ritual > p { font-size: 12px; margin-bottom: 5px; }
+  .ritual-pieces, .ritual-memory-input, .ritual-actions { margin: 5px 0; gap: 6px; }
+  .ritual-pieces > button, .firefly-memory { min-height: 54px; width: 54px; padding: 3px; }
+  .ritual-pieces svg { max-width: 44px; }
+}

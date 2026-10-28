@@ -1,16 +1,18 @@
 import type { EyeStyle } from "./appearance";
 import type { EmergencyMeetingState } from "./report-rules";
+import type { RitualChallenge, RitualDifficulty } from "./forest-rituals";
+import type { UtilityKind, Watchroot } from "./forest-utilities";
 
 export type Role = "CREWMATE" | "IMPOSTOR";
 export type RoleChoice = Role | "RANDOM";
 export type Phase = "CALM" | "COUNTDOWN" | "ORDEAL" | "DISCUSSION";
 export type Hazard = "BLACKOUT" | "FOG" | "MOONGLARE" | "ROOTWAKE" | "PHANTOMS" | "MIRROR_POOL";
 export type ItemKind = "FLASHLIGHT" | "FLARE" | "SONAR";
-export type Hat = "antlers" | "hood" | "moth" | "mooncap";
+export type Hat = "antlers" | "hood" | "moth" | "mooncap" | "moonbell" | "leafband" | "starlock" | "mothbow";
 export type OrdealAbility = "MOON_SIGHT" | "ECHO_LURE";
 export type KillStyle = "NORMAL" | "STEALTH";
-export type SoundCue = { id: string; x: number; y: number; expiresAt: number; kind?: "RITUAL" };
-export type PairRitualState = { stationId: string; progress: number; participants: number; roundId: number };
+export type SoundCue = { id: string; x: number; y: number; expiresAt: number; kind?: "RITUAL" | "WATCHROOT" | "ROOT_RIPPLE" };
+export type PairRitualState = { stationId: string; progress: number; participants: number; roundId: number; beats?: number; rune?: number; nextPlayerId?: string };
 
 export type NetPlayer = {
   id: string;
@@ -84,6 +86,14 @@ export type NetChatMessage = {
 };
 
 export type C2SMessage =
+  | { type: "SET_MEETING_DURATION"; seconds: number }
+  | { type: "PAIR_RUNE"; stationId: string; rune: number; roundId: number }
+  | { type: "SET_DIFFICULTY"; difficulty: RitualDifficulty }
+  | { type: "SET_UTILITY"; utility: UtilityKind }
+  | { type: "USE_UTILITY"; angle: number; roundId: number }
+  | { type: "OPEN_RITUAL"; stationId: string; roundId: number }
+  | { type: "CANCEL_RITUAL" }
+  | { type: "ANSWER_RITUAL"; challengeId: string; answer: number[]; roundId: number }
   | { type: "CLIENT_HELLO"; worldVersion: string }
   | { type: "PING"; sentAt: number }
   | { type: "CREATE_ROOM"; playerName: string; color: string; hat: Hat; eyeStyle?: EyeStyle }
@@ -106,6 +116,11 @@ export type C2SMessage =
   | { type: "LEAVE_ROOM" };
 
 export type S2CMessage =
+  | { type: "RITUAL_SETTINGS"; difficulty: RitualDifficulty; meetingSeconds?: number }
+  | { type: "RITUAL_CHALLENGE"; stationId: string; roundId: number; challenge: RitualChallenge | null; error?: string }
+  | { type: "RITUAL_FAILED"; stationId: string; roundId: number }
+  | { type: "UTILITY_STATE"; kind: UtilityKind; charge: number; cooldownMs: number; accepted?: boolean; destination?: { x: number; y: number } }
+  | { type: "UTILITY_TRAIL"; from: { x: number; y: number }; to: { x: number; y: number } }
   | { type: "SERVER_INFO"; worldVersion: string; compatible: boolean; version?: string }
   | { type: "PONG"; sentAt: number }
   | { type: "ABILITY_STATE"; accepted: boolean; used: boolean; sightRemainingMs: number; roundId: number }
@@ -156,11 +171,14 @@ export type S2CMessage =
       serverTime?: number;
       roundId?: number;
       ordealSeed?: number;
+      watchroots?: Watchroot[];
     }
   | { type: "BODY_SPAWNED"; body: NetBody }
   | { type: "FLARE_SPAWNED"; flare: NetFlare }
   | {
       type: "MEETING_CALLED";
+      discussionMs?: number;
+      durationMs?: number;
       reason: string;
       reporter: string;
       bodyReporterId?: string | null;

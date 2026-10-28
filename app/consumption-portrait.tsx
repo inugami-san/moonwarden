@@ -1,13 +1,30 @@
-import { SlimePortrait } from "./slime-portrait";
+"use client";
 
-/** Victim-only replay: one rooted wrap/absorb, then a quiet killer portrait. */
+import { useEffect, useRef } from "react";
+import { DEVOUR_SECONDS, drawCatConsumption } from "./cat-devour";
+import { loadMooncatSprites } from "./mooncat-sprites";
+
+/** Victim-only replay shares the arena effect and stops after one capture. */
 export function ConsumptionPortrait({ killerColor, victimColor }: { killerColor: string; victimColor: string }) {
-  return <div className="consumption-portrait" aria-hidden="true" style={{ "--killer-color": killerColor, "--victim-color": victimColor } as React.CSSProperties}>
-    <div className="consumption-ground" />
-    <div className="consumption-ring" />
-    <div className="consumption-prey"><SlimePortrait color={victimColor} eyeStyle="ROUND" /></div>
-    <div className="consumption-predator"><SlimePortrait color={killerColor} eyeStyle="FIERCE" /><span className="consumption-core" /></div>
-    <div className="consumption-veil" />
-    <div className="consumption-motes"><i /><i /><i /></div>
-  </div>;
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const ctx = canvas.current?.getContext("2d"); if (!ctx) return;
+    let active = true, frame = 0;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const play = () => {
+      if (!active) return;
+      const start = performance.now();
+      const paint = (now: number) => {
+        if (!active) return;
+        const progress = reduced.matches ? 1 : Math.min(1, (now - start) / (DEVOUR_SECONDS * 1000));
+        ctx.setTransform(2, 0, 0, 2, 0, 0); ctx.clearRect(0, 0, 260, 170);
+        drawCatConsumption(ctx, { startX: 92, startY: 115, x: 199, y: 115, killerColor, victimColor }, progress, { reducedMotion: reduced.matches });
+        if (progress < 1) frame = requestAnimationFrame(paint);
+      };
+      frame = requestAnimationFrame(paint);
+    };
+    void loadMooncatSprites().then(play);
+    return () => { active = false; cancelAnimationFrame(frame); };
+  }, [killerColor, victimColor]);
+  return <canvas ref={canvas} className="consumption-portrait" width={520} height={340} aria-hidden="true" />;
 }

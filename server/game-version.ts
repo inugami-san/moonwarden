@@ -6,7 +6,7 @@ export const GAME_RELEASE_CHANNEL = "beta";
 export const GAME_RELEASE_LABEL = `v${GAME_RELEASE_VERSION} · BETA`;
 
 /** Bump when world geometry or shared gameplay state becomes incompatible. */
-export const GAME_WORLD_VERSION = "silverpine-bell-v6";
+export const GAME_WORLD_VERSION = "silverpine-trust-v8";
 
 export const GAME_RELEASE_INFO = Object.freeze({
   name: "Moonwarden",

@@ -9,6 +9,17 @@
 .chaos-setting input { width: 20px; height: 20px; accent-color: #796189; }
 .chaos-setting small { display: block; font-weight: 400; font-size: 11px; }
 .standard-voting-note { margin: 8px 0; color: #6e5e7e; font: 11px/1.5 sans-serif; }
+.duet-controls { position: absolute; left: 50%; bottom: 145px; transform: translateX(-50%); width: min(330px, calc(100% - 24px)); z-index: 12; }
+.duet-controls .paired-ritual-button { position: relative; left: auto; bottom: auto; transform: none; width: 100%; }
+.duet-runes { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding: 6px; border-radius: 12px; background: #192b46ee; }
+.duet-runes small { grid-column: 1/-1; text-align: center; color: #e0eaff; font-size: 11px; }
+.duet-runes button { min-height: 44px; border: 1px solid #e6ca92; border-radius: 9px; color: #17243b; background: #f1d59c; cursor: pointer; }
+.duet-runes button:disabled { background: #283951; border-color: #546580; color: #95a4bb; cursor: default; }
+.duet-runes button:active:not(:disabled) { transform: scale(.95); }
+.duet-runes button:focus-visible, .meeting-claim-prompts button:focus-visible { outline: 3px solid #d8e8ff; outline-offset: 2px; }
+.meeting-claim-prompts { display: flex; gap: 4px; flex-wrap: wrap; padding: 3px 8px; }
+.meeting-claim-prompts button { min-height: 30px; padding: 4px 7px; border: 1px solid #647a99; border-radius: 8px; color: #dce7fa; background: #263b56; font-size: 10px; cursor: pointer; }
+@media (max-height: 550px) and (orientation: landscape) { .duet-controls { bottom: 110px; width: min(280px, 47%); } .duet-controls .paired-ritual-button { min-height: 40px; padding: 4px 7px; } .duet-runes button { min-height: 36px; } }
 .game-stage .notebook-open { top: 78px; }
 @media (max-width: 760px) {
   .current-landmark { top: 84px; left: 10px; font-size: 8px; max-width: 52%; }

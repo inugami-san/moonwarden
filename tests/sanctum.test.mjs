@@ -110,6 +110,8 @@ test("completed shrine light is steady after the 0.5-second bloom while ready fi
 });
 
 function match(t) {
+  let now = 100000;
+  t.mock.method(Date, "now", () => now);
   const room = new GameServerRegistry().createRoom();
   const clients = [];
   for (let i = 0; i < 4; i++) {
@@ -123,7 +125,19 @@ function match(t) {
   for (const p of room.players.values()) { p.x = shrine.x; p.y = shrine.y; }
   clients.forEach((client) => { client.sent.length = 0; });
   t.after(() => room.destroy());
-  return { room, clients };
+  const complete = (playerId = "p0", stationId = "FROST FONT") => {
+    const station = room.stations.find(value => value.id === stationId);
+    Object.assign(room.players.get(playerId), { x: station.x, y: station.y });
+    room.handleMessage(playerId, { type: "OPEN_RITUAL", stationId, roundId: room.roundId });
+    const client = clients[Number(playerId.slice(1))];
+    const challenge = client.sent.filter(message => message.type === "RITUAL_CHALLENGE").at(-1)?.challenge;
+    assert.ok(challenge, "round-reset fixtures must complete a server-issued ritual");
+    now += 1000; // Satisfy the minimum solve time without sleeping in a test.
+    const answer = { type: "ANSWER_RITUAL", challengeId: challenge.id, answer: challenge.target, roundId: room.roundId };
+    room.handleMessage(playerId, answer);
+    return answer;
+  };
+  return { room, clients, complete };
 }
 
 test("a completion pulse lasts 0.5 seconds and stays within a small shrine radius", () => {
@@ -138,13 +152,12 @@ test("a completion pulse lasts 0.5 seconds and stays within a small shrine radiu
 });
 
 test("stations reopen next Calm without losing team progress or earned gear", (t) => {
-  const { room, clients } = match(t);
-  const task = { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT", roundId: 1 };
-  room.handleMessage("p0", task);
-  room.handleMessage("p0", task);
+  const { room, clients, complete } = match(t);
+  const answer = complete();
+  room.handleMessage("p0", answer); // A replay cannot award another charge or completion pulse.
   assert.equal(room.taskProgress, 0, "public gauge is queued");
   room.settleWards();
-  assert.equal(room.taskProgress, 4.7);
+  assert.equal(room.taskProgress, 4);
   assert.equal(room.itemCharges.get("p0").FLASHLIGHT, 1);
   for (const client of clients) {
     assert.equal(client.sent.filter((msg) => msg.type === "STATION_COMPLETED").length, 1);
@@ -157,14 +170,14 @@ test("stations reopen next Calm without losing team progress or earned gear", (t
   assert.equal(room.roundId, 2);
   assert.equal(room.sealedStations.size, 0);
   assert.equal(room.completedStations.get("p0").size, 0);
-  assert.equal(room.taskProgress, 4.7);
+  assert.equal(room.taskProgress, 4);
   assert.equal(room.itemCharges.get("p0").FLASHLIGHT, 1);
   const world = clients[1].sent.filter((msg) => msg.type === "SYNC_WORLD").at(-1);
   assert.equal(world.roundId, 2);
   assert.deepEqual(world.completedStations, []);
-  room.handleMessage("p0", { ...task, roundId: 2 });
+  complete();
   room.settleWards();
-  assert.equal(room.taskProgress, 9.4);
+  assert.equal(room.taskProgress, 8);
   assert.equal(room.itemCharges.get("p0").FLASHLIGHT, 2);
 });
 
@@ -179,12 +192,9 @@ test("a delayed task from an older round cannot claim a fresh reward or create a
 });
 
 test("meeting resolution starts a fresh shrine round and clears fake-task locks too", (t) => {
-  const { room } = match(t);
-  room.handleMessage("p0", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT", roundId: 1 });
-  const shrine = room.stations.find(station => station.id === "STAR ALTAR");
-  room.players.get("p3").x = shrine.x;
-  room.players.get("p3").y = shrine.y;
-  room.handleMessage("p3", { type: "TASK_UPDATE", stationId: "STAR ALTAR", reward: "SONAR", roundId: 1 });
+  const { room, complete } = match(t);
+  complete();
+  complete("p3", "STAR ALTAR");
   assert.equal(room.completedStations.get("p3").size, 1);
   const previousHazard = room.hazard;
   room.phase = "DISCUSSION";
@@ -197,6 +207,6 @@ test("meeting resolution starts a fresh shrine round and clears fake-task locks 
   assert.equal(room.completedStations.get("p3").size, 0);
   assert.equal(room.taskProgress, 0, "meetings do not flush role-correlated gauge changes");
   room.settleWards();
-  assert.equal(room.taskProgress, 1.7, "both restoration and the queued Hollow siphon survive the round transition");
+  assert.equal(room.taskProgress, 1.4, "both restoration and the queued Hollow siphon survive the round transition");
   assert.equal(room.itemCharges.get("p3").SONAR, 1);
 });

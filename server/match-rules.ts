@@ -4,6 +4,9 @@ export const STEALTH_BODY_DELAY_SECONDS = 8;
 export const STEALTH_COOLDOWN_SECONDS = 45;
 export const STEALTH_ORDEAL_LOCKOUT = 2;
 export const REPORTER_VOTE_DRIFT_CHANCE = 0.25;
+export const MEETING_DISCUSSION_MS = 10_000;
+export const MEETING_DURATION_MS = 75_000;
+export const ROUND_SIPHON_LIMIT = 4;
 
 export type VoteReceipt = { targetId: string | null; shifted: boolean };
 
@@ -17,14 +20,36 @@ export function resolveReporterVote(voterId: string, requestedTargetId: string |
 }
 
 export function clampHollowCount(value: number | undefined, players: number): number {
-  return Math.max(1, Math.min(Math.floor(Math.max(2, players) / 2), Number.isFinite(value) ? Math.floor(value!) : 1));
+  return Math.max(1, Math.min(players >= 7 ? 2 : 1, Number.isFinite(value) ? Math.floor(value!) : 1));
 }
 
 export function ritualProgress(livingWardens: number, ordeal: boolean, hollow = false, hollowCount = 1): number {
-  // More hands means smaller contributions. At least ~7 complete shrine rounds
-  // at 8 players, rather than two fast circuits ending the whole match.
-  const gain = Math.max(1.5, Math.min(5, 14 / Math.max(1, livingWardens)));
+  // Keep larger teams' first seals meaningful; follow-up and sabotage ceilings
+  // are enforced separately by the per-cycle ledger below.
+  const gain = Math.max(3, Math.min(4, 18 / Math.max(1, livingWardens)));
   return Math.round(gain * (ordeal ? 1.25 : 1) * (hollow ? -0.65 / Math.max(1, hollowCount) : 1) * 10) / 10;
+}
+
+/** Shared by solo and rooms. Personal rewards never consume someone else's rite.
+ * Only two follow-up rites per shrine add a small team bonus; sabotage has one
+ * shared ceiling for the entire Hollow team, not a ceiling per attacker. */
+export class RestorationLedger {
+  private claims = new Map<string, number>();
+  private siphoned = 0;
+  private bonusSpent = false;
+  reset() { this.claims.clear(); this.siphoned = 0; this.bonusSpent = false; }
+  claim(station: string, wardens: number, ordeal: boolean, hollow: boolean, hollows: number, overgrown = false) {
+    if (hollow) {
+      const loss = Math.min(ROUND_SIPHON_LIMIT - this.siphoned, -ritualProgress(wardens, ordeal, true, hollows));
+      this.siphoned = Math.round((this.siphoned + loss) * 10) / 10;
+      return -loss || 0;
+    }
+    const count = this.claims.get(station) ?? 0;
+    this.claims.set(station, count + 1);
+    let gain = count === 0 ? ritualProgress(wardens, ordeal) : count < 3 ? .5 : 0;
+    if (overgrown && ordeal && !this.bonusSpent) { gain += 1.5; this.bonusSpent = true; }
+    return Math.round(gain * 10) / 10;
+  }
 }
 
 export function hollowVictory(wardens: number, hollows: number, startingWardens: number, startingHollows: number): boolean {

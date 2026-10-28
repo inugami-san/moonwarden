@@ -1,6 +1,6 @@
 {
   "name": "moonwarden",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -12,15 +12,15 @@
     "ws": "tsx server/ws-server.ts",
     "test:ws": "node --import tsx --test tests/ws-server.test.mjs",
     "test:next": "node --import tsx --test tests/next-chapter.test.mjs",
-    "test:art": "node --import tsx --test tests/forest-art.test.mjs tests/slime-art.test.mjs tests/ritual-art.test.mjs tests/sanctuary-map.test.mjs",
+    "test:art": "node --import tsx --test tests/forest-art.test.mjs tests/cat-art.test.mjs tests/ritual-art.test.mjs tests/sanctuary-map.test.mjs",
     "test:sight": "node --import tsx --test tests/sight.test.mjs tests/world-camera.test.mjs tests/game-feedback.test.mjs",
-    "test:ui": "node --import tsx --test tests/gameplay-ui.test.mjs tests/restoration.test.mjs",
+    "test:ui": "node --import tsx --test tests/gameplay-ui.test.mjs tests/restoration.test.mjs tests/app-menu.test.mjs",
     "test:report": "node --import tsx --test tests/report-rules.test.mjs",
     "test:task-hold": "node --import tsx --test tests/task-hold.test.mjs tests/client-exploration.test.mjs",
     "test:victory": "node --import tsx --test tests/victory.test.mjs tests/game-feedback.test.mjs tests/forest-audio.test.mjs",
     "test:restoration": "node --import tsx --test tests/restoration.test.mjs tests/game-feedback.test.mjs tests/forest-audio.test.mjs",
     "release:check": "node --import tsx --test tests/release-version.test.mjs",
-    "test": "npm run test:ui && npm run release:check && npm run build && node --test tests/rendered-html.test.mjs && node --import tsx --test tests/victory.test.mjs tests/banishment.test.mjs tests/report-rules.test.mjs tests/task-hold.test.mjs tests/multiplayer.test.mjs tests/movement.test.mjs tests/network.test.mjs tests/sanctum.test.mjs tests/slime-art.test.mjs tests/forest-art.test.mjs tests/forest-audio.test.mjs tests/game-feedback.test.mjs tests/ordeal.test.mjs tests/analytics.test.mjs tests/analytics-game.test.mjs tests/sanctuary-map.test.mjs tests/navigation-map.test.mjs tests/world-camera.test.mjs tests/sight.test.mjs tests/client-exploration.test.mjs tests/ritual-art.test.mjs tests/lobby-palette.test.mjs tests/collision-slide.test.mjs tests/version-compatibility.test.mjs tests/role-presentation.test.mjs tests/match-update.test.mjs tests/moonsway.test.mjs tests/next-chapter.test.mjs",
+    "test": "npm run test:ui && npm run release:check && npm run build && node --test tests/rendered-html.test.mjs && node --import tsx --test tests/victory.test.mjs tests/banishment.test.mjs tests/report-rules.test.mjs tests/task-hold.test.mjs tests/multiplayer.test.mjs tests/movement.test.mjs tests/network.test.mjs tests/sanctum.test.mjs tests/cat-art.test.mjs tests/forest-art.test.mjs tests/forest-audio.test.mjs tests/game-feedback.test.mjs tests/ordeal.test.mjs tests/analytics.test.mjs tests/analytics-game.test.mjs tests/sanctuary-map.test.mjs tests/navigation-map.test.mjs tests/world-camera.test.mjs tests/sight.test.mjs tests/client-exploration.test.mjs tests/ritual-art.test.mjs tests/lobby-palette.test.mjs tests/collision-slide.test.mjs tests/version-compatibility.test.mjs tests/role-presentation.test.mjs tests/match-update.test.mjs tests/moonsway.test.mjs tests/next-chapter.test.mjs",
     "test:analytics": "node --import tsx --test tests/analytics.test.mjs tests/analytics-game.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"

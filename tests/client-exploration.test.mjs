@@ -6,6 +6,7 @@ import ts from "typescript";
 import * as world from "../server/sanctuary-map.ts";
 import * as rules from "../server/ordeal-rules.ts";
 import * as matchRules from "../server/match-rules.ts";
+import * as design from "../server/sanctuary-design.ts";
 import * as reportRules from "../server/report-rules.ts";
 import * as taskHold from "../app/task-hold.ts";
 import * as restoration from "../app/restoration-art.ts";
@@ -14,6 +15,7 @@ import { preparationStation } from "../app/warden-objectives.ts";
 import { GameRoom } from "../server/game-room.ts";
 import { movementVector } from "../app/joystick-input.ts";
 import { sightAt } from "../server/visibility.ts";
+import { ForestUtilities } from "../server/forest-utilities.ts";
 
 const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("page.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -21,10 +23,10 @@ const node = ast.statements.find(statement => ts.isClassDeclaration(statement) &
 const js = ts.transpileModule(node.getText(ast), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 function fixture() {
   const Engine = runInNewContext(`${js}\nOrdealEngine`, {
-    ...world, ...rules, ...matchRules, ...reportRules, ...taskHold, ...restoration, W: world.WORLD_WIDTH, H: world.WORLD_HEIGHT, planRoute, preparationStation, movementVector, sightAt,
+    ...world, ...rules, ...matchRules, ...reportRules, ...taskHold, ...restoration, ...design, W: world.WORLD_WIDTH, H: world.WORLD_HEIGHT, planRoute, preparationStation, movementVector, sightAt,
     dist: (a, b) => Math.hypot(a.x - b.x, a.y - b.y),
     clamp: (n, min, max) => Math.max(min, Math.min(max, n)),
-    rootwakeStrength: (phase, hazard, time) => phase === "ORDEAL" && hazard === "ROOTWAKE" ? Math.min((10 - time) / .75, time / .55, 1) : 0,
+    rootwakeStrength: (phase, hazard, time) => phase === "ORDEAL" && hazard === "ROOTWAKE" ? design.rootwakeEnvelope(time) : 0,
     ITEM_LABELS: { FLASHLIGHT: "Glowing Mushroom", FLARE: "Moonblossom", SONAR: "Echo Bell" },
     choose: items => items[0],
     performance: { now: () => 100 },
@@ -35,11 +37,12 @@ function fixture() {
     players: [human], localPlayerId: "you", phase: "CALM", hazard: "BLACKOUT", phaseTime: 24,
     elapsed: 10, stationRound: 1, stations: [], charges: { FLASHLIGHT: 0, FLARE: 0, SONAR: 0 },
     audio: { cue: value => cues.push(value) }, taskProgress: 0, multiplayerClient: null,
+    utilities: new ForestUtilities(),
     emit() {}, onPuzzle: value => cancelled.push(value), checkWin() {}, onEnd() {},
     keys: new Set(), touchKeys: new Set(), bodies: [], flares: [],
     botRites: new Map(), botWork: new Map(), botRoutes: new Map(),
     itemActiveUntil: 0, killCooldownUntil: 0, taskHold: 0,
-    wardClaims: new Set(), pendingWardDelta: 0, wardSettleTimer: 0, obstacles: world.SANCTUARY_OBSTACLES,
+    wardClaims: new Set(), restorationLedger: new matchRules.RestorationLedger(), rootRipples: [], pendingWardDelta: 0, wardSettleTimer: 0, obstacles: world.SANCTUARY_OBSTACLES,
     ordealNumber: 0, botStrikeSpent: new Set(), stealthUntil: 0, stealthAvailableOrdeal: 0, pendingBodies: [], lastQuestions: new Map(), taskFailure: "",
   });
   engine.makeStations();
@@ -146,18 +149,19 @@ test("a peer's team seal does not cancel your puzzle or consume your gear ritual
   assert.equal(cancelled.length, 0);
 });
 
-test("a personal ritual on an already-restored shrine awards gear without extra progress", () => {
+test("a personal ritual on an already-restored shrine awards gear and capped support", () => {
   const { engine } = fixture();
   engine.taskProgress = 8;
   const station = engine.stations[0];
   station.teamRestored = true;
   engine.wardClaims.add(station.label);
+  engine.restorationLedger.claim(station.label, 1, false, false, 1);
   engine.completeStation(station, false);
   engine.completeStation(station, false);
   assert.equal(engine.taskProgress, 8);
   assert.equal(engine.charges.FLASHLIGHT, 1);
   assert.equal(station.completed, true);
-  assert.equal(engine.rewardNotice.progress, 0);
+  assert.equal(engine.rewardNotice.progress, .5);
 });
 
 test("multiplayer waits for private acceptance before awarding gear and tolerates team snapshots", () => {
@@ -203,15 +207,15 @@ test("the client can move beyond the old map and respects shared larger bounds",
   assert.equal(human.x, x, "opening map stops local input without stopping the world");
 });
 
-test("the actual movement handler preserves joystick drag strength and applies Mirror Pool to analog input", () => {
+test("the actual movement handler preserves joystick drag strength without reversing Mirror Pool controls", () => {
   for (const [strength, mirror] of [[.2, false], [1, false], [.2, true]]) {
     const { engine, human } = fixture();
     engine.moveVector = { vx: strength, vy: 0 };
     if (mirror) { engine.phase = "ORDEAL"; engine.hazard = "MIRROR_POOL"; }
     const x = human.x;
     engine.updateHuman(1 / 60);
-    assert.ok(Math.abs(human.vx - strength * 184 * .2 * (mirror ? -1 : 1)) < 1e-8);
-    assert.equal(human.x > x, !mirror);
+    assert.ok(Math.abs(human.vx - strength * 184 * .2) < 1e-8);
+    assert.equal(human.x > x, true);
   }
 });
 
@@ -252,7 +256,7 @@ test("rotation clears analog/keyboard input and pauses solo clocks without pausi
 
 test("an incorrect shrine answer shows a short notice without blocking movement or a fresh attempt", () => {
   const { engine, human } = fixture();
-  const station = engine.stations.find(station => station.puzzle);
+  const station = engine.stations.find(station => station.puzzle === "MATH");
   human.x = station.x; human.y = station.y + 55;
   engine.tryOpenPuzzle();
   const originalQuestion = engine.activePuzzle.prompt;

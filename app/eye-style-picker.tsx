@@ -1,5 +1,5 @@
 import { EYE_STYLES, type EyeStyle } from "../server/appearance";
-import { EYE_LABELS, eyePath } from "./slime-eyes";
+import { EYE_LABELS, eyePath } from "./cat-eyes";
 
 export function EyeStylePicker({ value, onChange }: { value: EyeStyle; onChange: (style: EyeStyle) => void }) {
   return (

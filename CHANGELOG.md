@@ -6,7 +6,111 @@ source releases, not proof that a particular server has been deployed.
 
 ## [Unreleased]
 
-No further release changes recorded.
+## [0.6.0] - 2026-10-28
+
+### Changed
+
+- Rebalanced restoration: a 3–4% baseline before the Ordeal multiplier, two
+  capped +0.5% follow-up contributions per shrine, and a shared 4% Hollow
+  siphon ceiling per cycle. Anonymous four-second settlement remains.
+- Added rotating Overgrown Shrines: the first Warden bloom during an Ordeal
+  earns +1.5% team restoration; interactive blooms require three seconds of
+  exposure and announce a local chant. Personal gear remains available.
+- Harmonize is now a minimum-three-second, four-note Sun/Moon duet. Two
+  stationary players take turns, either can abandon it, and either role can join.
+- Rootwake lasts 12 seconds; marked north/south doors open after six seconds.
+  Hollow root crossing makes a neutral sound and no longer bypasses prop bases.
+- Added two Moonglare shade pockets that restore close identity inside the same
+  pocket, without seeing through cover. Echo Lure emits a moving rustle trail.
+- Mirror Pool keeps normal controls and restores original colors at Calm.
+- Added a painted open forest loop alongside direct shrine approaches. No new
+  invisible colliders or shuffled landmarks were introduced.
+- Standard presets allow one Hollow for 4–6 players and up to two for 7–8.
+  Meetings have host-selected 60/75/90-second limits (default 75), plus editable
+  claim starters explicitly labeled as unverified player statements.
+- Includes the local painted-cat, shrine and role/voting art updates from 0.5.0.
+
+Balance timings are beta hypotheses, not a measured promise of match length.
+Frontend and room server require the matching `silverpine-trust-v8` protocol.
+
+## [0.5.0] - 2026-10-27
+
+### Changed
+
+- Replaced Warden/Hollow reveal sigils, voting/tally icons and meeting-chat
+  avatars with shared painted cat heads. Coat colors and eye choices remain;
+  legacy slime-report wording is translated to a fallen-Warden heading.
+- Added reference-inspired painted celestial sundials, cat moon-basins and
+  four-phase totems, with inactive and glowing activated versions. Shared
+  restoration lights the art without claiming personal rewards; locks dim it.
+  Kept the half-second completion pulse and raised sealed badges above taller
+  art. Placement, collision, puzzles and gameplay visibility are unchanged.
+- Enlarged the home spotlight cat independently of gameplay avatars, with a
+  square portrait area and a larger compact-landscape size.
+- Added a separate painted seated home-menu cat with breathing, blinks and a
+  greeting tilt; coat colors, eye choices and fitted accessories remain usable.
+  Portrait paints cap at 30fps, pause when hidden and respect reduced motion.
+- Replaced the legacy gel devour and CSS victim replay with one shared painted
+  cat claw/shadow-capture renderer. Kill limits, reports and visibility gates are
+  unchanged. Added a local capture preview/scrubber to `/dev/cats`.
+- Added grounded idle shoulder breathing, width-aware paw motion and cached
+  blink strips. Side collar bands follow neck perspective; charms hang upright,
+  rear pendants stay hidden and seated headwear uses a raised anchor.
+- Fixed east/west walk rig slicing through overlapping painted paws and cuffs;
+  connected side-profile shapes now move as intact units.
+- Added stride-linked shoulder bob, gentle body sway and lean to the painted cat,
+  preserving grounded paw trajectories and keeping collars attached to the motion.
+- Replaced abrupt walk-frame swaps with a continuous painted-paw rig: stable
+  body/head/scarf, alternating paw swing and lift, smooth return to rest, feathered
+  hip joints and one-pass fog fading. Added slow playback and A/B controls to the
+  local character review. Original poses remain available for comparison/greetings.
+- Unified accessory placement inside the character canvas for previews and live
+  play, removing the independent CSS collar layer. Home greetings now use two
+  grounded paw-lift poses rather than whole-body squash/stretch; tapping is gentler.
+- Replaced reportable slime puddles with a non-gory fallen-cat sprite, keeping
+  player-color tinting, anonymous concealment and delayed stealth-body timing.
+- Added Moonbell/Starlock collars, a Woodland bandana and Moonmoth bow across
+  customization, gameplay and room-server cosmetic validation. Smaller, raised
+  legacy hats no longer cover the cat's face. Default accessory is Moonbell.
+- Made the gameplay header transparent over the arena, removing the branding
+  rail while keeping the floating phase timer and Settings/Leave controls.
+- Reworked the pale ground into blue-teal forest soil with feathered moss,
+  organic pebble/leaf details and warmer worn-earth trails. Reduced milky clearing
+  glows and matched courtyard stones/boundary tones to the mushroom forest.
+- Added reference-inspired painted bioluminescent mushroom canopies, double-cap
+  giants, shaggy fungal trees and low clusters. Sparse walkable grass, fern and
+  spore accents dress the ground while preserving open trails. Art is cached;
+  collision, navigation, shrine behavior and visibility rules are unchanged.
+- Corrected painted-cat paw alignment with per-pose ground and torso registration.
+  Walking now follows actual distance traveled; blocked movement, lingering gaze
+  and network teleports no longer drive misleading foot motion.
+- Replaced the live procedural moon-cat with reference-inspired painted sprites:
+  eight directions and four walk frames, shared by gameplay and lobby portraits.
+  Preserved coat colors, eye expression choices and anonymous fog silhouettes;
+  cached recoloring and alpha-gutter extraction prevent per-frame painting and
+  clipped paws. Added an enlarged character review at `/dev/cats`.
+  These changes are local, not deployed.
+
+- Refined the live moon-cat character with rounded cheeks, golden expressive eyes,
+  shaded coats, star-flecked curled tails, moon scarves and runic cuffs. Gameplay
+  and lobby portraits now share one renderer, with articulated eight-direction
+  walking, aligned headdresses and anonymous fog silhouettes that retain anatomy
+  without revealing color or decorations. A development-only `/dev/cats` review
+  page compares the old and new artwork at gameplay scale.
+- Replaced the scrolling homepage with full-screen game menus: Play with friends,
+  Practice with AI, Customize, and a paginated field guide. Back navigation,
+  compact room browsing, safe-area spacing, and responsive layouts prepare the
+  interface for a future WebView wrapper.
+- Unified practice, customization, and waiting-room screens with the in-game
+  midnight-blue, moonlight, and warm-gold palette.
+- Meetings open with player cards and discussion side by side, rather than tabs.
+  A ten-second discussion countdown precedes voting, enforced in solo play and by
+  the room server (including bots). The existing multiplayer meeting remains 45
+  seconds total, leaving 35 seconds for voting. Private notes use a small optional
+  button. All eight player cards fit without roster scrolling; chat and note
+  histories retain their own internal scrolling.
+- Curated station homes and cover, Moon/Root/Firefly rituals, Standard/Challenging
+  difficulty, and shrine-earned Wisp Step/Watchroot utilities (`silverpine-rituals-v7`).
 
 ## [0.4.0] - 2026-10-23
 

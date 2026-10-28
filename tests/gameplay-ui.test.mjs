@@ -6,6 +6,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { GameGlyph, GameplaySettings } from "../app/gameplay-controls.tsx";
 import { LandscapeGuard, useLandscapeRequired, PORTRAIT_GAME_QUERY } from "../app/gameplay-orientation.tsx";
 
+test("gameplay header floats transparently over the arena without an opaque brand rail", async () => {
+  const css = await readFile(new URL("../app/gameplay-hud.css", import.meta.url), "utf8");
+  assert.match(css, /margin-bottom: calc\(-1 \* var\(--floating-nav-height\)\)/);
+  assert.match(css, /background: transparent;\s*border: 0;\s*box-shadow: none;\s*backdrop-filter: none;\s*pointer-events: none/);
+  assert.match(css, /\.game-nav \.brand \{ display: none/);
+  assert.match(css, /\.game-nav-actions \{ grid-column: 3; pointer-events: auto/);
+  assert.match(css, /translate: 0 var\(--floating-nav-height\)/);
+});
+
 test("settings are a named native dialog with explicit, stateful audio/glare switches", () => {
   const html = renderToStaticMarkup(createElement(GameplaySettings, {
     open: false, enabled: true, onOpenChange() {}, onMusicToggle() {}, onSoundToggle() {}, onGlareToggle() {}, onExit() {},

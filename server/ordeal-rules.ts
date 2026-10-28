@@ -1,5 +1,6 @@
 import type { Hazard } from "./game-types";
 import { CENTER, SANCTUARY_OBSTACLES, type SanctuaryObstacle } from "./sanctuary-map";
+import { ROOTWAKE_DURATION } from "./sanctuary-design";
 export { SANCTUARY_OBSTACLES, sanctuaryZoneName } from "./sanctuary-map";
 export type { SanctuaryObstacle, ObstacleKind } from "./sanctuary-map";
 
@@ -16,7 +17,7 @@ export const MIRROR_BUMP_COOLDOWN_MS = 1500;
 export const HAZARDS: Hazard[] = ["BLACKOUT", "FOG", "MOONGLARE", "ROOTWAKE", "PHANTOMS", "MIRROR_POOL"];
 
 export function ordealDuration(hazard: Hazard): number {
-  return hazard === "MIRROR_POOL" ? MIRROR_POOL_SECONDS : ORDEAL_SECONDS;
+  return hazard === "MIRROR_POOL" ? MIRROR_POOL_SECONDS : hazard === "ROOTWAKE" ? ROOTWAKE_DURATION : ORDEAL_SECONDS;
 }
 
 export function nextHazard(previous: Hazard, random = Math.random) {

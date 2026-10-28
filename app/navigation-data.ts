@@ -6,6 +6,7 @@ import {
   type WorldPoint,
 } from "../server/sanctuary-map";
 import { createMatchLayout } from "../server/match-layout";
+import { SHADE_POCKETS } from "../server/sanctuary-design";
 
 /** Navigation accepts shrine state, never a roster, bodies, roles, or sound cues. */
 export type NavigationStation = WorldPoint & {
@@ -13,6 +14,7 @@ export type NavigationStation = WorldPoint & {
   label: string;
   personalCompleted: boolean;
   teamRestored: boolean;
+  overgrown?: boolean;
 };
 
 export type NavigationInput = {
@@ -46,9 +48,11 @@ export function navigationView(input: NavigationInput) {
       y: station.y,
       personalCompleted: state.personalCompleted === true,
       teamRestored: state.teamRestored === true,
+      ...(state.overgrown === true ? { overgrown: true } : {}),
     });
   }
   return {
+    shadePockets: input.phase === "ORDEAL" && input.hazard === "MOONGLARE" ? SHADE_POCKETS : [],
     position,
     cell,
     rootLocked,

@@ -7,7 +7,7 @@ export const ORDEAL_PREPARATION: Record<Hazard, { item: ItemKind; title: string;
   MOONGLARE: { item: "SONAR", title: "Listen beneath the bright moon", reason: "Earn an Echo Bell to follow movement while identities are bleached." },
   ROOTWAKE: { item: "SONAR", title: "Choose a chamber, then listen", reason: "Prepare an Echo Bell before roots divide the forest. Stay aware inside your chamber." },
   PHANTOMS: { item: "SONAR", title: "Know an echo from a phantom", reason: "An Echo Bell briefly marks the procession’s false shapes." },
-  MIRROR_POOL: { item: "FLARE", title: "Keep a familiar light nearby", reason: "Earn a Moonblossom for a shared landmark while controls and colors shift." },
+  MIRROR_POOL: { item: "FLARE", title: "Keep a familiar light nearby", reason: "Earn a Moonblossom for a shared landmark while bumps swap colors. Movement stays normal." },
 };
 
 export function preparationStation(hazard: Hazard, position: { x: number; y: number }, personalCompleted: readonly string[], stations = STATIONS) {

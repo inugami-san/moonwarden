@@ -15,14 +15,15 @@ import { VictoryOverlay } from "./victory-overlay";
 import { ROLE_LABELS, ejectionVerdict, meetingVerdictLabel } from "../server/role-presentation";
 import { GAME_RELEASE_LABEL, GAME_RELEASE_VERSION, GAME_WORLD_VERSION } from "../server/game-version";
 import { createMatchLayout } from "../server/match-layout";
-import { clampHollowCount, hollowVictory, ritualProgress, resolveReporterVote, REPORTER_VOTE_DRIFT_CHANCE, type VoteReceipt, WARD_SETTLE_SECONDS, STEALTH_BODY_DELAY_SECONDS, STEALTH_COOLDOWN_SECONDS, STEALTH_ORDEAL_LOCKOUT } from "../server/match-rules";
+import { clampHollowCount, hollowVictory, resolveReporterVote, REPORTER_VOTE_DRIFT_CHANCE, type VoteReceipt, WARD_SETTLE_SECONDS, STEALTH_BODY_DELAY_SECONDS, STEALTH_COOLDOWN_SECONDS, STEALTH_ORDEAL_LOCKOUT } from "../server/match-rules";
 import { MovementBuffer } from "./movement";
-import { drawSlimeSprout, slimeEyes, slimeOutline, slimeSkin } from "./slime-art";
-import { SlimePortrait } from "./slime-portrait";
+import { drawAnimatedCat, sampleCatGait } from "./cat-art";
+import { SlimePortrait } from "./cat-portrait";
+import { CatHead } from "./cat-head";
 import { EyeStylePicker } from "./eye-style-picker";
-import { EYE_LABELS } from "./slime-eyes";
-import { SlimeAnimator } from "./slime-motion";
-import { ACCESSORY_FRAME, drawAccessory } from "./accessory-art";
+import { EYE_LABELS } from "./cat-eyes";
+import { SlimeAnimator } from "./cat-motion";
+import { ACCESSORY_FRAME, drawAccessory, drawWornAccessory, isCollar } from "./accessory-art";
 import { EYE_STYLES, normalizeEyeStyle, type EyeStyle } from "../server/appearance";
 import { drawForestSanctum, drawSanctumStatus } from "./sanctum-art";
 import { availablePlayerName, PLAYER_COLORS as COLORS, randomWardenCallsign, WARDEN_CALLSIGNS } from "../server/palette";
@@ -44,10 +45,20 @@ import {
 import { ForestAudio, soundDirection } from "./forest-audio";
 import { drawMoonGlade } from "./moon-glade";
 import { drawForestObstacle, drawGroundResponse } from "./forest-art";
+import { forestSpritesReady } from "./forest-sprites";
+import { drawFallenCat, loadFallenCat } from "./fallen-cat-art";
 import { ForestAtmosphere } from "./forest-atmosphere";
 import { fittedCanvasBounds } from "./canvas-bounds";
-import { HomeAtmosphere, HomeFieldGuide, HomeGrove } from "./home-field-guide";
-import { DEVOUR_SECONDS, drawSlimeConsumption, type DevourVisual } from "./slime-devour";
+import { HomeAtmosphere, HomeGrove } from "./home-field-guide";
+import { CompactFieldGuide, GameMenu, MENU_TITLES, pageWindow, type MenuScreen } from "./game-menu";
+import { TallyRoster, VoteRoster, useDiscussionCountdown } from "./meeting-roster";
+import { MEETING_DISCUSSION_MS } from "../server/match-rules";
+import { RestorationLedger } from "../server/match-rules";
+import { rootwakeEnvelope, rootwakeMove, rootGatesOpen, ROOT_GATES, ROOT_GATE_Y, SHADE_POCKETS, SHADE_RADIUS, overgrownStationIndex, lurePoint, ORDEAL_HINTS } from "../server/sanctuary-design";
+import { createRitual, ritualAnswerIsCorrect, RITUAL_LABELS, type RitualChallenge, type RitualDifficulty, type RitualKind } from "../server/forest-rituals";
+import { ForestUtilities, UTILITY_LABELS, type UtilityKind } from "../server/forest-utilities";
+import { ForestRitual } from "./forest-ritual";
+import { DEVOUR_SECONDS, drawCatConsumption, type DevourVisual } from "./cat-devour";
 import { ConsumptionPortrait } from "./consumption-portrait";
 import { trackGameEvent } from "./analytics";
 import { GameAnalyticsLifecycle } from "./analytics-game";
@@ -57,7 +68,7 @@ import { GameGlyph, GameplaySettings } from "./gameplay-controls";
 import { LandscapeGuard, useLandscapeRequired } from "./gameplay-orientation";
 import { TaskHoldGauge } from "./task-hold-gauge";
 import { holdTaskProgress, TASK_HOLD_SECONDS } from "./task-hold";
-import { WORLD_WIDTH, WORLD_HEIGHT, VIEW_WIDTH, VIEW_HEIGHT, ROOM, PLAYER_BOUNDS, CENTER, CALM_SECONDS, ROOT_BARRIERS, STATIONS, getRootCell, sharesRootCell, clampWorldPoint, keepInRootCell } from "../server/sanctuary-map";
+import { WORLD_WIDTH, WORLD_HEIGHT, VIEW_WIDTH, VIEW_HEIGHT, ROOM, PLAYER_BOUNDS, CENTER, CALM_SECONDS, ROOT_BARRIERS, STATIONS, getRootCell, sharesRootCell, clampWorldPoint } from "../server/sanctuary-map";
 import { planRoute } from "../server/sanctuary-paths";
 import { cameraViewport, cameraTarget, followCamera, viewportToWorld } from "./world-camera";
 import { sightAt, type Sight, type SightPoint, type SightKind } from "../server/visibility";
@@ -67,15 +78,16 @@ import { drawRestorationGarden, restorationTier, RESTORATION_MESSAGES } from "./
 import "./warden-exploration.css";
 import "./next-chapter.css";
 import "./gameplay-hud.css";
+import "./app-menu.css";
 
 type Role = "CREWMATE" | "IMPOSTOR";
 type RoleChoice = Role | "RANDOM";
 type Phase = "CALM" | "COUNTDOWN" | "ORDEAL" | "DISCUSSION";
 type Hazard = "BLACKOUT" | "FOG" | "MOONGLARE" | "ROOTWAKE" | "PHANTOMS" | "MIRROR_POOL";
 type ItemKind = "FLASHLIGHT" | "FLARE" | "SONAR";
-type Hat = "antlers" | "hood" | "moth" | "mooncap";
-type SoloProfile = { name: string; color: string; hat: Hat; eyeStyle: EyeStyle };
-type PuzzleKind = "MATH" | "LINK";
+type Hat = import("../server/game-types").Hat;
+type SoloProfile = { name: string; color: string; hat: Hat; eyeStyle: EyeStyle; difficulty?: RitualDifficulty; utility?: UtilityKind; meetingSeconds?: number };
+type PuzzleKind = "MATH" | "LINK" | RitualKind;
 
 type Player = {
   id: string;
@@ -122,6 +134,7 @@ type Body = { id: string; x: number; y: number; color: string; name: string; age
 type Flare = { x: number; y: number; life: number; owner: string };
 
 type Snapshot = {
+  utility?: { kind: UtilityKind; charge: number; cooldown: number };
   phase: Phase;
   time: number;
   hazard: Hazard;
@@ -147,7 +160,8 @@ type Snapshot = {
   taskMode: "PUZZLE" | "HOLD" | null;
   taskHoldProgress: number;
   taskHolding: boolean;
-  stationStatus: { label: string; completed: boolean; reward: ItemKind; teamRestored?: boolean; pending?: boolean } | null;
+  stationStatus: { label: string; completed: boolean; reward: ItemKind; teamRestored?: boolean; pending?: boolean; overgrown?: boolean } | null;
+  overgrownStation?: string;
   rewardNotice: { item: ItemKind; station: string; progress?: number } | null;
   navigation: { x: number; y: number; personalCompleted: string[]; teamRestored: string[]; destinationId: string | null };
   humanAlive: boolean;
@@ -158,6 +172,7 @@ type Snapshot = {
 };
 
 type TaskPuzzle = {
+  challenge?: RitualChallenge;
   stationIndex: number;
   stationLabel: string;
   reward: ItemKind;
@@ -207,6 +222,8 @@ type VoteTally = {
 };
 
 type Meeting = {
+  endsAt?: number;
+  votingOpensAt?: number;
   reason: string;
   reporter: string;
   bodyReporterId?: string | null;
@@ -227,7 +244,7 @@ const W = WORLD_WIDTH;
 const H = WORLD_HEIGHT;
 const NAMES = ["Bubbles", "Mochi", "Gloop", "Pebble", "Nori", "Fizz", "Wobble", "Pip"];
 const WARDEN_ALIBIS = ["Cute hat. Very convincing alibi.", "My alibi? Excellent moon-gazing.", "I swear the fog followed me here."];
-const HATS: Hat[] = ["antlers", "hood", "moth", "mooncap"];
+const HATS: Hat[] = ["moonbell", "leafband", "starlock", "mothbow", "antlers", "hood", "moth", "mooncap"];
 const ITEM_LABELS: Record<ItemKind, string> = { FLASHLIGHT: "Glowing Mushroom", FLARE: "Moonblossom", SONAR: "Echo Bell" };
 const HAZARD_LABELS: Record<Hazard, string> = {
   BLACKOUT: "TOTAL BLACKOUT",
@@ -250,9 +267,7 @@ const choose = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length
 
 function rootwakeStrength(phase: Phase, hazard: Hazard, phaseTime: number) {
   if (phase !== "ORDEAL" || hazard !== "ROOTWAKE") return 0;
-  const risen = clamp((10 - phaseTime) / 0.75, 0, 1);
-  const receding = clamp(phaseTime / 0.55, 0, 1);
-  return Math.min(risen, receding);
+  return rootwakeEnvelope(phaseTime);
 }
 
 function initialSnapshot(role: Role = "CREWMATE"): Snapshot {
@@ -277,7 +292,7 @@ function initialSnapshot(role: Role = "CREWMATE"): Snapshot {
     soundCaption: "",
     canReport: false,
     reportLabel: "Locked",
-    reportHint: "The emergency bell unlocks after the first Ordeal ends. Nearby puddles can always be reported.",
+    reportHint: "The emergency bell unlocks after the first Ordeal ends. Nearby fallen cats can always be reported.",
     taskPrompt: false,
     taskMode: null,
     taskHoldProgress: 0,
@@ -314,6 +329,7 @@ function muteHexColor(hex: string): string {
 
 function snapshotsEqual(a: Snapshot, b: Snapshot): boolean {
   return (
+    a.utility?.kind === b.utility?.kind && a.utility?.charge === b.utility?.charge && a.utility?.cooldown === b.utility?.cooldown &&
     a.phase === b.phase
     && a.time === b.time
     && a.hazard === b.hazard
@@ -344,6 +360,9 @@ function snapshotsEqual(a: Snapshot, b: Snapshot): boolean {
     && a.pairRitual?.stationId === b.pairRitual?.stationId
     && a.pairRitual?.progress === b.pairRitual?.progress
     && a.pairRitual?.participants === b.pairRitual?.participants
+    && a.pairRitual?.beats === b.pairRitual?.beats
+    && a.pairRitual?.nextPlayerId === b.pairRitual?.nextPlayerId
+    && a.overgrownStation === b.overgrownStation
     && a.stationStatus?.label === b.stationStatus?.label
     && a.stationStatus?.completed === b.stationStatus?.completed
     && a.stationStatus?.reward === b.stationStatus?.reward
@@ -366,6 +385,7 @@ class OrdealEngine {
   private initialHollows = 1;
   private initialWardens = 0;
   private pendingWardDelta = 0;
+  private restorationLedger = new RestorationLedger();
   private wardSettleTimer = 0;
   private stealthUntil = 0;
   private stealthAvailableOrdeal = 0;
@@ -424,14 +444,22 @@ class OrdealEngine {
   private abilityPending = false;
   private ordealSeed = 1;
   private phantomRoutes = phantomPaths(1);
-  private echoes: { x: number; y: number; until: number; nextAt: number }[] = [];
+  private echoes: { x: number; y: number; angle: number; until: number; nextAt: number }[] = [];
   private heardCueIds = new Set<string>();
+  private rootRipples: { x: number; y: number; until: number }[] = [];
   private footsteps = new Map<string, { x: number; y: number; at: number }>();
   private caption = "";
   private captionUntil = 0;
   private lastCaptionAt = -1;
   private localStep = { x: 0, y: 0, at: -1 };
   private restorationSeen = 0;
+  utilities = new ForestUtilities();
+  private ritualDifficulty: RitualDifficulty = "STANDARD";
+  private meetingSeconds = 75;
+  private ritualAttempts = new Map<string, number>();
+  private ritualOpenPending: string | null = null;
+  private utilityPending = false;
+  private utilityTrails: { from: { x: number; y: number }; to: { x: number; y: number }; until: number }[] = [];
   private restorationAmbienceAt = 0;
   audio = new ForestAudio();
   lowGlare = false;
@@ -615,6 +643,9 @@ class OrdealEngine {
       this.makePlayers(count, roleChoice, soloProfile, this.initialHollows);
       this.hazard = nextHazard(this.hazard);
     }
+    this.utilities.select(this.localPlayerId, multiplayerClient?.utility ?? soloProfile?.utility);
+    this.ritualDifficulty = multiplayerClient?.puzzleDifficulty ?? soloProfile?.difficulty ?? "STANDARD";
+    this.meetingSeconds = multiplayerClient?.meetingSeconds ?? soloProfile?.meetingSeconds ?? 75;
     this.resize();
     window.addEventListener("resize", this.resize);
     window.addEventListener("scroll", this.updateRect, { passive: true });
@@ -666,6 +697,38 @@ class OrdealEngine {
 
   handleNetworkMessage(msg: S2CMessage) {
     switch (msg.type) {
+      case "RITUAL_CHALLENGE": {
+        if (msg.stationId !== this.ritualOpenPending) break;
+        this.ritualOpenPending = null;
+        const index = this.stations.findIndex(station => station.label === msg.stationId);
+        if (!msg.challenge || msg.roundId !== this.stationRound || index < 0 || !this.human.alive || this.paused || dist(this.stations[index], this.human) > 84) {
+          this.multiplayerClient?.cancelRitual();
+          if (msg.error) this.flashMessage(msg.error);
+          break;
+        }
+        this.showForestRitual(index, msg.challenge);
+        break;
+      }
+      case "RITUAL_FAILED":
+        if (msg.roundId === this.stationRound && this.activePuzzle?.stationLabel === msg.stationId) this.failRitual();
+        break;
+      case "UTILITY_STATE":
+        this.utilityPending = false;
+        this.utilities.select(this.localPlayerId, msg.kind);
+        this.utilities.charges.set(this.localPlayerId, msg.charge);
+        this.utilities.cooldowns.set(this.localPlayerId, Date.now() + msg.cooldownMs);
+        if (msg.destination) {
+          this.pendingInputs.clear();
+          this.human.x = msg.destination.x; this.human.y = msg.destination.y;
+          this.human.vx = 0; this.human.vy = 0;
+          this.lastSentInput.x = -1;
+        }
+        if (msg.accepted === false) this.flashMessage("Utility unavailable: earn a charge, wait for an Ordeal, and aim at clear ground.");
+        this.emit(true);
+        break;
+      case "UTILITY_TRAIL":
+        this.utilityTrails.push({ ...msg, until: this.elapsed + .65 });
+        break;
       case "PAIR_RITUAL_STATE":
         if (msg.ritual.roundId !== this.stationRound) break;
         this.pairRitual = msg.ritual.participants ? msg.ritual : null;
@@ -683,7 +746,9 @@ class OrdealEngine {
         if ((this.phase !== "ORDEAL" && msg.cue.kind !== "RITUAL") || Date.now() > msg.cue.expiresAt || this.heardCueIds.has(msg.cue.id)) break;
         if (this.heardCueIds.size > 100) this.heardCueIds.clear();
         this.heardCueIds.add(msg.cue.id);
-        if (msg.cue.kind === "RITUAL") this.hearRitual(msg.cue);
+        if (msg.cue.kind === "WATCHROOT") { this.audio.cue("task-open"); this.caption = "A Watchroot chimed nearby — someone crossed it."; this.captionUntil = this.elapsed + 3; }
+        else if (msg.cue.kind === "ROOT_RIPPLE") this.hearRootRipple(msg.cue);
+        else if (msg.cue.kind === "RITUAL") this.hearRitual(msg.cue);
         else this.hearRustle(msg.cue);
         break;
       case "KILL_RESULT":
@@ -712,6 +777,9 @@ class OrdealEngine {
           for (const station of this.stations) station.completed = personal.has(station.label);
         }
         if (msg.stationId) {
+          if (this.activePuzzle?.stationLabel === msg.stationId && this.activePuzzle.challenge) {
+            if (msg.accepted) this.cancelPuzzle(""); else this.failRitual();
+          }
           const station = this.stations.find((s) => s.label === msg.stationId);
           if (station) {
             station.pending = false;
@@ -843,6 +911,7 @@ class OrdealEngine {
           this.phantomRoutes = phantomPaths(msg.ordealSeed);
         }
         this.taskProgress = msg.taskProgress;
+        this.utilities.roots = msg.watchroots ?? [];
         this.bodies = msg.bodies.map((b) => ({ id: b.id, x: b.x, y: b.y, color: b.color, name: b.name, age: b.age }));
         this.flares = msg.flares.map((f) => ({ x: f.x, y: f.y, life: f.life, owner: f.owner }));
         let stationSealedNow = false;
@@ -903,6 +972,8 @@ class OrdealEngine {
         this.paused = true;
         this.phase = "DISCUSSION";
         this.activeMeeting = {
+          votingOpensAt: Date.now() + (msg.discussionMs ?? MEETING_DISCUSSION_MS),
+          endsAt: Date.now() + (msg.durationMs ?? 75_000),
           reason: msg.reason,
           reporter: msg.reporter,
           bodyReporterId: msg.bodyReporterId ?? null,
@@ -1029,6 +1100,7 @@ class OrdealEngine {
   resetStations(roundId = this.stationRound + 1) {
     this.setPairRitual(false); this.pairedRituals?.clear();
     this.wardClaims.clear();
+    this.restorationLedger.reset();
     this.stationRound = roundId;
     this.cancelPuzzle("");
     this.clearTaskHold();
@@ -1122,7 +1194,9 @@ class OrdealEngine {
       return;
     }
     if (event.repeat || this.paused || this.roleRevealActive || this.navigationOpen || this.notebookOpen) return;
-    if (event.code === "KeyH") this.setPairRitual(true);
+    if (event.code === "KeyH") this.setPairRitual(!this.pairStationId);
+    if (event.code === "KeyJ") this.pulsePairRune(0);
+    if (event.code === "KeyK") this.pulsePairRune(1);
     if (event.code === "KeyE") this.tryOpenPuzzle();
     if (event.code === "KeyF") this.useItem();
     if (event.code === "KeyR") this.report();
@@ -1130,6 +1204,7 @@ class OrdealEngine {
     if (event.code === "KeyX") this.kill(true);
     if (event.code === "KeyV") this.useMoonSight();
     if (event.code === "KeyC") this.useEchoLure();
+    if (event.code === "KeyG" && !event.repeat) this.useUtility();
     if (event.code === "Digit1") this.selectItem("FLASHLIGHT");
     if (event.code === "Digit2") this.selectItem("FLARE");
     if (event.code === "Digit3") this.selectItem("SONAR");
@@ -1137,7 +1212,6 @@ class OrdealEngine {
 
   keyUp = (event: KeyboardEvent) => {
     this.keys.delete(event.code);
-    if (event.code === "KeyH") this.setPairRitual(false);
   };
 
   pointerMove = (event: PointerEvent) => {
@@ -1244,6 +1318,20 @@ class OrdealEngine {
     this.captionUntil = this.elapsed + 1.2;
   }
 
+  hearRootRipple(point: { x: number; y: number }) {
+    if (!this.human.alive || dist(this.human, point) > HEARING_RANGE || !sharesRootCell(this.human, point)) return;
+    this.audio.rustle(this.human, point); this.caption = "Roots stirred nearby — something crossed a boundary."; this.captionUntil = this.elapsed + 2;
+    if (this.visibilityFor(point, this.human, false).kind !== "HIDDEN") this.rootRipples.push({ ...point, until: this.elapsed + .7 });
+  }
+
+  pulsePairRune(rune: number) {
+    if (!this.pairStationId || !this.human.alive || this.paused || this.roleRevealActive) return;
+    if (this.multiplayerClient) this.multiplayerClient.pairRune(this.pairStationId, rune, this.stationRound);
+    else this.pairedRituals.pulse(this.human.id, this.pairStationId, rune, this.stationRound, this.elapsed * 1000);
+  }
+
+  overgrownShrine() { return this.stations[overgrownStationIndex(this.stationRound, this.layoutSeed, this.stations.length)]; }
+
   selectItem(item: ItemKind) {
     if (this.selectedItem !== item) this.audio.cue("ui");
     this.selectedItem = item;
@@ -1251,12 +1339,25 @@ class OrdealEngine {
   }
 
   tryOpenPuzzle() {
-    if (this.phase === "DISCUSSION" || !this.human.alive || this.paused || this.activePuzzle) return;
+    if (this.phase === "DISCUSSION" || !this.human.alive || this.paused || this.activePuzzle || this.ritualOpenPending) return;
     const stationIndex = this.stations.findIndex((station) => dist(station, this.human) < 84 && !station.completed && !station.pending && station.cooldown <= 0 && station.puzzle);
     if (stationIndex < 0) return;
     const station = this.stations[stationIndex];
     this.setPairRitual(false);
     this.taskFailure = "";
+    if (station.puzzle === "ROOT" || station.puzzle === "MOON" || station.puzzle === "FIREFLY") {
+      if (this.multiplayerClient) {
+        this.ritualOpenPending = station.label;
+        this.multiplayerClient.openRitual(station.label, this.stationRound);
+      } else {
+        const attempt = (this.ritualAttempts.get(station.label) ?? 0) + 1;
+        this.ritualAttempts.set(station.label, attempt);
+        const challenge = createRitual(station.puzzle, this.ritualDifficulty, this.layoutSeed + stationIndex, attempt);
+        if (this.phase === "ORDEAL" && this.overgrownShrine() === station) { challenge.minimumMs = 3000; this.hearRitual(station); }
+        this.showForestRitual(stationIndex, challenge);
+      }
+      return;
+    }
     let puzzle = station.puzzle === "MATH" ? this.createMathPuzzle(station, stationIndex) : this.createLinkPuzzle(station, stationIndex);
     const signature = (question: TaskPuzzle) => `${question.prompt}:${question.sequence?.join() ?? ""}`;
     for (let retry = 0; retry < 16 && signature(puzzle) === this.lastQuestions.get(station.label); retry++) puzzle = station.puzzle === "MATH" ? this.createMathPuzzle(station, stationIndex) : this.createLinkPuzzle(station, stationIndex);
@@ -1320,7 +1421,7 @@ class OrdealEngine {
   }
 
   submitPuzzle(optionIndex: number) {
-    if (!this.activePuzzle) return;
+    if (!this.activePuzzle || this.activePuzzle.challenge) return;
     if (optionIndex !== this.activePuzzle.answerIndex) {
       this.audio.cue("task-error");
       this.stations[this.activePuzzle.stationIndex].cooldown = 1.5;
@@ -1346,7 +1447,6 @@ class OrdealEngine {
     this.human.working = false;
     const reward = station.reward;
     const wardens = this.players.filter(p => p.alive && p.role === "CREWMATE").length;
-    const progressGain = ritualProgress(wardens, this.phase === "ORDEAL", wasFake, this.initialHollows);
     if (this.multiplayerClient) {
       station.pending = true;
       this.multiplayerClient.sendTask(station.label, reward, this.stationRound);
@@ -1354,9 +1454,10 @@ class OrdealEngine {
       return;
     }
     station.completed = true;
+    this.utilities?.earn(this.human.id);
     this.charges[reward] = Math.min(3, this.charges[reward] + 1);
     this.selectedItem = reward;
-    const earnedProgress = wasFake || !this.wardClaims.has(station.label) ? progressGain : 0;
+    const earnedProgress = this.restorationLedger.claim(station.label, wardens, this.phase === "ORDEAL", wasFake, this.initialHollows, this.overgrownShrine() === station);
     if (earnedProgress) {
       if (!wasFake) this.wardClaims.add(station.label);
       station.teamRestored = true;
@@ -1374,12 +1475,89 @@ class OrdealEngine {
   dismissTaskFailure() { this.taskFailure = ""; this.taskFailureUntil = 0; this.emit(true); }
 
   cancelPuzzle(message = "Shrine trial paused. Return when ready.") {
+    this.ritualOpenPending = null;
+    this.multiplayerClient?.cancelRitual();
     if (!this.activePuzzle) return;
     this.activePuzzle = null;
     this.human.working = false;
     this.onPuzzle(null);
     this.keys.delete("KeyE");
     if (message) this.flashMessage(message);
+  }
+
+  showForestRitual(index: number, challenge: RitualChallenge) {
+    const station = this.stations[index];
+    const puzzle: TaskPuzzle = { challenge, stationIndex: index, stationLabel: station.label, reward: station.reward, kind: challenge.kind, prompt: RITUAL_LABELS[challenge.kind], options: [], answerIndex: -1 };
+    this.activePuzzle = puzzle;
+    this.clearTaskHold(); this.human.vx = 0; this.human.vy = 0; this.human.working = true;
+    this.audio.cue("task-open"); this.onPuzzle(puzzle); this.emit(true);
+  }
+
+  failRitual() {
+    if (!this.activePuzzle) return;
+    this.stations[this.activePuzzle.stationIndex].cooldown = 1.5;
+    this.taskFailure = "Incorrect answer. No item earned — reopen the shrine for a new ritual.";
+    this.taskFailureUntil = this.elapsed + 3.5;
+    this.audio.cue("task-error"); this.cancelPuzzle(""); this.emit(true);
+  }
+
+  submitForestRitual(answer: number[]) {
+    const puzzle = this.activePuzzle;
+    if (!puzzle?.challenge) return;
+    if (this.multiplayerClient) { this.multiplayerClient.answerRitual(puzzle.challenge.id, answer, this.stationRound); return; }
+    if (!ritualAnswerIsCorrect(puzzle.challenge, answer)) { this.failRitual(); return; }
+    this.completeStation(this.stations[puzzle.stationIndex], this.human.role === "IMPOSTOR");
+    this.cancelPuzzle(""); this.emit(true);
+  }
+
+  useUtility() {
+    if (!this.human.alive || this.phase !== "ORDEAL" || this.paused || this.roleRevealActive || this.activePuzzle || this.ritualOpenPending || this.utilityPending) return;
+    const angle = this.human.angle ?? 0;
+    if (this.multiplayerClient) {
+      this.utilityPending = true;
+      this.multiplayerClient.useUtility(angle, this.stationRound);
+      return;
+    }
+    const from = { x: this.human.x, y: this.human.y };
+    const effect = this.utilities.use(this.human.id, from, angle, Date.now(), this.obstacles, rootwakeStrength(this.phase, this.hazard, this.phaseTime) > .72, this.phaseTime);
+    if (!effect) { this.flashMessage("Earn a shrine charge, then aim toward clear ground. Utility cooldown: 18s."); return; }
+    if (effect.kind === "WISP_STEP") {
+      this.human.x = effect.destination.x; this.human.y = effect.destination.y;
+      this.utilityTrails.push({ from, to: effect.destination, until: this.elapsed + .65 });
+    }
+    this.audio.cue("task-open"); this.emit(true);
+  }
+
+  drawUtilities(ctx: CanvasRenderingContext2D) {
+    if (this.phase !== "ORDEAL") return;
+    ctx.save(); ctx.strokeStyle = "#b6e4ed"; ctx.lineWidth = 3;
+    for (const root of this.utilities.roots) {
+      const sight = this.visibilityFor(root, this.human, false);
+      if (sight.kind === "HIDDEN") continue;
+      ctx.globalAlpha = sight.alpha * .65;
+      ctx.beginPath();
+      // Sample each segment so roots cannot expose hidden space through cover.
+      for (let i = -58; i < 58; i += 4) {
+        const point = { x: root.x - Math.sin(root.angle) * i, y: root.y + Math.cos(root.angle) * i };
+        if (this.visibilityFor(point, this.human, false).kind === "HIDDEN") continue;
+        ctx.moveTo(point.x, point.y); ctx.lineTo(point.x - Math.sin(root.angle) * 4, point.y + Math.cos(root.angle) * 4);
+      }
+      ctx.stroke();
+    }
+    for (const trail of this.utilityTrails) {
+      const life = Math.max(0, (trail.until - this.elapsed) / .65);
+      ctx.globalAlpha = life * .7;
+      for (let i = 0; i <= 16; i++) {
+        const t = i / 16;
+        const point = { x: trail.from.x + (trail.to.x - trail.from.x) * t, y: trail.from.y + (trail.to.y - trail.from.y) * t };
+        if (this.visibilityFor(point, this.human, false).kind === "HIDDEN") continue;
+        // Skill 2: Shadow Sprint smoky dark-purple trail puffs behind the 4-legged dash.
+        ctx.fillStyle = i % 2 ? "rgba(68,36,112,.42)" : "rgba(128,84,196,.32)";
+        ctx.beginPath(); ctx.arc(point.x, point.y + 8, 5 + t * 9, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(point.x, point.y, 3, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 
   useItem() {
@@ -1432,7 +1610,7 @@ class OrdealEngine {
           const cell = getRootCell(this.human.x, this.human.y);
           point = { x: clamp(point.x, cell.x + 30, cell.x + cell.w - 30), y: clamp(point.y, cell.y + 30, cell.y + cell.h - 30) };
         }
-        this.echoes.push({ ...point, until: this.elapsed + 2, nextAt: 0 });
+        this.echoes.push({ ...point, angle: Math.atan2(this.mouse.y - this.human.y, this.mouse.x - this.human.x), until: this.elapsed + 2, nextAt: 0 });
       }
     }
     this.flashMessage(ability === "MOON_SIGHT" ? "MOON SIGHT AWAKENED — all Warden positions and colors revealed!" : "ECHO LURE — a false rustle follows your aim. Special action spent.");
@@ -1644,7 +1822,7 @@ class OrdealEngine {
     for (const player of this.players) {
       if (player.ai && player.alive) accusations[player.id] = this.primeSuspect(player);
     }
-    this.activeMeeting = { reason, reporter, bodyReporterId, candidates: this.players.map((player) => ({ ...player })), accusations };
+    this.activeMeeting = { reason, reporter, bodyReporterId, votingOpensAt: Date.now() + MEETING_DISCUSSION_MS, endsAt: Date.now() + this.meetingSeconds * 1000, candidates: this.players.map((player) => ({ ...player })), accusations };
     this.audio.meetingAlert(reason.includes("PUDDLE") || reason.includes("BODY"));
     this.onMeeting(this.activeMeeting);
     this.emit(true);
@@ -1652,6 +1830,7 @@ class OrdealEngine {
 
   vote(targetId: string | null) {
     if (!this.paused || !this.activeMeeting || this.activeMeeting.tally || this.activeMeeting.votePending || this.activeMeeting.localVote) return;
+    if (Date.now() < (this.activeMeeting.votingOpensAt ?? 0)) return;
     if (targetId !== null && !this.players.some(player => player.id === targetId && player.alive)) return;
     this.audio.cue("vote");
     if (this.multiplayerClient) {
@@ -1861,13 +2040,15 @@ class OrdealEngine {
       taskMode: nearestStation && !nearestStation.completed ? (nearestStation.puzzle ? "PUZZLE" : "HOLD") : null,
       taskHoldProgress: nearestStation && nearestStation.label === this.taskHoldStation && !nearestStation.completed && !nearestStation.pending ? holdTaskProgress(this.taskHold) : 0,
       taskHolding: this.taskHold > 0 && (this.keys.has("KeyE") || this.touchKeys.has("KeyE")),
-      stationStatus: nearestStation ? { label: nearestStation.label, completed: nearestStation.completed, reward: nearestStation.reward, teamRestored: nearestStation.teamRestored, pending: nearestStation.pending } : null,
+      stationStatus: nearestStation ? { label: nearestStation.label, completed: nearestStation.completed, reward: nearestStation.reward, teamRestored: nearestStation.teamRestored, pending: nearestStation.pending, overgrown: nearestStation === this.overgrownShrine() } : null,
+      overgrownStation: this.overgrownShrine()?.label,
       rewardNotice: this.rewardNotice && this.elapsed < this.rewardNoticeUntil ? this.rewardNotice : null,
       humanAlive: this.human.alive,
       message: this.elapsed < this.messageUntil ? this.message : "",
       localPlayerId: this.human.id,
       pairRitual: this.pairRitual ?? null,
       locationName: sanctuaryZoneName(this.human.x, this.human.y),
+      utility: this.utilities ? { ...this.utilities.state(this.localPlayerId, Date.now()), cooldown: Math.ceil(this.utilities.state(this.localPlayerId, Date.now()).cooldownMs / 1000) } : undefined,
       navigation: {
         x: Math.round(this.human.x / 12) * 12,
         y: Math.round(this.human.y / 12) * 12,
@@ -1933,6 +2114,16 @@ class OrdealEngine {
   }
 
   update(dt: number) {
+    this.rootRipples = this.rootRipples.filter(ripple => ripple.until > this.elapsed);
+    this.utilityTrails = this.utilityTrails.filter(trail => trail.until > this.elapsed);
+    if (!this.multiplayerClient) {
+      if (this.phase !== "ORDEAL") this.utilities.roots = [];
+      for (const root of this.utilities.tick(this.players, Date.now())) {
+        if (dist(root, this.human) <= HEARING_RANGE && (this.hazard !== "ROOTWAKE" || sharesRootCell(root, this.human))) {
+          this.audio.cue("task-open"); this.caption = "A Watchroot chimed nearby — someone crossed it."; this.captionUntil = this.elapsed + 3;
+        }
+      }
+    }
     this.emergency = advanceEmergency(this.emergency, dt, this.phase);
     if (!this.multiplayerClient) {
       this.wardSettleTimer += dt;
@@ -1976,10 +2167,11 @@ class OrdealEngine {
                   : this.hazard === "ROOTWAKE"
                     ? "ROOTWAKE — six moon cells have sealed. Only your chamber remains visible."
                     : this.hazard === "MIRROR_POOL"
-                      ? "MIRROR POOL — controls are inverted for 25s! Bumping another warden swaps your colors."
+                      ? "MIRROR POOL — bumps swap colors, not controls. True colors return at Calm."
                       : "PHANTOM PROCESSION — false wardens now walk among the living.",
           );
         } else if (this.phase === "ORDEAL") {
+          this.restoreTrueColors();
           this.emergency = finishFirstOrdeal(this.emergency);
           this.audio.cue("calm");
           this.phase = "CALM";
@@ -2009,7 +2201,9 @@ class OrdealEngine {
         }
       }
       this.echoes = this.echoes.filter(echo => echo.until > this.elapsed);
-      for (const echo of this.echoes) if (this.elapsed >= echo.nextAt) { this.hearRustle(echo); echo.nextAt = this.elapsed + 0.36; }
+      for (const echo of this.echoes) if (this.elapsed >= echo.nextAt) {
+        this.hearRustle(lurePoint(echo, echo.angle, 1 - (echo.until - this.elapsed) / 2, this.hazard === "ROOTWAKE")); echo.nextAt = this.elapsed + 0.36;
+      }
     } else if (this.phase !== "ORDEAL") this.echoes = [];
     for (const body of this.bodies) body.age += dt;
     this.flares = this.flares.filter((flare) => (flare.life -= dt) > 0);
@@ -2054,7 +2248,7 @@ class OrdealEngine {
         }
       }
       this.inputSendTimer = (this.inputSendTimer || 0) + dt;
-      if (this.inputSendTimer >= 0.05) {
+      if (this.inputSendTimer >= 0.05 && !this.utilityPending) {
         this.inputSendTimer = 0;
         const aim = Number(Math.atan2(this.mouse.y - this.human.y, this.mouse.x - this.human.x).toFixed(2));
         const rx = Math.round(this.human.x);
@@ -2101,7 +2295,11 @@ class OrdealEngine {
     }
     if (this.multiplayerClient) return;
     const result = this.pairedRituals.tick(this.players, this.stations.map(station => ({ ...station, id: station.label })), (id, label) => id === this.human.id ? this.stations.some(station => station.label === label && station.completed) : this.botRites.get(id)?.has(label) ?? false, this.stationRound, this.elapsed * 1000, dt);
+    for (const [id, intent] of this.pairedRituals.intents) if (this.players.find(p => p.id === id)?.ai)
+      this.pairedRituals.autoPulse(id, intent.stationId, this.stationRound, this.elapsed * 1000);
     for (const { playerId, ...ritual } of result.updates) if (playerId === this.human.id) this.pairRitual = ritual.participants ? ritual : null;
+    for (const { nextPlayerId, stationId, rune } of result.updates) if (nextPlayerId && nextPlayerId !== this.human.id && this.players.find(p => p.id === nextPlayerId)?.ai)
+      this.pairedRituals.pulse(nextPlayerId, stationId, rune ?? 0, this.stationRound, this.elapsed * 1000);
     for (const point of result.sounds) this.hearRitual(point);
     for (const completion of result.completions) {
       const actor = this.players.find(player => player.id === completion.playerId), shrine = this.stations.find(station => station.label === completion.stationId);
@@ -2119,17 +2317,16 @@ class OrdealEngine {
     player.working = false;
     player.gearCharges[station.reward] = Math.min(3, player.gearCharges[station.reward] + 1);
     station.completedAt = this.elapsed;
-    if (player.role === "IMPOSTOR" || !this.wardClaims.has(station.label)) {
-      if (player.role === "CREWMATE") this.wardClaims.add(station.label);
-      station.teamRestored = true;
-      this.pendingWardDelta += ritualProgress(this.players.filter(p => p.alive && p.role === "CREWMATE").length, this.phase === "ORDEAL", player.role === "IMPOSTOR", this.initialHollows);
-    }
+    if (player.role === "CREWMATE") this.wardClaims.add(station.label);
+    station.teamRestored = true;
+    this.pendingWardDelta += this.restorationLedger.claim(station.label, this.players.filter(p => p.alive && p.role === "CREWMATE").length, this.phase === "ORDEAL", player.role === "IMPOSTOR", this.initialHollows, this.overgrownShrine() === station);
     player.atStation = (player.atStation + 1) % this.stations.length;
     player.thinkAt = 0;
   }
 
   updateHuman(dt: number) {
     const player = this.human;
+    if (this.utilityPending) { player.vx = 0; player.vy = 0; return; }
     if (!player.alive) {
       this.clearTaskHold();
       player.working = false;
@@ -2146,7 +2343,7 @@ class OrdealEngine {
       return;
     }
     const pressed = (code: string) => this.keys.has(code) || this.touchKeys.has(code);
-    const invert = this.phase === "ORDEAL" && this.hazard === "MIRROR_POOL";
+    const invert = false;
     const input = movementVector(Number(pressed("KeyD") || pressed("ArrowRight")) - Number(pressed("KeyA") || pressed("ArrowLeft")), Number(pressed("KeyS") || pressed("ArrowDown")) - Number(pressed("KeyW") || pressed("ArrowUp")), this.moveVector, invert);
     const dx = input.vx, dy = input.vy;
     if (this.pairStationId && !dx && !dy) { this.clearTaskHold(); player.vx = 0; player.vy = 0; player.working = true; return; }
@@ -2162,13 +2359,12 @@ class OrdealEngine {
     const nextY = clamp(intendedY, PLAYER_BOUNDS.top, PLAYER_BOUNDS.bottom);
     const impostorPhasing = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && player.role === "IMPOSTOR";
     const rootChecked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && !impostorPhasing
-      ? keepInRootCell(player, { x: nextX, y: nextY })
+      ? rootwakeMove(player, { x: nextX, y: nextY }, this.phaseTime)
       : { x: nextX, y: nextY };
     const vx = rootChecked.x !== intendedX ? 0 : player.vx;
     const vy = rootChecked.y !== intendedY ? 0 : player.vy;
-    const next = impostorPhasing
-      ? { ...rootChecked, vx, vy }
-      : resolveObstacleMovement(rootChecked.x, rootChecked.y, vx, vy, 22, this.obstacles);
+    const next = resolveObstacleMovement(rootChecked.x, rootChecked.y, vx, vy, 22, this.obstacles);
+    if (!this.multiplayerClient && impostorPhasing && !sharesRootCell(player, next)) this.hearRootRipple(next);
     player.vx = next.vx;
     player.vy = next.vy;
     player.x = next.x;
@@ -2256,9 +2452,10 @@ class OrdealEngine {
       const nextY = clamp(player.y + player.vy * dt, ROOM.top + 48, ROOM.bottom - 32);
       const impostorPhasing = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && player.role === "IMPOSTOR";
       const rootChecked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && !impostorPhasing
-        ? keepInRootCell(player, { x: nextX, y: nextY })
+        ? rootwakeMove(player, { x: nextX, y: nextY }, this.phaseTime)
         : { x: nextX, y: nextY };
-      const next = impostorPhasing ? rootChecked : resolveObstaclePosition(rootChecked.x, rootChecked.y, 22, this.obstacles);
+      const next = resolveObstaclePosition(rootChecked.x, rootChecked.y, 22, this.obstacles);
+      if (impostorPhasing && !sharesRootCell(player, next)) this.hearRootRipple(next);
       if (next.x !== nextX) player.vx *= -0.18;
       if (next.y !== nextY) player.vy *= -0.18;
       player.x = next.x;
@@ -2361,12 +2558,27 @@ class OrdealEngine {
     this.drawRoom(ctx);
     this.forestAtmosphere?.drawGround(ctx, this.obstacles);
     this.drawBeams(ctx);
+    this.drawUtilities(ctx);
+    for (const ripple of this.rootRipples) if (this.visibilityFor(ripple, this.human, false).kind !== "HIDDEN") {
+      const t = 1 - (ripple.until - this.elapsed) / .7;
+      ctx.save(); ctx.globalAlpha = 1 - t; ctx.strokeStyle = "#c1e7dc"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(ripple.x, ripple.y + 8, 14 + t * 35, 8 + t * 18, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+    }
     for (const body of this.bodies) this.drawBody(ctx, body);
     const moonGlareActive = this.phase === "ORDEAL" && this.hazard === "MOONGLARE";
     const phantomProcessionActive = this.phase === "ORDEAL" && this.hazard === "PHANTOMS";
     const rootwakeActive = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE";
     const moonSightActive = this.human.role === "IMPOSTOR" && this.elapsed < this.moonSightUntil;
     if (moonGlareActive && !moonSightActive) this.drawLighting(ctx);
+    if (moonGlareActive) {
+      ctx.save();
+      for (const pocket of SHADE_POCKETS) {
+        ctx.fillStyle = "rgba(27,46,89,.62)"; ctx.strokeStyle = "#b4d7fa"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(pocket.x, pocket.y, SHADE_RADIUS, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = "#e1edff"; ctx.font = "700 10px sans-serif"; ctx.textAlign = "center"; ctx.fillText("MOON SHADE", pocket.x, pocket.y + 66);
+      }
+      ctx.restore();
+    }
     type RenderItem =
       | { kind: "PLAYER"; y: number; player: Player; phantom: boolean }
       | { kind: "OBSTACLE"; y: number; obstacle: SanctuaryObstacle };
@@ -2433,6 +2645,16 @@ class OrdealEngine {
     if (this.phase === "COUNTDOWN" && this.hazard === "ROOTWAKE") {
       ctx.save(); ctx.strokeStyle = "#d8edb6b0"; ctx.lineWidth = 3; ctx.setLineDash([10, 9]);
       for (const wall of ROOT_BARRIERS) ctx.strokeRect(wall.x, wall.y, wall.w, wall.h);
+      ctx.restore();
+    }
+    if ((this.phase === "COUNTDOWN" || rootwakeActive) && this.hazard === "ROOTWAKE") {
+      const open = this.phase === "ORDEAL" && rootGatesOpen(this.phaseTime);
+      ctx.save(); ctx.strokeStyle = open ? "#dfefb7" : "#a1b8ee"; ctx.lineWidth = 4; ctx.textAlign = "center"; ctx.font = "800 10px sans-serif";
+      for (const x of ROOT_GATES) {
+        ctx.strokeRect(x - 64, ROOT_GATE_Y - 28, 128, 56);
+        ctx.fillStyle = open ? "#dfefb7" : "#bacff8";
+        ctx.fillText(open ? "DOOR OPEN" : "OPENS HALFWAY", x, ROOT_GATE_Y - 38);
+      }
       ctx.restore();
     }
     ctx.restore();
@@ -2550,6 +2772,11 @@ class OrdealEngine {
       const centerY = barrier.y + barrier.h / 2;
       const pulse = 0.5 + Math.sin(this.elapsed * 6 + barrierIndex) * 0.5;
       ctx.save();
+      if (horizontal && rootGatesOpen(this.phaseTime)) {
+        ctx.beginPath(); ctx.rect(0, 0, W, H);
+        for (const x of ROOT_GATES) ctx.rect(x - 64, ROOT_GATE_Y - 60, 128, 120);
+        ctx.clip("evenodd");
+      }
       ctx.translate(centerX, centerY);
       if (horizontal) ctx.rotate(Math.PI / 2);
       ctx.scale(0.75 + strength * 0.25, 0.08 + strength * 0.92);
@@ -2635,8 +2862,21 @@ class OrdealEngine {
   }
 
   renderStaticBackground() {
+    void loadFallenCat();
     drawMoonGlade(this.bgCtx);
-    this.bgCtx.save(); this.bgCtx.strokeStyle = "rgba(210,221,178,.13)"; this.bgCtx.lineWidth = 40; this.bgCtx.lineCap = "round";
+    // An open outer loop contrasts with the narrow direct shrine approaches.
+    // Route every segment around actual bases; this is paint, never new collision.
+    const loop = [{ x: 240, y: 260 }, { x: 1670, y: 260 }, { x: 1670, y: 920 }, { x: 240, y: 920 }, { x: 240, y: 260 }];
+    this.bgCtx.save(); this.bgCtx.strokeStyle = "rgba(167,159,139,.18)"; this.bgCtx.lineWidth = 70; this.bgCtx.lineCap = "round"; this.bgCtx.lineJoin = "round";
+    for (let i = 1; i < loop.length; i++) {
+      const route = planRoute(loop[i - 1], loop[i], false, this.obstacles);
+      this.bgCtx.beginPath(); this.bgCtx.moveTo(loop[i - 1].x, loop[i - 1].y);
+      for (const p of route) this.bgCtx.lineTo(p.x, p.y);
+      this.bgCtx.stroke();
+    }
+    this.bgCtx.fillStyle = "#a5b4b2"; this.bgCtx.font = "700 11px sans-serif"; this.bgCtx.textAlign = "center";
+    this.bgCtx.fillText("OPEN FOREST LOOP", 700, 253); this.bgCtx.restore();
+    this.bgCtx.save(); this.bgCtx.strokeStyle = "rgba(183,165,133,.14)"; this.bgCtx.lineWidth = 40; this.bgCtx.lineCap = "round";
     for (const station of this.stations) {
       const path = planRoute(CENTER, station, false, this.obstacles);
       this.bgCtx.beginPath(); this.bgCtx.moveTo(CENTER.x, CENTER.y);
@@ -2647,7 +2887,12 @@ class OrdealEngine {
   }
 
 
+  forestFloorPainted = false;
   drawRoom(ctx: CanvasRenderingContext2D) {
+    if (!this.forestFloorPainted && forestSpritesReady()) {
+      this.forestFloorPainted = true;
+      this.renderStaticBackground();
+    }
     // 1. Blit the pre-rendered static mountain sanctuary in 0.05ms
     ctx.drawImage(this.bgCanvas, 0, 0);
     this.drawRestoration(ctx);
@@ -2686,6 +2931,12 @@ class OrdealEngine {
 
   drawStation(ctx: CanvasRenderingContext2D, station: Station) {
     drawForestSanctum(ctx, station, this.elapsed, this.phase === "DISCUSSION", dist(station, this.human) < 128);
+    if (this.overgrownShrine() === station && !station.completed && this.phase !== "DISCUSSION") {
+      ctx.save(); ctx.strokeStyle = this.phase === "ORDEAL" ? "#ffe0a2" : "#aebeff"; ctx.lineWidth = 2;
+      ctx.setLineDash([7, 5]); ctx.beginPath(); ctx.ellipse(station.x, station.y + 20, 76, 40, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]); ctx.fillStyle = "#fff0c7"; ctx.font = "800 10px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(this.phase === "ORDEAL" ? "OVERGROWN · RISK A BLOOM" : "OVERGROWN · ORDEAL BONUS", station.x, station.y + 76); ctx.restore();
+    }
     if (this.pairRitual?.stationId === station.label && this.pairRitual.participants > 0) {
       ctx.save(); ctx.strokeStyle = "#e4d3f3a0"; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.ellipse(station.x, station.y + 18, 57, 24, 0, -.5 * Math.PI, -.5 * Math.PI + Math.max(.04, this.pairRitual.progress) * Math.PI * 2); ctx.stroke(); ctx.restore();
@@ -2767,6 +3018,16 @@ class OrdealEngine {
       ctx.arc(player.x, player.y, 330, angle - Math.PI / 8, angle + Math.PI / 8);
       ctx.closePath();
       ctx.fill();
+      // Skill 3: Lantern Blind circular golden flash burst upon lantern activation.
+      if (humanActive && this.itemActiveUntil - this.elapsed > 6.2) {
+        const flashT = (this.itemActiveUntil - this.elapsed - 6.2) / .8;
+        const burst = ctx.createRadialGradient(player.x, player.y, 4, player.x, player.y, 76);
+        burst.addColorStop(0, `rgba(255,252,210,${(.78 * flashT).toFixed(2)})`);
+        burst.addColorStop(.55, `rgba(255,216,98,${(.42 * flashT).toFixed(2)})`);
+        burst.addColorStop(1, "rgba(255,198,64,0)");
+        ctx.fillStyle = burst;
+        ctx.beginPath(); ctx.arc(player.x, player.y, 76, 0, Math.PI * 2); ctx.fill();
+      }
     }
     for (const flare of this.flares) {
       const radius = 142 * Math.min(1, flare.life * 2);
@@ -2778,6 +3039,19 @@ class OrdealEngine {
       ctx.beginPath();
       ctx.arc(flare.x, flare.y, radius, 0, Math.PI * 2);
       ctx.fill();
+      // Skill 1: Bounce Slam circular radial shockwaves ("AoE impact") on landing.
+      if (flare.life > 4.1) {
+        const slam = 1 - (flare.life - 4.1) / .9;
+        ctx.save();
+        ctx.strokeStyle = `rgba(214,196,255,${((1 - slam) * .68).toFixed(2)})`;
+        ctx.lineWidth = 2.2;
+        for (const ring of [1, .64]) {
+          ctx.beginPath();
+          ctx.ellipse(flare.x, flare.y + 8, (18 + slam * 54) * ring, (7 + slam * 20) * ring, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
 
       // Hardware-accelerated radial flare core glow
       const flareHalo = ctx.createRadialGradient(flare.x, flare.y, 2, flare.x, flare.y, 20);
@@ -2830,10 +3104,10 @@ class OrdealEngine {
     const speed = Math.hypot(player.vx, player.vy);
     const seed = Array.from(player.id).reduce((sum, letter) => (sum * 31 + letter.charCodeAt(0)) % 997, 0);
     const pose = this.slimeAnimator.sample(player, this.elapsed, this.reducedMotion);
-    const scaleX = pose.scaleX;
-    const scaleY = pose.scaleY;
+    const gait = sampleCatGait(player.id, player.vx, player.vy, pose.gazeX, pose.gazeY, this.elapsed, this.reducedMotion, player);
+    const idlePhase = this.reducedMotion ? 0 : this.elapsed * 1.7 + seed;
     const x = player.x;
-    const y = player.y + pose.offsetY;
+    const y = player.y;
     const baseColor = colorMuted ? muteHexColor(player.color) : player.color;
 
     ctx.save();
@@ -2855,13 +3129,13 @@ class OrdealEngine {
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    const contact = ctx.createRadialGradient(x, player.y + 29, 4, x, player.y + 29, 39);
+    const contact = ctx.createRadialGradient(x, player.y + 25, 4, x, player.y + 25, 36);
     contact.addColorStop(0, "rgba(1,8,13,.52)");
     contact.addColorStop(1, "rgba(1,8,13,0)");
     ctx.fillStyle = contact;
-    ctx.globalAlpha = visibilityAlpha * pose.shadowAlpha;
+    ctx.globalAlpha = visibilityAlpha * .92;
     ctx.beginPath();
-    ctx.ellipse(x, player.y + 31, 40 * pose.shadowScale, 11 * pose.shadowScale, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, player.y + 26, 34, 10, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = visibilityAlpha;
     if (this.phase === "CALM" && !silhouette && !colorMuted && identityAlpha > .8) {
@@ -2869,21 +3143,9 @@ class OrdealEngine {
     }
 
     ctx.save();
-    // Deform around the feet. Body, eyes and costume share one transform.
-    ctx.translate(x, y + 31);
-    ctx.transform(scaleX, 0, pose.shear, scaleY, 0, 0);
-    ctx.translate(0, -31);
-    if (silhouette || identityAlpha < 1) {
-      slimeOutline(ctx);
-      const gradient = ctx.createLinearGradient(-25, -38, 28, 38);
-      gradient.addColorStop(0, "rgba(137,150,157,.94)");
-      gradient.addColorStop(1, "rgba(63,75,84,.96)");
-      ctx.fillStyle = gradient;
-      ctx.strokeStyle = "rgba(31,42,49,.9)";
-      ctx.lineWidth = 1.3;
-      ctx.fill();
-      ctx.stroke();
-    }
+    // Grounded 4-legged cat stance: no slime hopping or jelly squash-and-stretch.
+    ctx.translate(x, y);
+    if (silhouette || identityAlpha < 1) drawAnimatedCat(ctx, { color: "#788993", concealed: true, direction: gait.direction, stridePhase: gait.stridePhase, strideAmount: gait.strideAmount, idlePhase, blink: false, tailTilt: pose.sproutTilt });
     if (silhouette) {
       ctx.restore();
       if (player.working && player.alive) {
@@ -2895,18 +3157,53 @@ class OrdealEngine {
     // Identity recedes ahead of the body: a neutral outline remains briefly
     // inside the mist boundary. No ghost trail survives a failed sight check.
     ctx.globalAlpha = visibilityAlpha * identityAlpha;
-    ctx.drawImage(slimeSkin(baseColor, !colorMuted, false), -48, -54, 96, 112);
-    if (!colorMuted) drawSlimeSprout(ctx, baseColor, pose.sproutTilt);
+    const completedStation = player.id === this.localPlayerId
+      ? this.stations.find((s) => s.completedAt !== undefined && this.elapsed - s.completedAt >= 0 && this.elapsed - s.completedAt < 1.3)
+      : undefined;
+    const completedPulse = completedStation && completedStation.completedAt !== undefined
+      ? 1 - (this.elapsed - completedStation.completedAt) / 1.3
+      : 0;
+    // Sealing Shrine (Task): glowing cyan rune tablet beneath the 4-legged cat's front paws.
+    if (player.working && player.alive && !colorMuted) {
+      const runePulse = .65 + Math.sin(this.elapsed * 6) * .25;
+      ctx.save();
+      ctx.fillStyle = `rgba(48,225,214,${(.22 * runePulse).toFixed(2)})`;
+      ctx.strokeStyle = `rgba(116,252,242,${(.75 * runePulse).toFixed(2)})`;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.ellipse(0, 26, 22, 6.5, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
     const blink = !this.reducedMotion && (this.elapsed + seed * 0.037) % 6.3 < 0.16;
-    ctx.save();
-    ctx.translate(pose.gazeX, pose.gazeY);
-    slimeEyes(ctx, blink, colorMuted, player.eyeStyle);
-    ctx.restore();
-    ctx.save();
-    ctx.translate(0, -43);
-    ctx.rotate(pose.hatTilt);
-    this.drawHat(ctx, player.hat, 0, 0, colorMuted);
-    ctx.restore();
+    const holdingLantern = player.flashlight || (player.id === this.localPlayerId && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil);
+    const activeEyeStyle = completedPulse > 0 ? "JOYFUL" : player.eyeStyle;
+    drawAnimatedCat(ctx, {
+      color: baseColor,
+      muted: colorMuted,
+      direction: gait.direction,
+      stridePhase: gait.stridePhase,
+      strideAmount: gait.strideAmount,
+      idlePhase,
+      blink,
+      eyeStyle: activeEyeStyle,
+      holdingLantern,
+      tailTilt: pose.sproutTilt,
+    });
+    // Task Complete!: celebratory sparkles around the bouncing 4-legged cat.
+    if (completedPulse > 0 && !this.reducedMotion && !colorMuted) {
+      ctx.save();
+      ctx.fillStyle = "#ffe26a";
+      for (const [sx, sy] of [[-38, -28], [38, -24], [-34, 12], [36, 10]]) {
+        const s = 2.5 + Math.sin(this.elapsed * 12 + sx) * 1.1;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy - s * 1.6); ctx.lineTo(sx + s * .5, sy - s * .5);
+        ctx.lineTo(sx + s * 1.6, sy); ctx.lineTo(sx + s * .5, sy + s * .5);
+        ctx.lineTo(sx, sy + s * 1.6); ctx.lineTo(sx - s * .5, sy + s * .5);
+        ctx.lineTo(sx - s * 1.6, sy); ctx.lineTo(sx - s * .5, sy - s * .5);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    }
+    drawWornAccessory(ctx, player.hat, gait.direction, colorMuted, gait.stridePhase, gait.strideAmount, "GAMEPLAY", idlePhase);
     ctx.restore();
     ctx.globalAlpha = visibilityAlpha * identityAlpha * identityAlpha;
     ctx.font = "900 12px ui-monospace, monospace";
@@ -2930,146 +3227,27 @@ class OrdealEngine {
   }
 
   drawDevourEffect(ctx: CanvasRenderingContext2D, event: DevourEvent, silhouette = false, killer?: Player, muted = false, alpha = 1) {
-    drawSlimeConsumption(ctx, event, (this.elapsed - event.startedAt) / event.duration, {
+    drawCatConsumption(ctx, event, (this.elapsed - event.startedAt) / event.duration, {
       concealed: silhouette || !event.killerId,
       muted,
       alpha,
       reducedMotion: this.reducedMotion,
       returnTo: killer,
-      motion: killer ? this.slimeAnimator.sample(killer, this.elapsed, this.reducedMotion) : undefined,
       eyes: killer?.eyeStyle,
-      drawHat: killer ? (context) => this.drawHat(context, killer.hat, 0, 0, muted) : undefined,
+      drawHat: killer ? (context, direction, phase, amount) => drawWornAccessory(context, killer.hat, direction, muted, phase, amount) : undefined,
     });
   }
 
   drawBody(ctx: CanvasRenderingContext2D, body: Body) {
     const sight = this.visibilityFor(body, this.human, false);
     if (sight.kind === "HIDDEN") return;
-    const color = sight.kind === "SHAPE" ? "#809097" : body.color;
-    const activeDevour = this.devourEvents.find((e) => e.id === body.id);
-    const devourProgress = activeDevour ? (this.elapsed - activeDevour.startedAt) / activeDevour.duration : 1;
-    if (activeDevour && devourProgress < .72) return;
-    const puddleScale = activeDevour ? clamp((devourProgress - .72) / .28, .05, 1) : 1;
-    const seed = Array.from(body.id).reduce((sum, ch) => (sum * 31 + ch.charCodeAt(0)) % 997, 0);
-    const t = this.elapsed * 2.6 + body.age + seed * 0.1;
-    const wobble = Math.sin(t) * 2.4;
-    const wobble2 = Math.cos(t * 0.85) * 2.1;
-
-    ctx.save();
-    ctx.globalAlpha = sight.alpha;
-    ctx.translate(body.x, body.y + 26);
-    ctx.scale(puddleScale, puddleScale);
-
-    // 1. Damp ground shadow beneath the puddle
-    const stain = ctx.createRadialGradient(0, 4, 8, 0, 4, 64);
-    stain.addColorStop(0, "rgba(3, 9, 15, 0.62)");
-    stain.addColorStop(0.7, "rgba(3, 9, 15, 0.28)");
-    stain.addColorStop(1, "rgba(3, 9, 15, 0)");
-    ctx.fillStyle = stain;
-    ctx.beginPath();
-    ctx.ellipse(0, 5, 62, 26, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 2. Satellite splatter droplets around the main puddle
-    const droplets = [
-      { x: -53, y: 9, rx: 8.5, ry: 5.2, rot: -0.25 },
-      { x: 51, y: 11, rx: 7.5, ry: 4.8, rot: 0.3 },
-      { x: -37, y: -17, rx: 6.2, ry: 4.0, rot: -0.4 },
-      { x: 40, y: -14, rx: 7.0, ry: 4.4, rot: 0.35 },
-      { x: 15, y: 23, rx: 6.8, ry: 3.8, rot: 0.12 },
-      { x: -19, y: 22, rx: 5.2, ry: 3.2, rot: -0.18 },
-    ];
-    ctx.fillStyle = `${color}c4`;
-    ctx.strokeStyle = "#0d1520";
-    ctx.lineWidth = 2.6;
-    for (const [idx, d] of droplets.entries()) {
-      const pulse = Math.sin(t + idx * 1.3) * 0.6;
-      ctx.beginPath();
-      ctx.ellipse(d.x, d.y, d.rx + pulse, d.ry - pulse * 0.4, d.rot, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
-
-    // 3. Outer spreading slime puddle (multi-lobed organic shape)
-    ctx.fillStyle = `${color}b8`;
-    ctx.strokeStyle = "#0d1520";
-    ctx.lineWidth = 4.5;
-    ctx.beginPath();
-    ctx.moveTo(-48, 4);
-    ctx.bezierCurveTo(-52, -12, -32, -20 - wobble, -14, -15 + wobble2 * 0.5);
-    ctx.bezierCurveTo(-2, -25 - wobble2, 22, -24 + wobble, 35, -12);
-    ctx.bezierCurveTo(52, -6, 56, 10 + wobble, 41, 16);
-    ctx.bezierCurveTo(28, 24 + wobble2, 8, 20, -5, 22 - wobble * 0.6);
-    ctx.bezierCurveTo(-24, 25, -45, 18 - wobble2, -48, 4);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // 4. Inner thicker slime core pool
-    ctx.fillStyle = color;
-    ctx.globalAlpha = sight.alpha * 0.88;
-    ctx.beginPath();
-    ctx.moveTo(-33, 3);
-    ctx.bezierCurveTo(-35, -8, -18, -13 - wobble * 0.6, -4, -10);
-    ctx.bezierCurveTo(10, -16 - wobble2 * 0.6, 27, -11, 31, 1);
-    ctx.bezierCurveTo(36, 11, 16, 15 + wobble * 0.5, 2, 13);
-    ctx.bezierCurveTo(-14, 16, -31, 12, -33, 3);
-    ctx.closePath();
-    ctx.fill();
-    ctx.globalAlpha = sight.alpha;
-
-    // 5. Glossy wet liquid highlights
-    ctx.fillStyle = "rgba(255, 255, 255, 0.58)";
-    ctx.beginPath();
-    ctx.ellipse(-16, -8 - wobble * 0.3, 13, 4.2, -0.22, 0, Math.PI * 2);
-    ctx.ellipse(14, -9 + wobble2 * 0.3, 8.5, 3.0, 0.28, 0, Math.PI * 2);
-    ctx.ellipse(-4, 10, 9.5, 2.6, 0.08, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 6. Simmering slime bubbles on the puddle surface
-    const bubbles = [
-      { x: -24, y: 4, baseR: 4.2, phase: 0 },
-      { x: 21, y: 5, baseR: 3.6, phase: 2.1 },
-      { x: 4, y: -5, baseR: 3.2, phase: 4.2 },
-    ];
-    for (const b of bubbles) {
-      const cycle = (this.elapsed * 1.4 + b.phase + seed * 0.05) % 1;
-      const r = b.baseR * (0.55 + cycle * 0.65);
-      const alpha = cycle < 0.85 ? 0.75 : (1 - cycle) * 5;
-      ctx.save();
-      ctx.globalAlpha = sight.alpha * alpha;
-      ctx.fillStyle = "rgba(255, 255, 255, 0.28)";
-      ctx.strokeStyle = "#0d1520";
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
-      ctx.beginPath();
-      ctx.arc(b.x - r * 0.3, b.y - r * 0.3, Math.max(1, r * 0.28), 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // 7. Dissolved slime eyes floating in the puddle after the devouring maw finishes
-    if (devourProgress >= 0.6) {
-      const eyeAlpha = clamp((devourProgress - 0.6) / 0.25, 0, 1);
-      ctx.save();
-      ctx.globalAlpha = sight.alpha * eyeAlpha * 0.9;
-      ctx.fillStyle = "#11161f";
-      ctx.beginPath();
-      ctx.ellipse(-9, 1 + wobble * 0.25, 4.2, 3.0, -0.35, 0, Math.PI * 2);
-      ctx.ellipse(9, 3 - wobble2 * 0.25, 4.0, 2.8, 0.42, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
-      ctx.beginPath();
-      ctx.arc(-10.2, 0.2 + wobble * 0.25, 1.2, 0, Math.PI * 2);
-      ctx.arc(7.8, 2.2 - wobble2 * 0.25, 1.1, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
-
+    const activeDevour = this.devourEvents.find(e => e.id === body.id);
+    const progress = activeDevour ? (this.elapsed - activeDevour.startedAt) / activeDevour.duration : 1;
+    if (progress < .72) return;
+    const revealScale = activeDevour ? clamp((progress - .72) / .28, .05, 1) : 1;
+    ctx.save(); ctx.globalAlpha = sight.alpha;
+    ctx.translate(body.x, body.y + 26); ctx.scale(revealScale, revealScale);
+    drawFallenCat(ctx, body.color, sight.kind === "SHAPE");
     ctx.restore();
   }
 
@@ -3320,13 +3498,13 @@ class OrdealEngine {
         label = "MOON GLARE • IDENTITIES BLEACHED";
         labelColor = "rgba(51,63,78,.94)";
       } else if (this.hazard === "ROOTWAKE") {
-        label = "ROOTWAKE • YOUR MOON CELL IS SEALED";
+        label = rootGatesOpen(this.phaseTime) ? "ROOTWAKE • MOON DOORS ARE OPEN" : "ROOTWAKE • DOORS OPEN HALFWAY";
         labelColor = "rgba(137,245,170,.96)";
       } else if (this.hazard === "PHANTOMS") {
         label = "PHANTOM PROCESSION • TRUST YOUR ECHO BELL";
         labelColor = "rgba(172,159,255,.96)";
       } else if (this.hazard === "MIRROR_POOL") {
-        label = "MIRROR POOL • CONTROLS INVERTED & BUMP SWAPS COLORS";
+        label = "MIRROR POOL • BUMPS SWAP COLORS, NOT CONTROLS";
         labelColor = "rgba(139,233,253,.96)";
       }
       if (moonSightActive) {
@@ -3365,6 +3543,10 @@ const COLOR_NAMES: Record<string, string> = {
 };
 
 const HAT_META: Record<Hat, { label: string; title: string }> = {
+  moonbell: { label: "MOONBELL", title: "Moonbell Collar" },
+  leafband: { label: "LEAF BAND", title: "Woodland Bandana" },
+  starlock: { label: "STARLOCK", title: "Starlight Collar" },
+  mothbow: { label: "MOTH BOW", title: "Moonmoth Bow" },
   antlers: { label: "ANTLERS", title: "Elder Bough" },
   hood: { label: "HOOD", title: "Nightveil" },
   moth: { label: "MOTH", title: "Lunar Crest" },
@@ -3381,7 +3563,7 @@ function HatGraphic({ hat }: { hat: Hat }) {
     context.clearRect(0, 0, width, height);
     drawAccessory(context, hat, anchorX, anchorY);
   }, [hat]);
-  return <canvas ref={ref} width={ACCESSORY_FRAME.width * ACCESSORY_FRAME.pixelRatio} height={ACCESSORY_FRAME.height * ACCESSORY_FRAME.pixelRatio} className={`slime-hat-svg hat-${hat}`} aria-hidden="true" />;
+  return <canvas ref={ref} width={ACCESSORY_FRAME.width * ACCESSORY_FRAME.pixelRatio} height={ACCESSORY_FRAME.height * ACCESSORY_FRAME.pixelRatio} className={`slime-hat-svg hat-${hat} ${isCollar(hat) ? "cat-collar-svg" : "cat-headwear-svg"}`} aria-hidden="true" />;
 }
 function SlimeAvatar({
   color,
@@ -3389,12 +3571,18 @@ function SlimeAvatar({
   eyeStyle,
   size = "md",
   isBot = false,
+  greeting = false,
+  homePose = false,
+  animated = true,
 }: {
   color: string;
   hat: Hat;
   eyeStyle?: EyeStyle;
   size?: "sm" | "md" | "lg";
   isBot?: boolean;
+  greeting?: boolean;
+  homePose?: boolean;
+  animated?: boolean;
 }) {
   return (
     <div
@@ -3403,8 +3591,7 @@ function SlimeAvatar({
       aria-hidden="true"
     >
       <span className="slime-avatar-motion">
-        <HatGraphic hat={hat} />
-        <SlimePortrait color={color} eyeStyle={eyeStyle} />
+        <SlimePortrait color={color} eyeStyle={eyeStyle} accessory={hat} greeting={greeting} pose={homePose ? "SEATED" : "GAMEPLAY"} animated={animated} />
       </span>
     </div>
   );
@@ -3573,18 +3760,28 @@ function Lobby({
   multiplayerClient?: MultiplayerClient | null;
   mpState?: MultiplayerState | null;
 }) {
-  const [tab, setTab] = useState<"SOLO" | "MULTI">("MULTI");
+  const [menuHistory, setMenuHistory] = useState<MenuScreen[]>(["HOME"]);
+  const menuScreen = menuHistory[menuHistory.length - 1];
+  const tab = menuScreen === "SOLO" || menuScreen === "LOOK" ? "SOLO" : "MULTI";
+  const [roomPane, setRoomPane] = useState<"CREW" | "CHAT" | "SETTINGS" | "LOOK">("CREW");
+  const [lookPane, setLookPane] = useState<"COLOR" | "HAT" | "EYES">("COLOR");
+  const [roomPage, setRoomPage] = useState(0);
   const [previewMood, setPreviewMood] = useState<"CALM" | "FOG" | "BLACKOUT">("CALM");
   const [previewSpeaker, setPreviewSpeaker] = useState(2);
   const [previewQuip, setPreviewQuip] = useState(0);
   const [studioView, setStudioView] = useState<"WARDEN" | "CIRCLE">("WARDEN");
   const [players, setPlayers] = useState(6);
   const [role, setRole] = useState<RoleChoice>("RANDOM");
+  const [utility, setUtility] = useState<UtilityKind>("WISP_STEP");
+  const [difficulty, setDifficulty] = useState<RitualDifficulty>("STANDARD");
+  const [meetingSeconds, setMeetingSeconds] = useState(75);
 
   // Interactive preview stage state
   const [stagePointer, setStagePointer] = useState({ x: 50, y: 52, gazeX: 0, gazeY: 0, active: false });
   const [boopedWarden, setBoopedWarden] = useState<{ index: number; emote: string; seq: number } | null>(null);
   const [isGroupWaving, setIsGroupWaving] = useState(false);
+  const waveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (waveTimer.current) clearTimeout(waveTimer.current); }, []);
   const [moonPulse, setMoonPulse] = useState(0);
   const [isLaunching, setIsLaunching] = useState(false);
   const [motionPaused, setMotionPaused] = useState(false);
@@ -3592,7 +3789,7 @@ function Lobby({
   // Multiplayer form state (deterministic initial render, randomized callsign on mount)
   const [nickname, setNickname] = useState(WARDEN_CALLSIGNS[0]);
   const [selectedColor, setSelectedColor] = useState(COLORS[0]);
-  const [selectedHat, setSelectedHat] = useState<Hat>("antlers");
+  const [selectedHat, setSelectedHat] = useState<Hat>("moonbell");
   const [selectedEyes, setSelectedEyes] = useState<EyeStyle>("FIERCE");
   const [joinCode, setJoinCode] = useState("");
   const [botFill, setBotFill] = useState(true);
@@ -3601,7 +3798,6 @@ function Lobby({
   const [chaosMoonsway, setChaosMoonsway] = useState(false);
   const [copied, setCopied] = useState(false);
   const [hideRoomCode, setHideRoomCode] = useState(false);
-  const [editingInRoom, setEditingInRoom] = useState(true);
   const [lobbyChatDraft, setLobbyChatDraft] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
   const [isRefreshingRooms, setIsRefreshingRooms] = useState(false);
@@ -3622,6 +3818,8 @@ function Lobby({
   const occupiedColors = new Set(mpState?.players.filter((p) => p.id !== mpState.playerId).map((p) => p.color) ?? []);
   const occupiedNames = mpState?.players.filter((p) => p.id !== mpState.playerId).map((p) => p.name) ?? [];
   const showRoomResults = Boolean(mpState?.connected && roomsChecked);
+  const roomWindow = pageWindow(mpState?.openRooms.length ?? 0, roomPage);
+  const screenTitleRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     // Randomize only after hydration so the server/client first render agrees.
@@ -3630,8 +3828,18 @@ function Lobby({
   }, []);
 
   useEffect(() => {
-    lobbyConsoleRef.current?.scrollTo(0, 0);
-  }, [inRoom, tab]);
+    screenTitleRef.current?.focus({ preventScroll: true });
+  }, [inRoom, menuScreen]);
+
+  useEffect(() => {
+    if (inRoom) return;
+    const back = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector("dialog[open]")) return;
+      setMenuHistory(history => history.length > 1 ? history.slice(0, -1) : history);
+    };
+    window.addEventListener("keydown", back);
+    return () => window.removeEventListener("keydown", back);
+  }, [inRoom]);
 
   useEffect(() => {
     if (!multiplayerClient) return;
@@ -3688,12 +3896,16 @@ function Lobby({
 
   const handleSwitchTab = (nextTab: "SOLO" | "MULTI") => {
     if (nextTab !== tab) playLobbySfx("switch", nextTab === "SOLO" ? 1 : 0);
-    setTab(nextTab);
     setMpError("");
     multiplayerClient?.clearError();
-    if (nextTab === "MULTI" && !inRoom) {
-      void handleRefreshRooms();
-    }
+  };
+
+  const navigateMenu = (screen: MenuScreen) => {
+    playLobbySfx("switch", screen === "SOLO" ? 1 : 0);
+    if (screen === "SOLO" || screen === "LOOK") handleSwitchTab("SOLO");
+    else if (screen === "MULTI" || screen === "ROOMS") handleSwitchTab("MULTI");
+    setMenuHistory(history => [...history, screen]);
+    if (screen === "ROOMS") { setRoomPage(0); void handleRefreshRooms(); }
   };
 
   const triggerWardenBoop = (index: number, customEmote?: string) => {
@@ -3703,10 +3915,11 @@ function Lobby({
   };
 
   const handleStageWave = () => {
+    if (isGroupWaving) return;
     playLobbySfx("wave");
     setIsGroupWaving(true);
     setPreviewQuip((q) => q + 1);
-    window.setTimeout(() => setIsGroupWaving(false), 780);
+    waveTimer.current = setTimeout(() => setIsGroupWaving(false), 800);
   };
 
   const handleCycleColor = () => {
@@ -3768,6 +3981,7 @@ function Lobby({
     playLobbySfx("launch");
     setIsLaunching(true);
     const launchProfile: SoloProfile = {
+      utility, difficulty, meetingSeconds,
       name: availablePlayerName(nickname, []),
       color: selectedColor,
       hat: selectedHat,
@@ -3786,11 +4000,15 @@ function Lobby({
     setMpError("");
     multiplayerClient.clearError();
     setIsConnecting(true);
+    setRoomPane("CREW");
     try {
       await multiplayerClient.connect();
       const callsign = availablePlayerName(nickname, []);
       setNickname(callsign);
       multiplayerClient.createRoom(callsign, selectedColor, selectedHat, selectedEyes);
+      multiplayerClient.setUtility(utility);
+      multiplayerClient.setDifficulty(difficulty);
+      multiplayerClient.setMeetingDuration(meetingSeconds);
     } catch (error) {
       if (roomAttemptRef.current === attempt) {
         roomAttemptRef.current = null;
@@ -3810,11 +4028,13 @@ function Lobby({
     setMpError("");
     multiplayerClient.clearError();
     setIsConnecting(true);
+    setRoomPane("CREW");
     try {
       await multiplayerClient.connect();
       const callsign = availablePlayerName(nickname, []);
       setNickname(callsign);
       multiplayerClient.joinRoom(codeToJoin, callsign, selectedColor, selectedHat, selectedEyes);
+      multiplayerClient.setUtility(utility);
     } catch (error) {
       if (roomAttemptRef.current === attempt) {
         roomAttemptRef.current = null;
@@ -3871,7 +4091,7 @@ function Lobby({
       : -1;
 
   return (
-    <main className={`lobby-shell moon-studio ${inRoom ? "studio-in-room" : "studio-at-home"} ${isLaunching ? "studio-launching" : ""} ${motionPaused ? "home-motion-paused" : ""}`}>
+    <main data-menu={inRoom ? "ROOM" : menuScreen} data-room-pane={roomPane} data-look-pane={lookPane} className={`lobby-shell moon-studio game-menu-shell ${inRoom ? "studio-in-room" : "studio-at-home"} ${isLaunching ? "studio-launching" : ""} ${motionPaused ? "home-motion-paused" : ""}`}>
       {!inRoom && <HomeAtmosphere />}
       {isLaunching && (
         <div className="studio-launch-portal" aria-hidden="true">
@@ -3882,6 +4102,12 @@ function Lobby({
       <div className="studio-frame">
       <header className="lobby-nav">
         <Logo />
+        {inRoom && mpState ? <div className="room-header-actions">
+          <span>{myNetPlayer?.name || nickname}</span>
+          <button type="button" className="wardrobe-toggle-btn" aria-pressed={roomPane === "LOOK"} onClick={() => setRoomPane(roomPane === "LOOK" ? "CREW" : "LOOK")}>{roomPane === "LOOK" ? "← Players" : "✎ Customize"}</button>
+          {!mpState.isHost ? <button type="button" className={`ready-toggle-btn ${myNetPlayer?.ready ? "is-ready" : ""}`} aria-pressed={!!myNetPlayer?.ready} disabled={!mpState.connected} onClick={() => multiplayerClient?.toggleReady()}>{myNetPlayer?.ready ? "✓ Ready" : "Mark ready"}</button> : null}
+        </div> : null}
+        {!inRoom && menuScreen !== "HOME" ? <div className="menu-screen-heading"><button type="button" className="menu-back" onClick={() => setMenuHistory(history => history.slice(0, -1))} aria-label="Back to previous menu">← Back</button><h1 ref={screenTitleRef} tabIndex={-1}>{MENU_TITLES[menuScreen]}</h1></div> : null}
         {!inRoom && <button className="home-motion-toggle" type="button" aria-pressed={motionPaused} onClick={() => { setMotionPaused(!motionPaused); handleStagePointerLeave(); }}>{motionPaused ? "▷ Resume animations" : "Ⅱ Pause animations"}</button>}
         <div className="nav-status">
           <span />
@@ -3896,33 +4122,10 @@ function Lobby({
       </header>
 
       <section className={`lobby-grid ${tab === "MULTI" ? "lobby-grid-multi" : ""} ${inRoom ? "lobby-grid-room" : ""}`}>
-        <aside className="studio-guide" aria-label="Moonwarden game guide">
-          <div className="eyebrow"><span>☽ SILVERPINE SUMMIT</span><small>A SOCIAL DEDUCTION ADVENTURE</small></div>
-          <h1>Little slimes.<br /><em>Big suspicions.</em></h1>
-          <p className="lede">Your friends. A magical forest.<br className="home-copy-break" /> One friend is secretly The Hollow.</p>
-          {!inRoom && tab === "MULTI" && <div className="home-play-shortcuts"><button type="button" onClick={handleCreateRoom} disabled={isConnecting || !multiplayerClient}>{isConnecting ? "Connecting…" : "Create a room"}<span aria-hidden="true">↗</span></button><a href="#home-room-code">Join with a code <span aria-hidden="true">↓</span></a></div>}
-          <div className="home-hero-tags"><span>✦ 4–8 wardens</span><span>No download</span><span>Free to play</span></div>
-          <div className="lobby-mode-switch" role="tablist" aria-label="Game Mode">
-            <button role="tab" aria-selected={tab === "MULTI"} className={tab === "MULTI" ? "active" : ""} onClick={() => handleSwitchTab("MULTI")}>
-              <span>✦ MULTIPLAYER</span><span className="live-pill">{inRoom ? "IN ROOM" : "WITH FRIENDS"}</span>
-            </button>
-            <button role="tab" aria-selected={tab === "SOLO"} className={tab === "SOLO" ? "active" : ""} disabled={inRoom} title={inRoom ? "Leave your room before starting solo practice" : "Practice with AI wardens"} onClick={() => handleSwitchTab("SOLO")}>
-              <span>Practice with AI</span>
-            </button>
-          </div>
-          <details className="studio-guide-steps">
-            <summary>How to Play</summary>
-            <div><span>01</span><p><b>Gather your circle</b><small>Create a room. Share your ward code.</small></p></div>
-            <div><span>02</span><p><b>Brave the Ordeals</b><small>Restore shrines. Earn gear. Your sight is local; trees block your view. Use the forest map to navigate.</small></p></div>
-            <div><span>03</span><p><b>Discuss. Vote. Repeat.</b><small>Uncover The Hollow hiding in your circle.</small></p></div>
-          </details>
-          <div className="home-game-tags" aria-label="About the game">
-            <span>4–8 wardens</span><span>One hidden Hollow</span><span>Play in your browser</span>
-          </div>
-          <div className="studio-guide-note"><span aria-hidden="true">☽</span><p>Trust the light.<br /><b>Question everyone else.</b></p></div>
-        </aside>
+        {!inRoom && menuScreen === "HOME" ? <GameMenu onNavigate={navigateMenu} /> : null}
+        {!inRoom && menuScreen === "GUIDE" ? <CompactFieldGuide /> : null}
 
-        <div className="lobby-copy studio-stage">
+        <div className="lobby-copy studio-stage" hidden={inRoom || !["HOME", "LOOK"].includes(menuScreen)}>
           <div className="studio-view-switch" role="group" aria-label="Character preview view">
             <button
               type="button"
@@ -3979,10 +4182,10 @@ function Lobby({
             <div className="preview-orbit" aria-hidden="true" />
             <div className="preview-fireflies" aria-hidden="true">{Array.from({ length: 8 }, (_, i) => <i key={i} style={{ "--i": i, "--top": `${16 + (i * 23) % 70}%` } as React.CSSProperties} />)}</div>
             <div className="stage-quick-bar" role="toolbar" aria-label="Quick stage actions">
-              <button type="button" onClick={handleCycleColor} title="Cycle slime color">🎨 Hue</button>
-              <button type="button" onClick={handleCycleHat} title="Cycle headdress">🎩 Hat</button>
+              <button type="button" onClick={handleCycleColor} title="Cycle cat coat color">🎨 Hue</button>
+              <button type="button" onClick={handleCycleHat} title="Cycle accessory">✦ Accessory</button>
               <button type="button" onClick={handleCycleEyes} title="Cycle eye expression">👀 Eyes</button>
-              <button type="button" onClick={handleStageWave} title="Make the wardens wave">✨ Wave</button>
+              <button type="button" onClick={handleStageWave} title="Say hello to the wardens">✨ Say hi</button>
             </div>
             <div className="preview-dialogue" role="status" aria-live="polite" key={`${previewSpeaker}-${previewQuip}`}>
               <b>{previewSpeaker === 2 ? nickname.trim() || WARDEN_CALLSIGNS[0] : CIRCLE_WARDEN_NAMES[previewSpeaker]}:</b>{" "}
@@ -4013,7 +4216,7 @@ function Lobby({
                       {boopedWarden.emote}
                     </span>
                   )}
-                  <SlimeAvatar color={showcaseColor} hat={showcaseHat} eyeStyle={index === 2 ? selectedEyes : EYE_STYLES[index % EYE_STYLES.length]} size="lg" />
+                  <SlimeAvatar color={showcaseColor} hat={showcaseHat} eyeStyle={index === 2 ? selectedEyes : EYE_STYLES[index % EYE_STYLES.length]} size="lg" homePose animated={!motionPaused} greeting={isGroupWaving && !motionPaused} />
                   <span className="preview-name">{index === 2 ? "YOU" : CIRCLE_WARDEN_NAMES[index]}</span>
                 </button>
               );
@@ -4038,12 +4241,12 @@ function Lobby({
           </div>
         </div>
 
-        <div ref={lobbyConsoleRef} className={`lobby-console ${tab === "MULTI" ? "lobby-console-multi" : ""} ${inRoom ? "lobby-console-room" : ""}`}>
+        <div ref={lobbyConsoleRef} hidden={!inRoom && ["HOME", "GUIDE"].includes(menuScreen)} className={`lobby-console ${tab === "MULTI" ? "lobby-console-multi" : ""} ${inRoom ? "lobby-console-room" : ""}`}>
           <div className="console-head">
             <div>
               <span className="status-dot" />
               {tab === "SOLO"
-                ? "SOLO PRACTICE"
+                ? MENU_TITLES[menuScreen]
                 : inRoom
                   ? `SANCTUARY CIRCLE • ROOM ${hideRoomCode ? "••••" : mpState?.roomCode}`
                   : "GATHER YOUR CIRCLE"}
@@ -4070,17 +4273,15 @@ function Lobby({
                   multiplayerClient?.disconnect();
                   multiplayerClient?.clearError();
                   setMpError("");
-                  setEditingInRoom(false);
+                  setRoomPane("CREW");
                 }}>RETURN TO LOBBY</button>
               </div>
             )}
 
             <div className="console-panel-stage" key={inRoom ? "room" : tab}>
-            {tab === "SOLO" ? (
+            {!inRoom && tab === "SOLO" ? (
               <>
-                <p className="solo-practice-note">A quiet rehearsal with AI wardens. Customize your slime, learn the shrines, and brave the Ordeals.</p>
-
-                <section className="home-wardrobe solo-wardrobe" aria-label="Customize your Warden">
+                <section hidden={menuScreen !== "LOOK"} className="home-wardrobe solo-wardrobe" aria-label="Customize your Warden">
                   <div className="wardrobe-summary-bar">
                     <SlimeAvatar color={selectedColor} hat={selectedHat} eyeStyle={selectedEyes} size="sm" />
                     <span>
@@ -4092,8 +4293,10 @@ function Lobby({
                       🎲 RANDOM
                     </button>
                   </div>
+                  <nav className="menu-tabs look-tabs" aria-label="Customize category">{(["COLOR", "HAT", "EYES"] as const).map(pane => <button type="button" key={pane} aria-pressed={lookPane === pane} onClick={() => setLookPane(pane)}>{pane === "COLOR" ? "Color" : pane === "HAT" ? "Accessories" : "Eyes"}</button>)}</nav>
                   <div className="mp-customizer-card">
                     <div className="mp-customizer-controls">
+                      <div className="look-name">
                       <label className="field-label" htmlFor="solo-nickname">
                         CALLSIGN <span>{nickname.length}/16</span>
                       </label>
@@ -4105,7 +4308,8 @@ function Lobby({
                         onChange={(e) => setNickname(e.target.value)}
                         placeholder="Enter your warden name…"
                       />
-
+                      </div>
+                      <div hidden={lookPane !== "COLOR"}>
                       <div className="field-label" style={{ marginTop: 12 }}>
                         SLIME HUE <span>{COLOR_NAMES[selectedColor]}</span>
                       </div>
@@ -4125,11 +4329,12 @@ function Lobby({
                           </button>
                         ))}
                       </div>
-
-                      <div className="field-label">
-                        HEADDRESS <span>{HAT_META[selectedHat].title.toUpperCase()}</span>
                       </div>
-                      <div className="mp-hat-row" role="group" aria-label="Hat selection">
+                      <div hidden={lookPane !== "HAT"}>
+                      <div className="field-label">
+                        ACCESSORY <span>{HAT_META[selectedHat].title.toUpperCase()}</span>
+                      </div>
+                      <div className="mp-hat-row" role="group" aria-label="Accessory selection">
                         {HATS.map((h, idx) => (
                           <button
                             key={h}
@@ -4145,35 +4350,44 @@ function Lobby({
                           </button>
                         ))}
                       </div>
-                      <EyeStylePicker value={selectedEyes} onChange={(eyes) => { playLobbySfx("customize", 5); triggerWardenBoop(2, "👀"); setSelectedEyes(eyes); }} />
+                      </div>
+                      <div hidden={lookPane !== "EYES"}><EyeStylePicker value={selectedEyes} onChange={(eyes) => { playLobbySfx("customize", 5); triggerWardenBoop(2, "👀"); setSelectedEyes(eyes); }} /></div>
                     </div>
                   </div>
                 </section>
-
-                <label className="field-label" htmlFor="player-count" style={{ marginTop: 14 }}>WARDEN CIRCLE <span>{players} SLOTS</span></label>
+                <div className="solo-settings" hidden={menuScreen !== "SOLO"}>
+                <div className="practice-profile"><SlimeAvatar color={selectedColor} hat={selectedHat} eyeStyle={selectedEyes} size="sm" /><b>{nickname}</b><button type="button" onClick={() => navigateMenu("LOOK")}>Customize →</button></div>
+                <p className="solo-practice-note">Practice movement and rituals with AI. Human lobbies are the real deduction experience.</p>
+                <div className="ritual-loadout">
+                  <label>Rituals<select value={difficulty} onChange={event => setDifficulty(event.target.value as RitualDifficulty)}><option value="STANDARD">Standard</option><option value="CHALLENGING">Challenging</option></select></label>
+                  <label>Meeting limit<select value={meetingSeconds} onChange={event => setMeetingSeconds(Number(event.target.value))}>{[60, 75, 90].map(seconds => <option key={seconds} value={seconds}>{seconds}s</option>)}</select></label>
+                  <label>Your utility<select value={utility} onChange={event => setUtility(event.target.value as UtilityKind)}><option value="WISP_STEP">Wisp Step · dash</option><option value="WATCHROOT">Watchroot · alarm</option></select></label>
+                  <small>Both roles · shrine-earned charge · Ordeal only</small>
+                </div>
+                <div className="practice-setting">
+                <label className="field-label" htmlFor="player-count">PLAYERS <span>{players} INCLUDING YOU</span></label>
                 <input id="player-count" className="player-range" type="range" min="4" max="8" value={players} onChange={(event) => setPlayers(Number(event.target.value))} />
                 <div className="range-labels"><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
-
-                <div className="field-label role-label">TEST IDENTITY <span>PRIVATE TO THIS CLIENT</span></div>
-                <label className="field-label" htmlFor="solo-hollow-count">HOLLOWS <span>DEFAULT 1 · MAX HALF THE CIRCLE</span></label>
+                </div>
+                <div className="practice-setting">
+                <label className="field-label" htmlFor="solo-hollow-count">HOLLOWS <span>1 RECOMMENDED · 2 AT 7–8 PLAYERS</span></label>
                 <select id="solo-hollow-count" className="mp-field" value={clampHollowCount(hollowCount, players)} onChange={event => setHollowCount(Number(event.target.value))}>
-                  {Array.from({ length: Math.floor(players / 2) }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} {i ? "Hollows" : "Hollow"}</option>)}
+                  {Array.from({ length: players >= 7 ? 2 : 1 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} {i ? "Hollows · advanced" : "Hollow · recommended"}</option>)}
                 </select>
-                <label className="chaos-setting"><input type="checkbox" checked={chaosMoonsway} onChange={event => setChaosMoonsway(event.target.checked)} /><span>Chaos · Moonsway<small>Optional: body reporters have a 25% chance of a redirected vote. Off by default.</small></span></label>
+                </div>
+                <div className="practice-setting">
+                <div className="field-label">YOUR ROLE</div>
                 <div className="role-switch" role="group" aria-label="Choose test role">
                   {(["RANDOM", "CREWMATE", "IMPOSTOR"] as RoleChoice[]).map((value) => (
                     <button key={value} className={role === value ? "active" : ""} onClick={() => { playLobbySfx("switch", 1); setRole(value); }}>{value === "RANDOM" ? "AUTO" : ROLE_LABELS[value].toUpperCase()}</button>
                   ))}
                 </div>
-                <p className="role-note">Your role stays private. Eyes and headdresses are cosmetic; your role never changes your appearance or movement.</p>
+                </div>
+                <label className="chaos-setting"><input type="checkbox" checked={chaosMoonsway} onChange={event => setChaosMoonsway(event.target.checked)} /><span>Chaos · Moonsway<small>Reporter votes may shift (25%).</small></span></label>
 
                 <button className="launch-button" disabled={isLaunching} onClick={handleSoloLaunch}>
-                  <span>{isLaunching ? "OPENING SANCTUARY…" : "ENTER THE MOONWARD"}</span><kbd>ENTER</kbd>
+                  <span>{isLaunching ? "Opening…" : "Start practice"}</span><span aria-hidden="true">↗</span>
                 </button>
-                <div className="console-log">
-                  <span><i className="green" /> WARDENS GATHERED</span>
-                  <span><i className="amber" /> HAZARDS ARMED</span>
-                  <span><i className="green" /> ZERO VISUAL TELLS</span>
                 </div>
               </>
             ) : inRoom && mpState ? (
@@ -4182,7 +4396,7 @@ function Lobby({
                 {/* Room Code & Controls Banner */}
                 <div className="room-code-banner">
                   <div className="room-code-display">
-                    <small>SANCTUARY WARD CODE • SHARE WITH FRIENDS</small>
+                    <small>ROOM CODE · INVITE YOUR FRIENDS</small>
                     <div className="room-code-row">
                       <strong>{hideRoomCode ? "••••" : mpState.roomCode}</strong>
                       <span className="room-ping-pill">
@@ -4205,47 +4419,10 @@ function Lobby({
                   </div>
                 </div>
 
-                {/* Live Wardrobe / Profile Bar inside Waiting Room */}
-                <div className="inroom-profile-bar">
-                  <div className="inroom-profile-summary">
-                    <SlimeAvatar
-                      color={myNetPlayer?.color || selectedColor}
-                      hat={myNetPlayer?.hat || selectedHat}
-                      eyeStyle={myNetPlayer?.eyeStyle || selectedEyes}
-                      size="sm"
-                    />
-                    <div>
-                      <small>YOUR WARDEN</small>
-                      <strong>{myNetPlayer?.name || nickname}</strong>
-                      <span>
-                        {COLOR_NAMES[myNetPlayer?.color || selectedColor] || "Custom"} •{" "}
-                        {HAT_META[myNetPlayer?.hat || selectedHat].title} •{" "}
-                        {EYE_LABELS[myNetPlayer?.eyeStyle || selectedEyes]} eyes
-                      </span>
-                    </div>
-                  </div>
-                  <div className="inroom-profile-actions">
-                    <button
-                      type="button"
-                      className={`wardrobe-toggle-btn ${editingInRoom ? "active" : ""}`}
-                      onClick={() => setEditingInRoom((v) => !v)}
-                    >
-                      {editingInRoom ? "▲ HIDE WARDROBE" : "✎ CUSTOMIZE"}
-                    </button>
-                    {!mpState.isHost && (
-                      <button
-                        type="button"
-                        className={`ready-toggle-btn ${myNetPlayer?.ready ? "is-ready" : ""}`}
-                        onClick={() => multiplayerClient?.toggleReady()}
-                      >
-                        {myNetPlayer?.ready ? "✓ READY" : "MARK READY"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {editingInRoom && (
+                <nav className="menu-tabs room-tabs" aria-label="Waiting room pages">{(["CREW", "CHAT", "SETTINGS"] as const).map(pane => <button type="button" key={pane} aria-pressed={roomPane === pane} onClick={() => setRoomPane(pane)}>{pane === "CREW" ? `Players · ${mpState.players.length}/${activeTargetPlayers}` : pane === "CHAT" ? "Chat" : "Settings"}</button>)}</nav>
+                {roomPane === "LOOK" && (
                   <div className="inroom-wardrobe-drawer">
+                    <nav className="menu-tabs look-tabs" aria-label="Customize category">{(["COLOR", "HAT", "EYES"] as const).map(pane => <button type="button" key={pane} aria-pressed={lookPane === pane} onClick={() => setLookPane(pane)}>{pane === "COLOR" ? "Color" : pane === "HAT" ? "Accessories" : "Eyes"}</button>)}</nav>
                     <div className="wardrobe-row">
                       <label className="field-label" htmlFor="inroom-nickname">
                         CALLSIGN <span>{nickname.length}/16</span>
@@ -4264,7 +4441,7 @@ function Lobby({
                         </button>
                       </div>
                     </div>
-
+                    <div hidden={lookPane !== "COLOR"}>
                     <div className="field-label">
                       SLIME HUE <span>{COLOR_NAMES[selectedColor]}</span>
                     </div>
@@ -4285,11 +4462,12 @@ function Lobby({
                         </button>
                       ))}
                     </div>
-
-                    <div className="field-label">
-                      HEADDRESS <span>{HAT_META[selectedHat].title.toUpperCase()}</span>
                     </div>
-                    <div className="mp-hat-row" role="group" aria-label="Hat selection">
+                    <div hidden={lookPane !== "HAT"}>
+                    <div className="field-label">
+                      ACCESSORY <span>{HAT_META[selectedHat].title.toUpperCase()}</span>
+                    </div>
+                    <div className="mp-hat-row" role="group" aria-label="Accessory selection">
                       {HATS.map((h) => (
                         <button
                           key={h}
@@ -4305,13 +4483,15 @@ function Lobby({
                         </button>
                       ))}
                     </div>
-                    <EyeStylePicker value={selectedEyes} onChange={eyes => handleProfileChange(nickname, selectedColor, selectedHat, eyes)} />
+                    </div>
+                    <div hidden={lookPane !== "EYES"}><EyeStylePicker value={selectedEyes} onChange={eyes => handleProfileChange(nickname, selectedColor, selectedHat, eyes)} /></div>
                   </div>
                 )}
 
                 {/* Visual 4-8 Slot Warden Circle Grid */}
+                <div hidden={roomPane !== "CREW"} className="room-crew-pane">
                 <div className="field-label">
-                  SANCTUARY CIRCLE ROSTER{" "}
+                  YOUR CIRCLE{" "}
                   <span>
                     {mpState.players.length} HUMAN • {readyCount}/{mpState.players.length} READY
                   </span>
@@ -4384,11 +4564,12 @@ function Lobby({
                     );
                   })}
                 </div>
+                </div>
 
                 {/* Pre-Game Sanctuary Comms (Lobby Chat) */}
-                <div className="lobby-comms-box">
+                <div hidden={roomPane !== "CHAT"} className="lobby-comms-box">
                   <div className="lobby-comms-head">
-                    <span>SANCTUARY COMMS</span>
+                    <span>ROOM CHAT</span>
                     <div className="quick-comms-chips">
                       {["Ready! 🌙", "Wait a sec", "Let's go! ⚡"].map((phrase) => (
                         <button
@@ -4404,7 +4585,7 @@ function Lobby({
                   <div className="lobby-comms-feed" role="log" aria-live="polite">
                     {mpState.lobbyChat.length === 0 ? (
                       <div className="lobby-comms-empty">
-                        Circle channel open. Greet your fellow Wardens before the trial begins.
+                        Say hello before the moon rises.
                       </div>
                     ) : (
                       mpState.lobbyChat.slice(-12).map((m) => (
@@ -4447,18 +4628,24 @@ function Lobby({
                 </div>
 
                 {/* Host Controls or Guest Status */}
+                <div hidden={roomPane !== "SETTINGS"} className="room-settings-pane">
+                  <div className="ritual-loadout">
+                    <label>Rituals · host choice<select disabled={!myNetPlayer?.isHost} value={mpState?.puzzleDifficulty ?? "STANDARD"} onChange={event => multiplayerClient?.setDifficulty(event.target.value as RitualDifficulty)}><option value="STANDARD">Standard</option><option value="CHALLENGING">Challenging</option></select></label>
+                    <label>Meeting limit · host choice<select disabled={!myNetPlayer?.isHost} value={mpState.meetingSeconds ?? 75} onChange={event => multiplayerClient?.setMeetingDuration(Number(event.target.value))}>{[60, 75, 90].map(seconds => <option key={seconds} value={seconds}>{seconds}s</option>)}</select></label>
+                    <label>Your utility<select value={mpState?.utility ?? "WISP_STEP"} onChange={event => multiplayerClient?.setUtility(event.target.value as UtilityKind)}><option value="WISP_STEP">Wisp Step · dash</option><option value="WATCHROOT">Watchroot · alarm</option></select></label>
+                    <small>Both roles · shrine-earned charge · Ordeal only</small>
+                  </div>
                 {mpState.isHost ? (
                   <div className="host-panel">
-                    <label className="field-label" htmlFor="mp-hollow-count">HOLLOWS <span>1–{Math.max(1, Math.floor(roomPopulation / 2))} · DEFAULT 1</span></label>
+                    <div className="practice-setting">
+                    <label className="field-label" htmlFor="mp-hollow-count">HOLLOWS <span>1 RECOMMENDED · 2 AT 7–8 PLAYERS</span></label>
                     <select id="mp-hollow-count" className="mp-field" value={clampHollowCount(activeHollowCount, roomPopulation)} onChange={event => handleHostConfigUpdate(activeTargetPlayers, activeBotFill, Number(event.target.value))}>
-                      {Array.from({ length: Math.max(1, Math.floor(roomPopulation / 2)) }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} {i ? "Hollows" : "Hollow"}</option>)}
+                      {Array.from({ length: roomPopulation >= 7 ? 2 : 1 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} {i ? "Hollows · advanced" : "Hollow · recommended"}</option>)}
                     </select>
-                    {activeHollowCount * 2 === roomPopulation && <p className="role-note">High difficulty: half the circle is Hollow. The opening tie does not end the match.</p>}
-                    <label className="chaos-setting"><input type="checkbox" checked={activeChaosMoonsway} onChange={event => handleHostConfigUpdate(activeTargetPlayers, activeBotFill, activeHollowCount, event.target.checked)} /><span>Chaos · Moonsway<small>Optional vote shifting for body reporters. Off by default; applies to everyone.</small></span></label>
-                    <div className="host-config-header">
-                      <label className="field-label" htmlFor="mp-player-count">
-                        TARGET CIRCLE <span>{activeTargetPlayers} SLOTS</span>
-                      </label>
+                    </div>
+                    <label className="chaos-setting"><input type="checkbox" checked={activeChaosMoonsway} onChange={event => handleHostConfigUpdate(activeTargetPlayers, activeBotFill, activeHollowCount, event.target.checked)} /><span>Chaos · Moonsway<small>Reporter votes may shift (25%).</small></span></label>
+                    <div className="practice-setting">
+                      <div className="field-label">PLAYERS <span>{activeTargetPlayers} SLOTS</span></div>
                       <div className="slot-Count-pills" role="group" aria-label="Target player count">
                         {[4, 5, 6, 7, 8].map((n) => (
                           <button
@@ -4472,15 +4659,6 @@ function Lobby({
                         ))}
                       </div>
                     </div>
-                    <input
-                      id="mp-player-count"
-                      className="player-range"
-                      type="range"
-                      min="4"
-                      max="8"
-                      value={activeTargetPlayers}
-                      onChange={(e) => handleHostConfigUpdate(Number(e.target.value), activeBotFill)}
-                    />
 
                     <label className="bot-checkbox-row">
                       <input
@@ -4488,63 +4666,43 @@ function Lobby({
                         checked={activeBotFill}
                         onChange={(e) => handleHostConfigUpdate(activeTargetPlayers, e.target.checked)}
                       />
-                      <span>FILL EMPTY SLOTS WITH AI BOTS ON START</span>
+                      <span>Fill empty slots with AI</span>
                     </label>
 
-                    <button
-                      className="launch-button"
-                      disabled={!mpState.connected}
-                      onClick={() => multiplayerClient?.startMatch(activeBotFill, activeTargetPlayers, activeHollowCount, activeChaosMoonsway)}
-                    >
-                      <span>
-                        START MATCH ({mpState.players.length} HUMAN
-                        {activeBotFill && activeTargetPlayers > mpState.players.length
-                          ? ` + ${activeTargetPlayers - mpState.players.length} AI`
-                          : ""}
-                        )
-                      </span>
-                      <kbd>START</kbd>
-                    </button>
                   </div>
                 ) : (
                   <div className="waiting-status">
-                    <p>{activeChaosMoonsway ? "CHAOS MOONSWAY ON · body-reporter votes may shift" : "STANDARD VOTING · your vote stays on your choice"}</p>
-                    <span>
-                      ✦ Waiting for host to initiate the moonward trial ({activeTargetPlayers} slots
-                      {activeBotFill ? " • AI fill enabled" : ""})…
-                    </span>
+                    <p>{activeTargetPlayers} players · {activeHollowCount} Hollow{activeHollowCount === 1 ? "" : "s"} · {activeBotFill ? "AI fill on" : "No AI"}</p>
+                    <span>{activeChaosMoonsway ? "Chaos Moonsway on" : "Standard voting"} · Only the host can change settings.</span>
                   </div>
                 )}
+                </div>
 
                 </fieldset>
-                <button className="mp-btn-secondary" onClick={() => multiplayerClient?.leaveRoom()}>
-                  LEAVE ROOM
-                </button>
+                <div className="room-bottom-actions"><button className="mp-btn-secondary" onClick={() => { multiplayerClient?.leaveRoom(); setMenuHistory(["HOME", "MULTI"]); }}>Leave room</button>
+                {mpState.isHost ? <button className="launch-button" disabled={!mpState.connected} onClick={() => multiplayerClient?.startMatch(activeBotFill, activeTargetPlayers, activeHollowCount, activeChaosMoonsway)}>Start match <span>{mpState.players.length} human{activeBotFill && activeTargetPlayers > mpState.players.length ? ` + ${activeTargetPlayers - mpState.players.length} AI` : ""}</span></button> : <span className="room-host-wait">{myNetPlayer?.ready ? "Ready! Waiting for the host…" : "Mark ready when you’re set."}</span>}
+                </div>
               </div>
             ) : (
               <div className="mp-config">
-                <div className="home-gateway-intro">
-                  <h2>PLAY WITH FRIENDS <span aria-hidden="true">↗</span></h2>
-                  <p>Your next “it wasn’t me” moment starts here.</p>
-                </div>
-                <div className="home-entry-column">
-                <label className="play-name" htmlFor="play-nickname">Your name <small>Randomized callsign ready — or pick your own below.</small>
+                <div className="home-entry-column" hidden={menuScreen !== "MULTI"}>
+                <label className="play-name" htmlFor="play-nickname">Your name
                   <input id="play-nickname" className="mp-field" maxLength={16} value={nickname} onChange={(event) => setNickname(event.target.value)} placeholder="Enter your warden name…" autoComplete="nickname" />
                 </label>
                 <div className="mp-actions-grid">
                   <div className="mp-action-card host-card">
                     <div className="mp-card-header">
-                      <small>MAKE ROOM FOR YOUR FRIENDS</small>
+                      <small>YOUR CIRCLE, YOUR RULES</small>
                       <b>Host a game</b>
                     </div>
-                    <p className="mp-card-desc">Get a code to invite your friends. 4–8 players, with optional AI.</p>
+                    <p className="mp-card-desc">Invite friends with a room code.</p>
                     <button className="mp-btn-primary" onClick={handleCreateRoom} disabled={isConnecting || !multiplayerClient}>
                       {isConnecting ? "CONNECTING..." : "CREATE ROOM"}
                     </button>
                   </div>
                   <div className="mp-action-card join-card">
                     <div className="mp-card-header">
-                      <small>HAVE AN INVITE CODE?</small>
+                      <small>GOT AN INVITE?</small>
                       <b>Join your friends</b>
                     </div>
                     <form className="mp-code-entry-form" onSubmit={(e) => { e.preventDefault(); void handleJoinRoom(); }}>
@@ -4563,67 +4721,15 @@ function Lobby({
                     </form>
                   </div>
                 </div>
+                <nav className="menu-inline-nav" aria-label="More play options"><button onClick={() => navigateMenu("ROOMS")}>Find rooms →</button><button onClick={() => navigateMenu("LOOK")}>Customize →</button></nav>
                 </div>
 
-                <div className="home-social-column">
-                <details className="home-wardrobe" aria-label="Customize your Warden">
-                  <summary className="wardrobe-summary-bar">
-                    <SlimeAvatar color={selectedColor} hat={selectedHat} eyeStyle={selectedEyes} size="sm" />
-                    <span><small>YOU’RE ENTERING AS</small><strong>{nickname.trim() || WARDEN_CALLSIGNS[0]}</strong><em>{COLOR_NAMES[selectedColor]} · {HAT_META[selectedHat].label} · {EYE_LABELS[selectedEyes]} eyes</em></span>
-                    <b>Customize <span aria-hidden="true">＋</span></b>
-                  </summary>
-                <div className="mp-customizer-card">
-                  <div className="mp-customizer-controls">
-                    <div className="field-label" style={{ marginTop: 12 }}>
-                      SLIME HUE <span>{COLOR_NAMES[selectedColor]}</span>
-                    </div>
-                    <div className="mp-palette" role="group" aria-label="Slime Color">
-                      {COLORS.map((c, idx) => (
-                        <button
-                          key={c}
-                          type="button"
-                          className={`mp-color-btn ${selectedColor === c ? "active" : ""}`}
-                          style={{ backgroundColor: c, color: c }}
-                          aria-pressed={selectedColor === c}
-                          onClick={() => { playLobbySfx("customize", idx); triggerWardenBoop(2, "🎨"); setSelectedColor(c); }}
-                          title={COLOR_NAMES[c]}
-                          aria-label={`Select slime color ${COLOR_NAMES[c] || c}`}
-                        >
-                          {selectedColor === c && <span className="color-check" aria-hidden="true">✓</span>}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="field-label">
-                      HEADDRESS <span>{HAT_META[selectedHat].title.toUpperCase()}</span>
-                    </div>
-                    <div className="mp-hat-row" role="group" aria-label="Hat selection">
-                      {HATS.map((h, idx) => (
-                        <button
-                          key={h}
-                          type="button"
-                          className={`mp-hat-btn ${selectedHat === h ? "active" : ""}`}
-                          aria-pressed={selectedHat === h}
-                          onClick={() => { playLobbySfx("customize", idx + 2); triggerWardenBoop(2, "✦"); setSelectedHat(h); }}
-                        >
-                          <span className="hat-btn-preview">
-                            <HatGraphic hat={h} />
-                          </span>
-                          <b>{HAT_META[h].label}</b>
-                        </button>
-                      ))}
-                    </div>
-                    <EyeStylePicker value={selectedEyes} onChange={(eyes) => { playLobbySfx("customize", 5); triggerWardenBoop(2, "👀"); setSelectedEyes(eyes); }} />
-                    <button type="button" className="mp-random-btn" onClick={handleRandomizeProfile} title="Randomize Warden Identity">↻ SURPRISE ME</button>
-                  </div>
-                </div>
-                </details>
-
+                <div className="home-social-column" hidden={menuScreen !== "ROOMS"}>
                 {/* Live Open Rooms Browser */}
                 <div className="mp-open-rooms">
                   <div className="mp-open-rooms-head">
                     <div className="field-label">
-                      ACTIVE SANCTUARIES{" "}
+                      OPEN ROOMS{" "}
                       <span>{showRoomResults ? `${mpState?.openRooms.length ?? 0} OPEN` : "NOT CHECKED"}</span>
                     </div>
                     <button
@@ -4638,7 +4744,7 @@ function Lobby({
 
                   {showRoomResults && mpState?.openRooms && mpState.openRooms.length > 0 ? (
                     <div className="mp-open-rooms-list" role="list">
-                      {mpState.openRooms.map((room) => (
+                      {mpState.openRooms.slice(roomWindow.start, roomWindow.end).map((room) => (
                         <div className="open-room-item" key={room.code} role="listitem">
                           <div className="open-room-host">
                             <SlimeAvatar color={room.hostColor} hat={room.hostHat} eyeStyle={room.hostEyeStyle} size="sm" />
@@ -4646,10 +4752,7 @@ function Lobby({
                               <strong>
                                 {room.hostName}&apos;s Circle <span className="open-room-code">{room.code}</span>
                               </strong>
-                              <small>
-                                {room.playerCount}/{room.targetPlayers} Wardens{" "}
-                                {room.botFill ? "• AI Bot Fill" : "• Humans Only"}{room.chaosMoonsway ? " • Chaos Moonsway" : " • Standard votes"}
-                              </small>
+                              <small>{room.playerCount}/{room.targetPlayers} players · {room.botFill ? "AI fill" : "Friends only"}{room.chaosMoonsway ? " · Chaos" : ""}</small>
                             </div>
                           </div>
                           <button
@@ -4668,6 +4771,7 @@ function Lobby({
                       <span>{isRefreshingRooms ? "Listening for circles in the forest…" : showRoomResults ? "No open circles yet. Create one and bring your friends!" : "Looking for company? Find an open circle, or create your own above."}</span>
                     </div>
                   )}
+                  <nav className="menu-pagination" aria-label="Room pages"><button type="button" disabled={roomWindow.page === 0} onClick={() => setRoomPage(roomWindow.page - 1)} aria-label="Previous room page">←</button><span>{roomWindow.page + 1} / {roomWindow.pages}</span><button type="button" disabled={roomWindow.page + 1 >= roomWindow.pages} onClick={() => setRoomPage(roomWindow.page + 1)} aria-label="Next room page">→</button></nav>
                 </div>
                 </div>
               </div>
@@ -4675,10 +4779,9 @@ function Lobby({
             </div>
           </div>
         </div>
-        {!inRoom && <HomeFieldGuide />}
       </section>
 
-      <footer className="lobby-footer"><span>WASD / ARROWS TO MOVE</span><span>E TASK</span><span>F ITEM</span><span>R REPORT</span><span>Q / SPACE KILL</span></footer>
+      <footer className="lobby-footer"><span>{GAME_RELEASE_LABEL}</span><span>{inRoom ? "Gather your circle. Trust is optional." : "A little charm. A little chaos."}</span><span>Landscape gameplay</span></footer>
       </div>
     </main>
   );
@@ -4769,6 +4872,14 @@ function Game({
   const [meetingKey, setMeetingKey] = useState(0);
   const [snapshot, setSnapshot] = useState<Snapshot>(initialSnapshot());
   const [meeting, setMeeting] = useState<Meeting | null>(null);
+  const [meetingNotesOpen, setMeetingNotesOpen] = useState(false);
+  const discussionSeconds = useDiscussionCountdown(meeting && !meeting.tally ? meeting.votingOpensAt : undefined);
+  const meetingSecondsLeft = useDiscussionCountdown(meeting && !meeting.tally ? meeting.endsAt : undefined, 90);
+  useEffect(() => {
+    if (multiplayerClient || !meeting?.endsAt || meeting.tally) return;
+    const timer = window.setTimeout(() => engineRef.current?.vote(null), Math.max(0, meeting.endsAt - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [multiplayerClient, meeting?.endsAt, meeting?.tally]);
   const [banishment, setBanishment] = useState<BanishmentOutcome | null>(null);
   const banishmentSeenRef = useRef<Set<string>>(new Set());
   const [puzzle, setPuzzle] = useState<TaskPuzzle | null>(null);
@@ -4821,6 +4932,7 @@ function Game({
         setChatDraft("");
         setBanishment(null);
       } else if (!next.tally && next.candidates !== discussionCandidates) {
+        setMeetingNotesOpen(false);
         discussionCandidates = next.candidates;
         meetingSerialRef.current += 1;
         setMeetingKey(meetingSerialRef.current);
@@ -5026,7 +5138,7 @@ function Game({
   useEffect(() => {
     const chatLog = chatLogRef.current;
     if (chatLog) chatLog.scrollTop = chatLog.scrollHeight;
-  }, [chatMessages]);
+  }, [chatMessages, meetingNotesOpen]);
 
   const phaseLabel = snapshot.phase === "ORDEAL" ? HAZARD_LABELS[snapshot.hazard] : snapshot.phase === "CALM" ? "Forest calm" : snapshot.phase === "COUNTDOWN" ? "Moon rising" : "Circle time";
   const primeBackgroundMusic = () => {
@@ -5156,7 +5268,7 @@ function Game({
           phase={snapshot.phase}
           hazard={snapshot.hazard}
           layoutSeed={layoutSeed}
-          stations={mapLayout.stations.map(station => ({ ...station, personalCompleted: snapshot.navigation.personalCompleted.includes(station.id), teamRestored: snapshot.navigation.teamRestored.includes(station.id) }))}
+          stations={mapLayout.stations.map(station => ({ ...station, personalCompleted: snapshot.navigation.personalCompleted.includes(station.id), teamRestored: snapshot.navigation.teamRestored.includes(station.id), overgrown: snapshot.overgrownStation === station.id }))}
           destinationId={snapshot.navigation.destinationId}
           onDestinationChange={handleDestinationChange}
           onExpandedChange={handleNavigationExpanded}
@@ -5183,6 +5295,7 @@ function Game({
             <summary><GameGlyph name="moon" /><span><small>UP NEXT</small><b>{HAZARD_LABELS[snapshot.hazard]}</b></span><span className="prep-chevron" aria-hidden="true">⌄</span></summary>
             <strong>{ORDEAL_PREPARATION[snapshot.hazard].title}</strong>
             <p>{ORDEAL_PREPARATION[snapshot.hazard].reason}</p>
+            <p>Overgrown: {snapshot.overgrownStation?.toLowerCase()} · risk an Ordeal bloom for +1.5%.</p>
             <span>{snapshot.navigation.destinationId ? `Head to ${snapshot.navigation.destinationId.toLowerCase()}` : "Your ritual kit is complete for this round"}</span>
           </details>
         ) : null}
@@ -5197,8 +5310,8 @@ function Game({
 
         {snapshot.message && !(snapshot.phase === "COUNTDOWN" && snapshot.message.startsWith(`${HAZARD_LABELS[snapshot.hazard]} INCOMING`)) && <div className="toast-message">{snapshot.message}</div>}
         {snapshot.soundCaption && <div className="sound-caption" role="status" aria-live="polite">♬ {snapshot.soundCaption}</div>}
-        {snapshot.phase === "COUNTDOWN" && <div className="ordeal-preparation" role="status"><b>{HAZARD_LABELS[snapshot.hazard]} INCOMING</b><span>{snapshot.hazard === "ROOTWAKE" ? "Choose your chamber before the roots seal." : snapshot.hazard === "PHANTOMS" ? "Ready your Echo Bell. Not every shape is real." : snapshot.hazard === "MOONGLARE" ? "Memorize nearby wardens. Identities will disappear." : snapshot.hazard === "MIRROR_POOL" ? "Controls will invert for 25s! Bumping another warden swaps your colors." : "Ready your Glowing Mushroom or Moonblossom."}</span></div>}
-        {!snapshot.humanAlive && <div className="spectator-chip">SPECTATING • YOU ARE JELLY</div>}
+        {snapshot.phase === "COUNTDOWN" && <div className="ordeal-preparation" role="status"><b>{HAZARD_LABELS[snapshot.hazard]} INCOMING</b><span>{ORDEAL_HINTS[snapshot.hazard]}</span></div>}
+        {!snapshot.humanAlive && <div className="spectator-chip">SPECTATING • FALLEN WARDEN</div>}
 
         {snapshot.rewardNotice && (
           <aside className="reward-toast" aria-live="polite">
@@ -5226,11 +5339,12 @@ function Game({
         </div>
 
         <div className="action-dock" aria-label="Game actions">
+          {snapshot.utility && <button className={`action use ${snapshot.utility.charge && !snapshot.utility.cooldown ? "ready" : ""}`} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || !snapshot.utility.charge || snapshot.utility.cooldown > 0} title={`${UTILITY_LABELS[snapshot.utility.kind]}: aim with your movement direction. One shrine-earned charge; 18s cooldown. Both roles can use it.`} onClick={() => engineRef.current?.useUtility()}><kbd>G</kbd><GameGlyph name="spark" /><span>{snapshot.utility.cooldown ? `${snapshot.utility.cooldown}s` : snapshot.utility.charge ? UTILITY_LABELS[snapshot.utility.kind] : "Earn utility"}</span></button>}
           <button className={`action report ${snapshot.canReport ? "ready" : ""}`} disabled={!snapshot.canReport} aria-label={snapshot.reportHint} title={snapshot.reportHint} onClick={() => engineRef.current?.report()}><kbd>R</kbd><GameGlyph name="report" /><span>{snapshot.reportLabel}</span></button>
           {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight || snapshot.moonSightActive ? "ready" : ""}`} onClick={() => engineRef.current?.useMoonSight()} disabled={snapshot.phase !== "ORDEAL" || !snapshot.canUseMoonSight} title="Moon Sight: briefly reveal living slimes during an Ordeal"><kbd>V</kbd><GameGlyph name="sight" /><span>{snapshot.moonSightActive ? "Seeing" : "Sight"}</span></button>}
           {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight ? "ready" : ""}`} title="Aim, then create a two-second false rustle. Shares one charge with Sight." onClick={() => engineRef.current?.useEchoLure()} disabled={!snapshot.canUseMoonSight}><kbd>C</kbd><GameGlyph name="echo" /><span>Echo</span></button>}
           {snapshot.role === "IMPOSTOR" && <button className={`action kill ${snapshot.canKill ? "ready" : ""}`} onClick={() => engineRef.current?.kill()} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.killCooldown > 0} title="Bite a nearby slime. One strike per Ordeal."><kbd>Q</kbd><GameGlyph name="bite" /><span>{snapshot.killSpent ? "Spent" : snapshot.killCooldown > 0 ? `${Math.ceil(snapshot.killCooldown)}s` : "Bite"}</span></button>}
-          {snapshot.role === "IMPOSTOR" && <button className={`action kill veiled ${snapshot.canKill && !snapshot.stealthCooldown && !snapshot.stealthOrdealsLeft ? "ready" : ""}`} title="Veiled Bite: uses your strike; puddle appears 8s later. Cooldown: 45s and two Ordeal starts." onClick={() => engineRef.current?.kill(true)} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.stealthCooldown > 0 || snapshot.stealthOrdealsLeft > 0}><kbd>X</kbd><GameGlyph name="veil" /><span>{snapshot.stealthCooldown ? `${snapshot.stealthCooldown}s` : snapshot.stealthOrdealsLeft ? `${snapshot.stealthOrdealsLeft} rounds` : "Veiled bite"}</span></button>}
+          {snapshot.role === "IMPOSTOR" && <button className={`action kill veiled ${snapshot.canKill && !snapshot.stealthCooldown && !snapshot.stealthOrdealsLeft ? "ready" : ""}`} title="Veiled Bite: uses your strike; fallen cat appears 8s later. Cooldown: 45s and two Ordeal starts." onClick={() => engineRef.current?.kill(true)} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.stealthCooldown > 0 || snapshot.stealthOrdealsLeft > 0}><kbd>X</kbd><GameGlyph name="veil" /><span>{snapshot.stealthCooldown ? `${snapshot.stealthCooldown}s` : snapshot.stealthOrdealsLeft ? `${snapshot.stealthOrdealsLeft} rounds` : "Veiled bite"}</span></button>}
           <button className={`action use ${snapshot.charges[snapshot.selectedItem] > 0 ? "ready" : ""}`} onClick={() => engineRef.current?.useItem()} disabled={!snapshot.humanAlive || snapshot.charges[snapshot.selectedItem] <= 0} aria-label={`Use ${ITEM_LABELS[snapshot.selectedItem]}`}><kbd>F</kbd><GameGlyph name="spark" /><span>Use</span></button>
         </div>
 
@@ -5249,7 +5363,7 @@ function Game({
               onKeyUp={event => { if (["Space", "Enter"].includes(event.code)) engineRef.current?.setTouch("KeyE", false); }}
             >
               <kbd>E</kbd>
-              <span><b>{snapshot.taskMode === "PUZZLE" ? (snapshot.role === "IMPOSTOR" ? "Fake a ritual" : "Begin ritual") : (snapshot.role === "IMPOSTOR" ? "Hold to fake a ritual" : "Hold to attune")}</b><small>{snapshot.stationStatus?.label} · {snapshot.stationStatus?.teamRestored ? "Earn your gear" : "Restore ward + earn gear"}</small></span><GameGlyph name="spark" />
+              <span><b>{snapshot.taskMode === "PUZZLE" ? (snapshot.role === "IMPOSTOR" ? "Fake a ritual" : "Begin ritual") : (snapshot.role === "IMPOSTOR" ? "Hold to fake a ritual" : "Hold to attune")}</b><small>{snapshot.stationStatus?.label} · {snapshot.stationStatus?.overgrown && snapshot.phase === "ORDEAL" ? "Risk a bloom · +1.5% team bonus" : snapshot.stationStatus?.teamRestored ? "Gear + capped team support" : "Restore ward + earn gear"}</small></span><GameGlyph name="spark" />
             </button>
             {snapshot.taskMode === "HOLD" && <TaskHoldGauge progress={snapshot.taskHoldProgress} holding={snapshot.taskHolding} />}
           </div>
@@ -5261,15 +5375,19 @@ function Game({
           </div>
         )}
 
-        {snapshot.taskPrompt && !puzzle && !roleReveal && <button type="button" className="paired-ritual-button"
-          title={`Both players hold H and stay still for ${PAIR_RITUAL_SECONDS}s. Faster than a solo hold; both earn gear, but your chant is heard nearby. A Hollow can join too — a duet is not proof of innocence.`}
-          onPointerDown={event => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); engineRef.current?.setPairRitual(true); }}
-          onPointerUp={() => engineRef.current?.setPairRitual(false)} onPointerCancel={() => engineRef.current?.setPairRitual(false)} onLostPointerCapture={() => engineRef.current?.setPairRitual(false)} onBlur={() => engineRef.current?.setPairRitual(false)}
-          onKeyDown={event => { if (["Space", "Enter"].includes(event.code)) { event.preventDefault(); engineRef.current?.setPairRitual(true); } }}
-          onKeyUp={event => { if (["Space", "Enter"].includes(event.code)) { event.preventDefault(); engineRef.current?.setPairRitual(false); } }}>
-          <span><kbd>H</kbd> Harmonize together</span><small>{snapshot.pairRitual ? `${snapshot.pairRitual.participants}/2 ready · ${Math.round(snapshot.pairRitual.progress * 100)}% · audible nearby` : `Faster with 2 · ${PAIR_RITUAL_SECONDS}s · audible nearby`}</small>
-          <i style={{ width: `${(snapshot.pairRitual?.progress ?? 0) * 100}%` }} />
-        </button>}
+        {snapshot.taskPrompt && !puzzle && !roleReveal && <div className="duet-controls" data-no-joystick>
+          <button type="button" className="paired-ritual-button" aria-pressed={!!snapshot.pairRitual}
+            title="Join a duet, stay still, and take turns playing the lit rune. Both earn gear. Your chant is audible; a Hollow can join too. Move or press H again to leave."
+            onClick={() => engineRef.current?.setPairRitual(!snapshot.pairRitual)}>
+            <span><kbd>H</kbd> {snapshot.pairRitual ? "Leave duet" : "Harmonize together"}</span>
+            <small>{snapshot.pairRitual ? `${snapshot.pairRitual.participants}/2 ready · ${snapshot.pairRitual.beats ?? 0}/4 notes · audible nearby` : `Take turns · at least ${PAIR_RITUAL_SECONDS}s · audible nearby`}</small>
+            <i style={{ width: `${(snapshot.pairRitual?.progress ?? 0) * 100}%` }} />
+          </button>
+          {snapshot.pairRitual && <div className="duet-runes" role="group" aria-label="Duet runes">
+            <small role="status">{(snapshot.pairRitual.beats ?? 0) >= 4 ? "Hold still…" : snapshot.pairRitual.participants < 2 ? "Waiting for a companion…" : snapshot.pairRitual.nextPlayerId === snapshot.localPlayerId ? "Your turn: play the lit rune" : "Your companion’s turn"}</small>
+            {["☀ Sun · J", "☾ Moon · K"].map((label, rune) => <button key={rune} type="button" disabled={snapshot.pairRitual?.nextPlayerId !== snapshot.localPlayerId || snapshot.pairRitual?.rune !== rune || (snapshot.pairRitual?.beats ?? 0) >= 4} onClick={() => engineRef.current?.pulsePairRune(rune)}>{label}</button>)}
+          </div>}
+        </div>}
         <FloatingJoystick surfaceRef={stageRef} onVector={handleMoveVector} enabled={snapshot.humanAlive && !meeting && !puzzle && !roleReveal && !deathReveal && !result && !navigationExpanded && !notebookOpen && !settingsOpen && !landscapeRequired && (!networkState || networkState.connected)} />
       </section>
 
@@ -5294,7 +5412,7 @@ function Game({
           <div className="reveal-core" aria-hidden="true">
             <span className="reveal-orbit orbit-one" />
             <span className="reveal-orbit orbit-two" />
-            <span className="impostor-sigil"><i /><i /><b /></span>
+            <span className="reveal-cat-sigil"><CatHead color={networkState?.players.find(player => player.id === snapshot.localPlayerId)?.color ?? soloProfile?.color ?? COLORS[0]} eyeStyle={roleReveal === "IMPOSTOR" ? "FIERCE" : "JOYFUL"} /></span>
           </div>
           <div className="reveal-copy">
             <small>{roleReveal === "IMPOSTOR" ? "PRIVATE IDENTITY // DECRYPTING" : "CIRCLE IDENTITY // ATTUNING"}</small>
@@ -5311,7 +5429,7 @@ function Game({
         <div key={killNotice.key} className="kill-notice" role="status" aria-live="polite" aria-atomic="true">
           <span aria-hidden="true">☾</span>
           <div className="kill-notice-copy">
-            <strong>A Warden was dissolved</strong>
+            <strong>A Warden has fallen</strong>
             <small>Stay alert. The hunt continues.</small>
           </div>
         </div>
@@ -5342,11 +5460,11 @@ function Game({
         <div className="modal-backdrop task-backdrop" role="dialog" aria-modal="true" aria-labelledby="task-puzzle-title">
           <div className="task-puzzle-card">
             <div className="task-puzzle-head">
-              <div><small>MOON SHRINE // {puzzle.kind === "MATH" ? "RUNE CALCULATION" : "CONSTELLATION LINK"}</small><h2 id="task-puzzle-title">{puzzle.stationLabel}</h2><span className="puzzle-reward">REWARD • {ITEM_LABELS[puzzle.reward].toUpperCase()}</span></div>
+              <div><small>MOON SHRINE // {puzzle.challenge ? RITUAL_LABELS[puzzle.challenge.kind].toUpperCase() : puzzle.kind === "MATH" ? "RUNE CALCULATION" : "CONSTELLATION LINK"}</small><h2 id="task-puzzle-title">{puzzle.stationLabel}</h2><span className="puzzle-reward">REWARD • {ITEM_LABELS[puzzle.reward].toUpperCase()} + UTILITY CHARGE</span></div>
               <button onClick={() => engineRef.current?.cancelPuzzle()} aria-label="Close puzzle">×</button>
             </div>
             <div className="task-puzzle-body">
-              {puzzle.kind === "MATH" ? (
+              {puzzle.challenge ? <ForestRitual key={puzzle.challenge.id} challenge={puzzle.challenge} onSubmit={answer => engineRef.current?.submitForestRitual(answer)} /> : puzzle.kind === "MATH" ? (
                 <>
                   <p>Balance the ward by solving this short rune calculation.</p>
                   <div className="math-question">{puzzle.prompt}</div>
@@ -5365,7 +5483,7 @@ function Game({
                   <button key={`${option}-${index}`} onClick={() => engineRef.current?.submitPuzzle(index)}><kbd>{index + 1}</kbd><b>{option}</b></button>
                 ))}
               </div>
-              <div className={`puzzle-feedback ${puzzle.error ? "error" : ""}`}>{puzzle.error || `Choose one answer. This sanctum seals for the current round and grants one ${ITEM_LABELS[puzzle.reward]} charge. It reopens at the next Calm.`}</div>
+              {!puzzle.challenge && <div className={`puzzle-feedback ${puzzle.error ? "error" : ""}`}>{puzzle.error || `Choose one answer. This sanctum seals for the current round and grants one ${ITEM_LABELS[puzzle.reward]} charge. It reopens at the next Calm.`}</div>}
             </div>
           </div>
         </div>
@@ -5385,62 +5503,47 @@ function Game({
               <span>{meeting.tally ? "⚖" : "!"}</span>
               <div>
                 <small>{meeting.tally ? "VOTES COUNTED" : `REPORTED BY ${meeting.reporter}`}</small>
-                <h2 id="meeting-title">{meeting.reason}</h2>
+                <h2 id="meeting-title">{meeting.reason.replace("WAS FOUND AS A JELLY PUDDLE", "— FALLEN WARDEN REPORTED")}</h2>
               </div>
-              <b>{meeting.tally ? "FINAL TALLY" : "DISCUSS + VOTE"}</b>
+              <b>{meeting.tally ? "FINAL TALLY" : `${discussionSeconds > 0 ? "DISCUSSION" : "VOTING"} · ${meetingSecondsLeft}s`}</b>
             </div>
+            {!meeting.tally ? <div className="meeting-toolbar">
+              <p role="status" aria-live="polite">{discussionSeconds > 0 ? <>Talk it through · Vote in <strong>{discussionSeconds}s</strong></> : "Voting is open · Keep discussing while you choose."}</p>
+              <button type="button" aria-expanded={meetingNotesOpen} aria-controls="meeting-private-notes" onClick={() => setMeetingNotesOpen(open => !open)}>{meetingNotesOpen ? "Close notes" : "▤ Notes"}</button>
+            </div> : null}
             <div className="meeting-content">
               {meeting.localVote && (
                 <div className={`vote-receipt ${meeting.localVote.shifted ? "vote-shifted" : ""}`} role="status" aria-live="polite" aria-atomic="true">
-                  <strong>{meeting.localVote.shifted ? "☾ MOONSWAY — YOUR VOTE SHIFTED" : "YOUR VOTE IS LOCKED"}</strong>
-                  <span>Your vote counts toward {meeting.localVote.targetId ? meeting.candidates.find(player => player.id === meeting.localVote?.targetId)?.name ?? "the departed player" : "Skip"}. {meeting.localVote.shifted ? "The tally uses this destination." : meeting.tally ? "Shown in the final tally." : "Waiting for the circle."}</span>
+                  <strong>{meeting.localVote.shifted ? "☾ Vote shifted" : "Vote locked"}</strong>
+                  <span>Counts toward {meeting.localVote.targetId ? meeting.candidates.find(player => player.id === meeting.localVote?.targetId)?.name ?? "the departed player" : "Skip"}.</span>
                 </div>
               )}
               {meeting.voteError && <p className="vote-receipt vote-error" role="alert">{meeting.voteError}</p>}
               {meeting.tally ? (
                 <div className="vote-tally-screen">
                   <div className={`vote-verdict ${meeting.ejectedId ? "ejected" : "no-ejection"}`}>
-                    <small>FINAL VERDICT</small>
                     <h3>{meeting.verdict && meetingVerdictLabel(meeting.verdict)}</h3>
-                    <p>The crew’s votes have been counted.</p>
                   </div>
-                  <div className="tally-grid" aria-label="Vote totals by player">
-                    {meeting.tally.map((entry, idx) => (
-                      <div
-                        className={`tally-card ${entry.isTop ? "top-tally" : ""} ${entry.targetId === meeting.ejectedId ? "ejected" : ""} ${entry.targetId ? "" : "skip-tally"}`}
-                        style={{ "--card-idx": idx } as React.CSSProperties}
-                        key={entry.targetId || "SKIP"}
-                      >
-                        <b className="tally-name">{entry.targetName}</b>
-                        {entry.targetColor ? (
-                          <span className="tally-slime"><SlimePortrait color={entry.targetColor} eyeStyle={entry.targetEyeStyle} /></span>
-                        ) : (
-                          <span className="tally-skip-mark">—</span>
-                        )}
-                        <strong>{entry.votes}</strong>
-                        <small>{entry.votes === 1 ? "VOTE" : "VOTES"}</small>
-                        {entry.targetId === meeting.ejectedId && <span className="tally-status">EJECTED</span>}
-                        {!meeting.ejectedId && meeting.tied && entry.isTop && entry.votes > 0 && <span className="tally-status">TIED</span>}
-                      </div>
-                    ))}
-                  </div>
+                  <TallyRoster tally={meeting.tally} ejectedId={meeting.ejectedId} tied={meeting.tied} />
                   <button className="continue-vote" onClick={() => engineRef.current?.resolveMeeting()}>CONTINUE MATCH</button>
                 </div>
               ) : (
                 <div className="discussion-layout">
-                  <section className="meeting-chat" aria-label="Meeting discussion">
-                    <div className="chat-heading"><div><small>LIVE DISCUSSION</small><b>WARDEN CHANNEL</b></div><span>{snapshot.living} ONLINE</span></div>
+                  <section hidden={meetingNotesOpen} className="meeting-chat" aria-label="Meeting discussion">
+                    <div className="chat-heading"><div><small>LIVE DISCUSSION · WARDEN CHANNEL</small><b>What did you see?</b></div><span>{snapshot.living} ALIVE</span></div>
                     <div className="chat-log" ref={chatLogRef} role="log" aria-live="polite">
                       {chatMessages.map((message) => message.system ? (
                         <div className="chat-system" key={message.id}><span>◆</span>{message.text}</div>
                       ) : (
                         <div className={`chat-message ${message.playerId === "you" ? "from-you" : ""}`} key={message.id}>
-                          <span className="chat-avatar" style={{ "--chat-color": message.playerColor } as React.CSSProperties}><i /><i /></span>
+                          <span className="chat-avatar"><CatHead color={message.playerColor ?? "#8257cb"} eyeStyle={meeting.candidates.find(player => player.id === message.playerId)?.eyeStyle} /></span>
                           <div><b>{message.playerName}</b><p>{message.text}</p></div>
                         </div>
                       ))}
                     </div>
-                    <MeetingObservations roster={knownNames} notes={observations} onRecord={recordObservation} onDraft={setChatDraft} disabled={!snapshot.humanAlive} />
+                    {snapshot.humanAlive && <div className="meeting-claim-prompts" aria-label="Draft a claim">
+                      {["I was at…", "I last saw… near…", "I heard… near…"].map(claim => <button type="button" key={claim} onClick={() => setChatDraft(claim)}>{claim}</button>)}
+                    </div>}
                     <form className="chat-composer" onSubmit={sendChatMessage}>
                       <input
                         value={chatDraft}
@@ -5452,31 +5555,16 @@ function Game({
                       />
                       <button type="submit" disabled={!snapshot.humanAlive || !chatDraft.trim()} aria-label="Send meeting message">SEND</button>
                     </form>
-                    <small className="chat-rule">Living players only • Messages close when voting ends</small>
+                    <small className="chat-rule">Claims are player statements, not verified evidence • Living players only</small>
                   </section>
 
                   <section className="vote-panel" aria-label="Cast your vote">
-                    <p>Discuss first, then select the slime you distrust. The next screen shows the final tally.</p>
-                    {chaosMoonsway && meeting.bodyReporterId ? <p className="moonsway-rule">☾ Chaos Moonsway: the body reporter’s player vote has a {Math.round(REPORTER_VOTE_DRIFT_CHANCE * 100)}% chance to drift. Skip votes are safe.</p> : <p className="moonsway-rule">Standard voting: your vote stays on the player you choose.</p>}
+                    {chaosMoonsway && meeting.bodyReporterId ? <p className="moonsway-rule">☾ Reporter votes may shift ({Math.round(REPORTER_VOTE_DRIFT_CHANCE * 100)}%). Skip is safe.</p> : null}
                     {meeting.votePending && <p className="vote-receipt" role="status">Sealing your vote…</p>}
-                    <div className="vote-grid">
-                      {meeting.candidates.map((player, idx) => {
-                        const isYou = player.id === snapshot.localPlayerId;
-                        return (
-                          <button
-                            key={player.id}
-                            style={{ "--card-idx": idx } as React.CSSProperties}
-                            disabled={!player.alive || isYou || !snapshot.humanAlive || !!meeting.localVote || !!meeting.votePending}
-                            onClick={() => engineRef.current?.vote(player.id)}
-                          >
-                            <span className="vote-slime"><SlimePortrait color={player.alive ? player.color : "#53616b"} eyeStyle={player.eyeStyle} /></span>
-                            <b>{player.name}</b><small>{player.alive ? (isYou ? "YOU" : "VOTE") : "ELIMINATED"}</small>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <button className="skip-vote" disabled={!!meeting.localVote || !!meeting.votePending || Boolean(multiplayerClient && !snapshot.humanAlive)} onClick={() => engineRef.current?.vote(null)}>{snapshot.humanAlive ? "SKIP VOTE" : "REVEAL CREW VOTE"}</button>
+                    <VoteRoster candidates={meeting.candidates} localPlayerId={snapshot.localPlayerId} alive={snapshot.humanAlive} discussing={discussionSeconds > 0} locked={!!meeting.localVote || !!meeting.votePending} onVote={id => engineRef.current?.vote(id)} />
+                    <button className="skip-vote" disabled={discussionSeconds > 0 || !!meeting.localVote || !!meeting.votePending || Boolean(multiplayerClient && !snapshot.humanAlive)} onClick={() => engineRef.current?.vote(null)}>{snapshot.humanAlive ? "SKIP VOTE" : "REVEAL CREW VOTE"}</button>
                   </section>
+                  <div id="meeting-private-notes" hidden={!meetingNotesOpen} className="meeting-notes-page"><MeetingObservations panel roster={knownNames} notes={observations} onRecord={recordObservation} onDraft={text => { setChatDraft(text); setMeetingNotesOpen(false); }} disabled={!snapshot.humanAlive} /></div>
                 </div>
               )}
             </div>

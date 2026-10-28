@@ -1,6 +1,321 @@
 # Moonwarden — agent handoff and pending work
 
-Updated: 2026-10-23 (Asia/Manila).
+Updated: 2026-10-28 (Asia/Manila).
+
+## Current release: v0.6.0 / silverpine-trust-v8 — deployment in progress
+
+The user approved the design-review recommendations and production deployment.
+Local implementation includes RestorationLedger (first seal 3–4% baseline,
+two +0.5% supports per shrine, 4% combined Hollow siphon cap per cycle), rotating
+Overgrown bonus shrine (+1.5% first Warden bloom during Ordeal), four-note
+alternating Sun/Moon duets (minimum three seconds, H toggles, J/K notes),
+12-second Rootwake with marked north/south doors opening halfway, Moonglare
+shade pockets, moving anonymous Echo Lure, normal Mirror Pool controls and
+Calm color reset, painted open outer loop, recommended Hollow caps and host
+60/75/90-second meetings with editable, unverified claim starters. The navigation
+map marks Overgrown shrines and Glare shade, never players or secret roles.
+Frontend and existing Render room server must both deploy this v8 revision.
+No paid resources, plan changes, or unrelated prototypes are authorized.
+Balance targets remain hypotheses pending human multiplayer playtests.
+
+Release evidence will be recorded below after both services are confirmed live.
+
+Pre-release checks: all 408 Node/real-WebSocket regression tests pass; TypeScript
+and scoped ESLint are clean. Both Next.js production and alternate vinext builds
+passed. Browser checked actual practice setup, launch and meeting claim controls.
+The full-suite log is temporary at `/private/tmp/moonwarden-060-final-tests.log`.
+
+## Previous frontend release: v0.5.0 / silverpine-rituals-v7
+
+- **Vercel frontend deployed and verified (READY)**:
+  - Alias: <https://moonwarden-two.vercel.app/>
+  - Unique URL: <https://moonwarden-5xz3l6l9k-christainj.vercel.app>
+  - Inspect: <https://vercel.com/christainj/moonwarden/3tNmp4o2UtUb6WcmJ87k6tUadzXc>
+  - Live `/api/version` verified: `{"name":"Moonwarden","version":"0.5.0","channel":"beta","worldVersion":"silverpine-rituals-v7"}`
+- **Pending for multiplayer room server**:
+  - Render service `srv-db8u6cs9v7es73dt2dt0` in Christian's workspace (`tea-db8t48jbc2fs73c3lr1g`, manual `autoDeploy` off, source branch `codex/persistent-room-server`, free Singapore plan) still needs the matching `v0.5.0` / `silverpine-rituals-v7` source committed, pushed, and deployed so persistent multiplayer rooms match the new frontend. `prototypes/` remains excluded via `.vercelignore` and untracked.
+
+`app/cat-head.tsx` statically crops the cached painted seated artwork to a cute
+head-only curved silhouette. Role reveals use actual player coat, WardenJOYFUL
+vsHollowFIERCE; voting,tallies and chat share it. Legacy CSSblob is removed from
+role markup and voting/chat backgrounds cleared. No votes/roles/rules changed.
+19 focused UI checks, TypeScript and lint passed; local actual meeting and Hollow
+reveal visually checked. Meeting heading translates legacy 'jelly puddle' report
+reason for display without changing server/audio/report logic.
+
+## Latest LOCAL shrine redesign
+
+New generated transparent `public/art/shrines/celestial-shrines-v1.png` + prompt
+record. Six cells:3columns(SUNDIAL,BASIN,TOTEM)×2rows(inactive,active).
+`app/shrine-sprites.ts` maps existing rewards:SONAR=sundial,FLASHLIGHT=catbasin,
+FLARE=totem. One image request/alpha scan, three cached halos; no frame pixel work.
+Near-opaque core registration compensates generated24/31/31px baseline offsets;
+state transitions share scale/center. `drawForestSanctum` uses painted art when
+ready and the existing procedural fallback otherwise. Completion pulse still0.5s.
+Active=(teamRestored||completed)&&!locked. No light/vision/collision/rule mutation.
+Personal SEALED badge persists, raised30units for taller ready artwork.
+
+`/dev/shrines` is a development-only2×3state comparison with lock,personalclaim
+and pulse controls. Browser inspected activated/sealed and dimmedlocked models;
+new art follows supplied sundial/catbasin/totem reference.23 focused shrine tests
+pass; TypeScript/scoped lint pass. Two older round-reset test fixtures were updated
+to server-issued OPEN_RITUAL/ANSWER_RITUAL (not rejected legacy TASK_UPDATE), with
+mocked clock and unchanged4.7/9.4/1.7 assertions; no application rules changed.
+LOCAL ONLY: no deploy/push requested. Station locations/taskpuzzles unchanged.
+
+## Latest LOCAL cat quality pass
+
+Home-size follow-up: `app-menu.css` spotlight-only avatar is now min(40vh,330px)
+square (40vh square on compact landscape), not the earlier24vh/27vh display.
+No arena scaling changed. Desktop preview fits between title and quick controls.
+
+- `cat-devour.ts` now exports `drawCatConsumption` (legacy alias retained) and
+  draws BOTH actors through the live painted cat renderer. Claw sweep, crouch,
+  floor shadow capture and recovery replace all slime skin/eyes/gel wrapping.
+  Shared `ConsumptionPortrait` canvas replays once, cancels RAF on cleanup,
+  honors reduced motion. Existing kill/report timing and witness gates unchanged.
+- New generated `public/art/mooncat/mooncat-seated-v1.png` and reproducible prompt
+  beside it. `seated-cat-art.ts` lazily loads/normalizes, caches12 recolored eye
+  variants with closed-eye counterparts. Home stage ONLY opts into SEATED;
+  gameplay/meeting portraits keep standing pose. Separate seated collars/headwear
+  anchors; hats at y-49, collar y4. Home greeting is a tilt, not a walk-frame wave.
+- Seated portrait paints cap30fps, suspend when document hidden, respect Pause
+  animations/reduced motion and clean up RAF + preference/visibility listeners.
+- Live `idlePhase` drives subtle shoulder breathing and matching accessories;
+  narrow paw reach/lift are smoothly width-limited. Painted blink strips are
+  cached within each appearance, not another full atlas/cache key.
+- Collar rendering separates foreshortened bands from upright charms; no rear
+  pendant, no flattened side bells. Existing8 cosmetic IDs unchanged.
+- `/dev/cats` has Hollow devour preview and paused Capture frame scrubber.
+  These changes are LOCAL ONLY; no production deployment or git push requested.
+
+Verification:60 focused cat/art/accessory/seated/motion checks pass; TypeScript
+and scoped lint pass. Browser inspected seated collar and antlers, WEST walk,
+identified claw/capture and anonymous capture (uniform grey, no eyes/cosmetics).
+No browser warnings/errors captured in home/review tabs. Not multiplayer QA or
+a mobile performance benchmark. Restarted local vinext server on3100 (sandbox
+required escalation for Cloudflare inspector port); current exec session5654.
+Earlier unrelated victory draw-budget failure remains outside this art pass.
+
+West-angle fix: the generic wide-run split divided one connected side-profile
+paw/cuff into independent pieces, opening visible gaps during movement.
+`measurePaws` now accepts `splitOverlaps`; EAST/WEST disable that heuristic and
+retain three real connected regions instead of four artificial pieces. Other
+heading rigs and body sway remain unchanged. Synthetic regression added; 49
+focused tests passed. Local only, no deploy requested.
+
+Latest body-motion follow-up: `bodyPose` adds a small stride-linked shoulder bob,
+side sway and rigid lean. `movingHip` moves each leg's shoulder attachment while
+preserving the prior paw ground targets exactly. Head/scarf/tail remain one intact
+painted body plate (separate tail cutting was rejected after spotting a head seam).
+Live collars use the same transform so they stay attached. Motion eases to neutral
+with stride strength; no whole-cat squash/stretch or movement physics changes.
+48 focused checks, TypeScript and scoped lint passed. Local only, not deployed.
+
+## Latest LOCAL follow-up: smooth painted-cat walking
+
+User still disliked the 4-frame walk. `cat-walk-rig.ts` now extracts 2–4 visible
+paw regions under the belly per heading from the normalized contact pose, once at
+load. `mooncat-sprites.ts` caches a body plate alongside each bounded appearance
+variant, feathers the hip seams and animates paws with continuous shear/shortening
+transforms. The head/scarf/torso use the SAME stable painted pose through the cycle;
+no frame crossfade or ghost paws. Existing distance-based phase drives the rig;
+stride amplitude eases to zero, converging to the identical idle image. No physics
+or gameplay speed changes. All eight heading rigs detected in browser:
+N 2, NE 4, E 4, SE 4, S 3, SW 3, W 4, NW 4 visible paw layers.
+
+When visibility alpha is reduced, a single shared 192px work canvas composites
+the character before one faded blit, avoiding brighter overlapping hip joints.
+Otherwise only up to four limb blits + one cached body blit per actor; no frame-time
+pixel processing. Avatar greetings explicitly use `walkStyle: FRAMES` to preserve
+the previous short paw-lift action. `SMOOTH` is default everywhere else.
+
+`/dev/cats` has Smooth paws / Original four frames and 0.25–1.5× playback controls.
+Browser inspected SE and E close-ups, all-heading grid and no console errors.
+46 focused art/accessory/walk checks passed; TypeScript and scoped lint passed.
+This is not multiplayer/end-to-end QA or a mobile performance benchmark. No deploy
+requested/performed. Earlier unrelated victory draw-budget failure is still pending.
+
+
+Latest collar/greeting follow-up: portraits now draw `drawWornAccessory` in the
+same 112-unit canvas as the character, and live gameplay calls that same helper.
+`SlimeAvatar` no longer overlays `HatGraphic` independently; that component is
+picker-only. Removed stale CSS avatar accessory offsets. Collar anchors sit at
+the painted scarf clasp (SE 23,0), with .78 scale; rear views hide the pendant.
+Home Wave uses `catGreetingPhase` in `cat-portrait.tsx` for two small paw-lift
+poses across 780ms, returns to contact, cancels RAF/unmount, and respects reduced
+motion. Removed the jelly-style group-wave keyframes and softened Boop transforms.
+Parent greeting timer is cleaned up on unmount. Focused art/accessory tests (35),
+TypeScript and scoped lint passed; browser checked collar and Wave without console
+errors. Local only. Earlier victory-budget failure remains unresolved below.
+
+## Latest LOCAL work: fallen cat bodies and neck accessories
+
+User requested replacing slime puddles and adding cat-fitting accessories.
+Implemented locally, not committed/pushed/deployed. New accessory IDs require
+both frontend AND room server deployment in a future authorized release.
+
+- `app/fallen-cat-art.ts`: generated transparent lying-cat art with folded paws,
+  closed eyes, curled tail and dropped moon charm. Asset/prompt:
+  `public/art/mooncat/fallen-cat-v1.png` and `fallen-cat-prompt.md`. Shared fur
+  recoloring preserves blue trim; anonymous mode hides all color. Cached/bounded,
+  preloaded on background preparation, vector cat fallback (never old liquid).
+- `page.tsx` drawBody now uses it after the same devour/stealth spawn gates and
+  visibility checks. No report range/timing or server body state changed.
+  `/dev/cats` offers a Fallen cat marker toggle using that SAME drawing function.
+- New Hat IDs: moonbell, leafband, starlock, mothbow (old IDs retained). Client,
+  server create/update/bots and banishment validation accept all eight. New default
+  Moonbell; UI renamed Headdress to Accessories. Collar anchor is neck height,
+  rear views hide pendants; avatar CSS shares the anchor. Legacy hats scale .72
+  and sit 12 units higher. Victory/banishment collar placements use neck height.
+- Browser checked customization options/neck fitting and actual fallen-cat renderer
+  via development review. 41 focused accessory/art/report checks passed; TypeScript
+  and scoped lint passed. Broader run: 90/92 passed, bot travel test passed on an
+  isolated retry; victory scene's <600 draw-call budget test still fails. Not a
+  full regression pass; do not claim that test passed or silently relax its budget.
+
+
+Latest small HUD request: transparent gameplay header, with only status/controls
+floating above the game. Final rules in `gameplay-hud.css` remove header fill,
+border/shadow and gameplay branding; a negative header margin extends the actual
+canvas behind it. Top HUD widgets shift by the responsive header-height variable
+to avoid overlaps. Header gaps pass input through, Settings/Leave still work.
+Homepage branding is unchanged. Eight UI checks passed. Local only.
+
+## Latest LOCAL work: painted mushroom forest and grass
+
+Floor follow-up: `moon-glade.ts` now paints blue-teal soil, feathered moss patches,
+warmer worn-earth trails with curve-following brush marks, organic pebbles instead
+of geometric floor inlays, and less milky clearing/courtyard glows. Shared floor
+colors in `forest-art.ts` are medium-value cool tones, not the old pale gray.
+`page.tsx` station-route paint matches the warmer paths. All ground stays baked;
+physics/visibility unchanged. TypeScript, scoped lint and 19 relevant forest/map
+tests passed; visually checked in local gameplay. Still no deploy requested.
+
+User supplied a bioluminescent mushroom environment sheet and requested similar
+objects plus grass. Generated `public/art/forest/bioluminescent-forest-v1.png` with
+the built-in tool; prompt/provenance is in that folder's README. No push/deploy
+requested or performed for this pass.
+
+- `app/forest-sprites.ts`: shared one-time browser load, eight authored crop
+  regions (NOT a uniform grid), alpha trimming, aspect-preserving draws and
+  base/crown splits. SSR/load errors retain procedural art.
+- `forest-art.ts`: tree/willow/pillar art switches to painted variants after
+  loading, retaining contact footprints, cache limits, upper-only canopy fade
+  and existing visibility. Crystals/runed monuments remain recognizable.
+- `moon-glade.ts`: 119 deterministic, small, walkable grass/fern/spore accents
+  avoid major trails and the center; border trees use painted sprites too.
+  `page.tsx` rebakes the static floor once when the atlas becomes ready. This
+  never adds light, collision, station changes or network/version changes.
+- Browser check: local Warden practice, movement to Fallen Shrine, painted
+  double-cap trees and ground foliage visible, no console errors. TypeScript,
+  scoped ESLint and 27 environment/navigation/collision tests passed. Not a full
+  multiplayer QA pass. Preserve all prior unrelated local changes.
+
+## Latest LOCAL work: painted reference-style moon-cat sprites
+
+Follow-up paw-motion correction: each pose is registered to its own planted-paw
+baseline (union bounds previously made short poses float), with a torso-band
+horizontal anchor excluding tail/toe swings. `sampleCatGait` accepts an optional
+position, supplied by the live arena, so cycle timing follows actual distance
+(112 world units per cycle). Blocked input/gaze cannot make paws walk; teleports
+reset the gait. No movement physics changed. This follow-up remains local.
+
+The user rejected the simplified procedural character and asked to replicate
+the supplied illustrated cat reference closely. Generated a transparent painted
+8-heading × 4-walk-phase atlas using the built-in image-generation tool:
+`public/art/mooncat/mooncat-walk-v2.png`. Prompt/provenance and integration notes
+are in `public/art/mooncat/README.md`. No deployment/push requested this turn.
+
+- `app/mooncat-sprites.ts` loads once in the browser, extracts actual alpha
+  gutters (IMPORTANT: generated row spacing is NOT exactly height / 4), normalizes
+  the baselines, and caches up to 12 coat/expression variants. Recolors purple fur
+  while retaining amber eyes and blue trim. Eye detection uses ORIGINAL art so
+  yellow/orange coats cannot be mistaken for giant eyes. Fog uses anonymous alpha
+  silhouettes; no coat or expression leaks. SSR/load failures use the old vector.
+- `drawMooncat` now selects sprites first, then `drawVectorMooncat` fallback.
+  Lobby portraits repaint when the shared load completes and cancel after unmount.
+  `/dev/cats` has a close-up, heading selector, eight-way grid and vector comparison.
+- Local browser checks: painted artwork loaded, all eight directions, Joyful eye
+  expression, anonymous concealment, and actual landscape Warden practice movement
+  with player colors/hats. Browser console had no errors. 32 focused art/sprite
+  checks passed; TypeScript passed. This is not full multiplayer/cinematic QA.
+- No physics, network, balance, compatibility or package version changes in this
+  art pass. Cinematics still use their pre-existing artwork; do not claim those
+  have also been reillustrated. Preserve all unrelated work already present.
+
+
+## Latest release work: v0.5.0 (moon-cat renderer, full-screen menus, and forest rituals)
+
+The user explicitly authorized deploying the current changes to Vercel and pushing
+to Git as **v0.5.0** (`silverpine-rituals-v7`), preserving the existing `cat-*`
+migration and excluding the unrelated untracked `prototypes/` directory.
+
+- `app/mooncat-renderer.ts` is the shared live renderer. `cat-art.ts` exports it
+  as `drawAnimatedCat`; `cat-portrait.tsx` uses it for normal and concealed canvas
+  portraits. Old artwork remains for existing cinematic consumers and the review
+  comparison; cinematic art is not fully migrated by this request.
+- Rounded heads, shaded coats, golden eyes (all five choices), curled star tails,
+  scarves and cuffs. Four articulated paws and eight headings replace the old
+  mismatched face overlay. Gait stops at idle, resets after hidden-time gaps,
+  and respects reduced motion. Fog silhouettes share anatomy but hide cosmetics;
+  facial shading must never override the caller's visibility alpha.
+- Follow-up: East/West now have a dedicated profile outline, overlapping ears,
+  projecting muzzle/nose and side-positioned eye instead of a compressed front
+  face. Side legs are aligned under the shoulders/hips. West mirrors East.
+- Further feedback: shortened the side muzzle to avoid a canine-looking snout,
+  reduced the nose to a tiny inset triangle, and added fine whiskers to front
+  and side faces. Rear/anonymous views hide them. 29 art checks now pass.
+- `play-menu.css` aligns the 96×72 hat frame with the 112-unit portrait. Do not
+  restore the old slime anchor. Color assignments, collisions and roles unchanged.
+- Review: `http://localhost:3100/dev/cats` (development only; production 404).
+  Browser inspection covered all directions, anonymous silhouette, shared lobby
+  portrait and a local Warden practice arena. TypeScript and 27 focused art tests
+  passed. Scoped lint has no errors; one pre-existing unused `softEllipse` warning
+  remains. This is not a full multiplayer or cinematic playtest.
+
+## Earlier in-progress local forest improvements
+
+Before the cat request, local changes added curated station homes/cover,
+Moon/Root/Firefly rituals, Standard/Challenging difficulty, and shrine-earned
+Wisp Step/Watchroot utilities (both roles, Ordeal-only). See
+`server/forest-rituals.ts`, `server/forest-utilities.ts`, `app/forest-ritual.tsx`
+and `tests/forest-rituals.test.mjs`. The earlier focused 54-check run passed;
+full end-to-end multiplayer playtesting of these changes is still pending.
+`GAME_WORLD_VERSION` is locally `silverpine-rituals-v7`; when a release is
+authorized, frontend AND room server must be updated together. Production
+release information below is historical, not proof of current remote status.
+
+## Pending local work: full-screen game menus
+
+The latest request replaces the scrolling homepage with app-style navigation,
+matches practice colors to gameplay, and keeps meeting players visible without
+scrolling. Implemented locally; **not committed, pushed, or deployed**. Do not
+infer deployment authorization from the older release notes below.
+
+- `app/game-menu.tsx` and `app/app-menu.css` provide Home / Multiplayer / Practice /
+  Customize / Guide / Rooms screens, Back and Escape navigation, safe areas,
+  paginated rooms/guide, and compact midnight-blue/gold layouts. Lobby waiting-room
+  Crew / Chat / Settings panels reuse existing networking and configuration.
+- Follow-up feedback rejected meeting tabs. Player cards now stay on the left and
+  discussion opens immediately on the right. A small Notes button temporarily opens
+  private notes in the right panel; drafting returns to chat. `app/meeting-roster.tsx`
+  renders eight candidates and the full tally without roster scrolling.
+- Voting (including Skip) unlocks after ten seconds. The shared
+  `MEETING_DISCUSSION_MS` constant governs solo/client and room-server enforcement;
+  `MEETING_CALLED.discussionMs` carries the duration without depending on client/server
+  clock agreement. Bot votes are delayed too. Multiplayer retains its 45-second
+  total meeting (35 seconds available for voting); solo waits for the player.
+- TypeScript, scoped ESLint, production build, UI/rendered-HTML tests, and focused
+  lobby/report/next-chapter tests passed. Browser checks covered desktop, 667x375
+  landscape, and 375x700 portrait menus. A local one-human/seven-AI WebSocket match
+  confirmed all eight meeting players, Skip, chat submission, and private notes fit.
+  A native WebView wrapper itself has not been tested.
+- Local frontend is `http://localhost:3100/`, with the local room server on 3101.
+  Production remains the v0.4.0 release below. A future release must deploy BOTH
+  frontend and the room server for authoritative discussion timing. This turn
+  does not authorize deployment; the already-running local server may need a restart.
+  Preserve the unrelated untracked `prototypes/` directory.
 
 ## Current production release: v0.4.0
 

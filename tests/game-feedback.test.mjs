@@ -5,11 +5,13 @@ import test from "node:test";
 import ts from "typescript";
 import { ejectionVerdict } from "../server/role-presentation.ts";
 import * as matchRules from "../server/match-rules.ts";
+import * as design from "../server/sanctuary-design.ts";
 import * as reportRules from "../server/report-rules.ts";
 import * as taskHold from "../app/task-hold.ts";
 import * as restoration from "../app/restoration-art.ts";
 import { sanctuaryZoneName } from "../server/sanctuary-map.ts";
 import { sightAt } from "../server/visibility.ts";
+import { ForestUtilities } from "../server/forest-utilities.ts";
 
 // Exercise the real engine methods without starting RAF, audio hardware, or a
 // network connection. Extracting the class avoids adding test exports/routes
@@ -32,6 +34,7 @@ function fixture() {
     drawSanctumStatus: () => layers.push("status"),
     ejectionVerdict,
     ...matchRules,
+    ...design,
     ...reportRules,
     ...taskHold,
     ...restoration,
@@ -47,9 +50,10 @@ function fixture() {
     stationRound: 1, stations: [], charges: { FLASHLIGHT: 0, FLARE: 0, SONAR: 0 },
     audio: { cue: cue => cues.push(cue) }, taskProgress: 0, multiplayerClient: null,
     emit() {}, onPuzzle() {}, checkWin() {}, onEnd() {},
-    wardClaims: new Set(), pendingWardDelta: 0, wardSettleTimer: 0, obstacles: [],
+    wardClaims: new Set(), restorationLedger: new matchRules.RestorationLedger(), rootRipples: [], pendingWardDelta: 0, wardSettleTimer: 0, obstacles: [],
     keys: new Set(), touchKeys: new Set(), lastQuestions: new Map(), taskFailure: "",
     ordealNumber: 0, botStrikeSpent: new Set(), stealthUntil: 0, stealthAvailableOrdeal: 0, pendingBodies: [],
+    utilities: new ForestUtilities(), utilityTrails: [], ritualAttempts: new Map(),
   });
   return { engine, cues, layers };
 }
@@ -241,6 +245,21 @@ test("multiplayer vote receipts lock one submission, preserve the discussion, an
   assert.equal(engine.activeMeeting.candidates, candidates, "receipt updates do not recreate/reset the discussion roster");
   engine.vote(null);
   assert.deepEqual(sent, ["suspect", "suspect"]);
+});
+
+test("client blocks both a candidate and Skip during the opening discussion", () => {
+  const { engine } = fixture();
+  const sent = [];
+  engine.players.push({ id: "suspect", alive: true });
+  engine.paused = true;
+  engine.activeMeeting = { candidates: engine.players, votingOpensAt: Date.now() + 10_000 };
+  engine.onMeeting = () => {};
+  engine.multiplayerClient = { sendVote: id => sent.push(id) };
+  engine.vote("suspect"); engine.vote(null);
+  assert.deepEqual(sent, []);
+  engine.activeMeeting.votingOpensAt = Date.now() - 1;
+  engine.vote("suspect");
+  assert.deepEqual(sent, ["suspect"]);
 });
 
 test("Rootwake blocks a distant chamber's gulp while retaining the victim's private sound", () => {

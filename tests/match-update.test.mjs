@@ -18,15 +18,15 @@ function match(t, count = 8, hollows = 2) {
   return { room, clients };
 }
 
-test("Hollow cap defaults to one, rejects invalid counts, and permits half without a spawn-time victory", t => {
+test("Hollow cap defaults to one and permits a second only at seven or eight players", t => {
   for (let size = 4; size <= 8; size++) {
     assert.equal(clampHollowCount(undefined, size), 1);
     assert.equal(clampHollowCount(Infinity, size), 1);
-    assert.equal(clampHollowCount(999, size), Math.floor(size / 2));
+    assert.equal(clampHollowCount(999, size), size >= 7 ? 2 : 1);
     assert.equal(clampHollowCount(-1, size), 1);
     const { room } = match(t, size, 999);
     const hollows = [...room.players.values()].filter(p => p.role === "IMPOSTOR").length;
-    assert.equal(hollows, Math.floor(size / 2));
+    assert.equal(hollows, size >= 7 ? 2 : 1);
     assert.equal(room.checkWinConditions(), false);
     assert.equal(room.state, "PLAYING");
   }
@@ -123,7 +123,7 @@ test("seeded station layouts are stable, vary between matches, and preserve walk
   for (let seed = 0; seed < 40; seed++) {
     const layout = createMatchLayout(seed * 59328);
     assert.equal(new Set(layout.stations.map(s => getRootCell(s.x, s.y).index)).size, 6);
-    assert.ok(layout.obstacles.length >= 16);
+    assert.ok(layout.obstacles.length > 8, "curated cover is added without requiring a crowded fixed prop count");
     for (const shrine of layout.stations) {
       assert.ok(layout.obstacles.every(obstacle => Math.hypot(obstacle.x - shrine.x, obstacle.y - shrine.y) > obstacle.r + 60));
       const path = planRoute(CENTER, shrine, false, layout.obstacles);

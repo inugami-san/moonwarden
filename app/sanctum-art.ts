@@ -1,3 +1,5 @@
+import { drawShrineSprite, shrineSpritesReady } from "./shrine-sprites";
+
 export const SANCTUM_PULSE_SECONDS = 0.5;
 
 export function sanctumPulse(now: number, completedAt?: number) {
@@ -66,6 +68,22 @@ function drawShrineCrown(ctx: CanvasRenderingContext2D, station: Sanctum, locked
 
 /** Forest matter, carved moonstone, and local light; no screen-shaped station panels. */
 export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctum, time: number, locked: boolean, nearby: boolean) {
+  if (drawShrineSprite(ctx, station, time, locked, nearby)) {
+    // Keep the familiar local half-second completion cue above the new art.
+    const pulse = sanctumPulse(time, station.completedAt);
+    if (pulse) {
+      ctx.save(); ctx.translate(station.x, station.y);
+      ctx.strokeStyle = `rgba(191,224,255,${pulse.alpha})`; ctx.lineWidth = 2 - pulse.progress;
+      ctx.beginPath(); ctx.arc(0, 0, pulse.radius, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = `rgba(222,213,255,${pulse.alpha * .72})`;
+      for (let i = 0; i < 8; i++) {
+        const angle = i * Math.PI / 4 + station.pulse, radius = 22 + pulse.progress * 12;
+        ctx.beginPath(); ctx.ellipse(Math.cos(angle) * radius, Math.sin(angle) * radius * .6, 3.8, 1.5, angle, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+    }
+    return;
+  }
   const { completed } = station;
   const restored = station.teamRestored === true || completed;
   const closure = completed ? 1 : Math.max(0, Math.min(1, station.rootClosure ?? Number(locked)));
@@ -191,12 +209,12 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
   }
 
   const rock = ctx.createLinearGradient(-16, -26, 21, 24);
-  rock.addColorStop(0, locked ? "#8a8d9c" : completed ? "#ded5be" : "#c8c3ce");
-  rock.addColorStop(0.4, locked ? "#626b7f" : completed ? "#aaa3ae" : "#9c9daa");
-  rock.addColorStop(1, locked ? "#3f4d60" : "#666d81");
+  rock.addColorStop(0, locked ? "#58627a" : completed ? "#ded5be" : "#7e92ad");
+  rock.addColorStop(0.4, locked ? "#3d465e" : completed ? "#929bab" : "#556885");
+  rock.addColorStop(1, locked ? "#232a3d" : "#2c3954");
   ctx.fillStyle = rock;
-  ctx.strokeStyle = "rgba(13,26,20,.8)";
-  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = "rgba(11,18,34,.88)";
+  ctx.lineWidth = 1.6;
   ctx.beginPath();
   ctx.moveTo(-23, 21);
   ctx.lineTo(-21, -13);
@@ -208,13 +226,19 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
   ctx.fill();
   ctx.stroke();
 
+  // Glowing cyan rune tablet inset on the top-down face of the mossy stone shrine.
+  ctx.fillStyle = locked ? "rgba(32,48,68,.55)" : completed ? "rgba(235,216,158,.32)" : `rgba(38,198,224,${(brightness * .32).toFixed(2)})`;
+  ctx.beginPath();
+  ctx.moveTo(-14, -22); ctx.lineTo(11, -20); ctx.lineTo(16, -6); ctx.lineTo(-15, -7);
+  ctx.closePath(); ctx.fill();
+
   // Restrained mineral flecks and chipped planes are stable, not animated noise.
   for (let i = 0; i < 12; i++) {
     const x = -16 + i * 17 % 33, y = -15 + i * 13 % 32;
-    ctx.strokeStyle = i % 2 ? "#e9ded338" : "#3c43522e"; ctx.lineWidth = .7;
+    ctx.strokeStyle = i % 2 ? "#7affff38" : "#151d3640"; ctx.lineWidth = .7;
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 2.6, y - .8); ctx.stroke();
   }
-  ctx.strokeStyle = "#e1d5cb5c"; ctx.lineWidth = .8;
+  ctx.strokeStyle = "#7affff66"; ctx.lineWidth = .9;
   ctx.beginPath(); ctx.moveTo(-19, -11); ctx.lineTo(-9, -26); ctx.lineTo(10, -23); ctx.stroke();
 
   ctx.strokeStyle = "rgba(15,35,25,.38)";
@@ -227,8 +251,8 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
   ctx.lineTo(11, 7);
   ctx.lineTo(14, 19);
   ctx.stroke();
-  ctx.strokeStyle = completed ? `rgba(255,238,185,${locked ? 0.45 : 0.95})` : `rgba(183,230,218,${brightness})`;
-  ctx.lineWidth = completed ? 2.8 : 1.8;
+  ctx.strokeStyle = completed ? `rgba(255,238,185,${locked ? 0.45 : 0.95})` : `rgba(82,248,255,${brightness})`;
+  ctx.lineWidth = completed ? 2.8 : 2.1;
   ctx.beginPath();
   ctx.arc(0, -3, 12, -Math.PI * 0.7, Math.PI * (completed ? 1.3 : 0.7));
   if (completed) {
@@ -243,27 +267,32 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
   }
   ctx.stroke();
 
-  // Each station's plants hint at the equipment it supplies.
+  // Bioluminescent mushrooms & glowing spore flora flanking each shrine.
   for (const side of [-1, 1]) {
     const x = side * 29;
     const y = 18;
     if (station.reward === "FLASHLIGHT") {
-      ctx.strokeStyle = "#899b7f";
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#293569";
+      ctx.lineWidth = 2.4;
       ctx.beginPath();
       ctx.moveTo(x, y);
       ctx.quadraticCurveTo(x - side * 2, y - 6, x, y - 12);
       ctx.stroke();
-      ctx.fillStyle = locked ? "#4a6151" : "#82ab91";
+      ctx.fillStyle = locked ? "#243554" : "#1f56ad";
       ctx.beginPath();
-      ctx.ellipse(x, y - 12, 8, 4, side * 0.15, Math.PI, Math.PI * 2);
+      ctx.ellipse(x, y - 12, 8.5, 4.5, side * 0.15, Math.PI, Math.PI * 2);
       ctx.closePath();
       ctx.fill();
-      ctx.strokeStyle = `rgba(194,232,192,${brightness * 0.6})`;
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = `rgba(82,248,255,${brightness * 0.85})`;
+      ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.ellipse(x, y - 12, 7, 1.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(x, y - 12, 7.2, 1.6, 0, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.fillStyle = locked ? "#466878" : "#7affff";
+      ctx.beginPath();
+      ctx.arc(x - side * 2, y - 14, 1.3, 0, Math.PI * 2);
+      ctx.arc(x + side * 2.5, y - 13.5, 1, 0, Math.PI * 2);
+      ctx.fill();
     } else {
       const bloom = restored ? 1 + (completion ? Math.sin(completion.progress * Math.PI) * 0.4 : 0) : 0.42;
       ctx.save();
@@ -271,12 +300,12 @@ export function drawForestSanctum(ctx: CanvasRenderingContext2D, station: Sanctu
       ctx.scale(bloom, bloom);
       for (let petal = 0; petal < 5; petal++) {
         const angle = petal / 5 * Math.PI * 2;
-        ctx.fillStyle = locked ? "#465448" : restored ? "#c5cfa2" : "#6c8b70";
+        ctx.fillStyle = locked ? "#2d3d59" : restored ? "#5ef6ff" : "#256db5";
         ctx.beginPath();
         ctx.ellipse(Math.cos(angle) * 4, Math.sin(angle) * 4, 4, 2, angle, 0, Math.PI * 2);
         ctx.fill();
       }
-      ctx.fillStyle = locked ? "#667656" : "#c8d39a";
+      ctx.fillStyle = locked ? "#4e6678" : "#bffdff";
       ctx.beginPath();
       ctx.arc(0, 0, 1.8, 0, Math.PI * 2);
       ctx.fill();
@@ -404,7 +433,8 @@ export function drawSanctumStatus(ctx: CanvasRenderingContext2D, station: Sanctu
   // The top-left ward meter overlays the upper arena. Put north-shrine
   // badges on the approach side so the HUD cannot hide a completed state.
   const northShrine = station.y < 160;
-  const y = northShrine ? 58 : -67;
+  const lift = shrineSpritesReady() ? 30 : 0;
+  const y = northShrine ? 58 : -67 - lift;
   ctx.save();
   ctx.translate(station.x, station.y);
   ctx.lineCap = "round";
@@ -413,7 +443,7 @@ export function drawSanctumStatus(ctx: CanvasRenderingContext2D, station: Sanctu
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(0, northShrine ? y - 12 : y + 12);
-  ctx.lineTo(0, northShrine ? 30 : -48);
+  ctx.lineTo(0, northShrine ? 30 : -48 - lift);
   ctx.stroke();
   ctx.fillStyle = sealed ? "#e8d9b6" : locked ? "#34434e" : "#233f46";
   ctx.strokeStyle = sealed ? "#697888" : locked ? "#7f9197" : "#acd4c5";
@@ -462,7 +492,7 @@ export function drawSanctumStatus(ctx: CanvasRenderingContext2D, station: Sanctu
     ctx.lineWidth = 3;
     ctx.strokeStyle = "rgba(10,20,29,.95)";
     ctx.font = "700 10px ui-monospace, monospace";
-    const nameY = northShrine ? y + 29 : -88;
+    const nameY = northShrine ? y + 29 : -88 - lift;
     ctx.strokeText(station.label, 0, nameY);
     ctx.fillStyle = "#e2e9e4";
     ctx.fillText(station.label, 0, nameY);

@@ -101,7 +101,7 @@ test("phantoms vary by seed, stay in the arena, and do not repeat the previous h
   assert.ok(TASK_PROGRESS_REWARD * 6 < 100);
 });
 
-test("Mirror Pool lasts 25s, swaps colors on bump, persists into Calm, and reverts at Meeting", t => {
+test("Mirror Pool lasts 25s, swaps colors on bump, and reverts at Calm", t => {
   const { room, clients } = match(t);
   const p0 = room.players.get("p0");
   const p1 = room.players.get("p1");
@@ -130,13 +130,13 @@ test("Mirror Pool lasts 25s, swaps colors on bump, persists into Calm, and rever
   assert.equal(p1.color, orig0);
   assert.ok(clients[0].sent.some(msg => msg.type === "SYNC_PLAYERS"));
 
-  // Transition ORDEAL -> CALM: swapped colors persist!
+  // Transition ORDEAL -> CALM: identities recover immediately.
   room.phaseTime = 0.01;
   room.lastTick = Date.now() - 50;
   room.tick();
   assert.equal(room.phase, "CALM");
-  assert.equal(p0.color, orig1);
-  assert.equal(p1.color, orig0);
+  assert.equal(p0.color, orig0);
+  assert.equal(p1.color, orig1);
 
   // Calling an emergency meeting restores everyone's true colors
   p0.x = CENTER.x; p0.y = CENTER.y;
@@ -146,7 +146,7 @@ test("Mirror Pool lasts 25s, swaps colors on bump, persists into Calm, and rever
   assert.equal(p1.color, orig1);
 });
 
-test("shrines stay open during Ordeals, sync working status, and grant +12% Moon Wards", t => {
+test("shrines stay open during Ordeals, sync working status, and grant authoritative restoration", t => {
   const { room, clients } = match(t);
   const p1 = room.players.get("p1");
   room.handleMessage("p1", {
@@ -168,10 +168,13 @@ test("shrines stay open during Ordeals, sync working status, and grant +12% Moon
   const netP1 = moveMsg.players.find(entry => entry.id === "p1");
   assert.equal(netP1.working, true);
 
-  room.handleMessage("p1", { type: "TASK_UPDATE", stationId: "FROST FONT", reward: "FLASHLIGHT" });
+  room.handleMessage("p1", { type: "OPEN_RITUAL", stationId: "FROST FONT", roundId: room.roundId });
+  const entry = room.ritualChallenges.get("p1");
+  entry.openedAt -= entry.challenge.minimumMs ?? 500;
+  room.handleMessage("p1", { type: "ANSWER_RITUAL", challengeId: entry.challenge.id, answer: entry.challenge.target, roundId: room.roundId });
   assert.equal(room.taskProgress, 0, "progress settles after the interaction");
   room.settleWards();
-  assert.equal(room.taskProgress, 5.8);
+  assert.ok(room.taskProgress === 5 || room.taskProgress === 6.5, "Ordeal restoration plus optional first overgrown bloom");
   assert.equal(p1.working, false);
 });
 

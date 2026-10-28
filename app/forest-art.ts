@@ -1,10 +1,11 @@
 import type { SanctuaryObstacle, WorldPoint } from "../server/sanctuary-map";
+import { drawForestAsset, forestSpritesReady } from "./forest-sprites";
 
 /** Palette shared by ground, canopy and shrine matter; light stays readable. */
 export const FOREST_PALETTE = Object.freeze({
-  floorLight: "#9ca8a5", floorMid: "#82958d", floorShade: "#6e8387",
-  moon: "#dcd8ed", amber: "#e3bf83", leafLight: "#a8b5a5",
-  leafMid: "#697f72", leafShade: "#394f51", stone: "#9297a4",
+  floorLight: "#577e81", floorMid: "#3f606b", floorShade: "#304957",
+  moon: "#d8e4f5", amber: "#5ef2ff", leafLight: "#4bc8e8",
+  leafMid: "#295f98", leafShade: "#16254d", stone: "#8390a8",
 });
 
 function randomBrush(seed: number) {
@@ -25,27 +26,55 @@ function stonePath(ctx: CanvasRenderingContext2D, radius: number, height: number
   ctx.lineTo(radius * .62, -height * .85); ctx.lineTo(radius * .8, -height * .31);
   ctx.lineTo(radius * .75, 5); ctx.quadraticCurveTo(0, 12, -radius * .7, 5); ctx.closePath();
 }
-function leafCluster(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, random: () => number, willow: boolean) {
-  ctx.save(); ctx.translate(x, y);
-  const light = ctx.createLinearGradient(-radius, -radius, radius * .6, radius);
-  light.addColorStop(0, willow ? "#abb9ac" : "#a7af9b");
-  light.addColorStop(.4, willow ? "#7f9b8e" : "#7e927b");
-  light.addColorStop(1, FOREST_PALETTE.leafShade);
-  ctx.fillStyle = light; ctx.beginPath();
-  // Angular brush edges and small gaps give foliage an irregular silhouette.
-  for (let i = 0; i <= 24; i++) {
-    const angle = i / 24 * Math.PI * 2, r = radius * (.8 + random() * .2);
-    const px = Math.cos(angle) * r, py = Math.sin(angle) * r * .64;
-    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+
+/** Paint a bioluminescent mushroom cap with glowing cyan gills and speckled spots. */
+function mushroomCap(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, random: () => number, shaggy: boolean) {
+  ctx.save(); ctx.translate(cx, cy);
+  // Glowing cyan-teal underside gills visible beneath the 2.5D angled cap rim.
+  const gills = ctx.createRadialGradient(0, ry * .32, rx * .08, 0, ry * .28, rx * .92);
+  gills.addColorStop(0, "#66fcff"); gills.addColorStop(.52, "#1ca8db"); gills.addColorStop(1, "#112858");
+  ellipse(ctx, 0, ry * .26, rx * .88, ry * .42, gills);
+  ctx.strokeStyle = "#88ffff88"; ctx.lineWidth = 1;
+  for (let i = -7; i <= 7; i++) {
+    const gx = (i / 8) * rx * .82;
+    ctx.beginPath(); ctx.moveTo(gx * .22, ry * .35); ctx.quadraticCurveTo(gx * .65, ry * .18, gx, ry * .32); ctx.stroke();
   }
-  ctx.closePath(); ctx.fill(); ctx.save(); ctx.clip();
-  for (let i = 0; i < 54; i++) {
-    const px = (random() * 2 - 1) * radius, py = (random() * 2 - 1) * radius * .7;
-    ctx.strokeStyle = ["#e2dccb39", "#bac8b335", "#283c452d", "#556a633d"][i % 4];
-    ctx.lineWidth = 1 + random() * 2.4;
-    ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + 3 + random() * 5, py - 1 - random() * 2); ctx.stroke();
+  // Domed indigo-cobalt mushroom umbrella cap with crisp scalloped rim.
+  const cap = ctx.createLinearGradient(-rx * .5, -ry, rx * .5, ry * .45);
+  cap.addColorStop(0, shaggy ? "#2e7ab8" : "#2264bd");
+  cap.addColorStop(.48, shaggy ? "#1b467d" : "#1a357a");
+  cap.addColorStop(1, "#0e1942");
+  ctx.fillStyle = cap; ctx.strokeStyle = "#09112e"; ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(-rx, ry * .18);
+  ctx.bezierCurveTo(-rx * 1.04, -ry * .58, -rx * .48, -ry * 1.05, 0, -ry);
+  ctx.bezierCurveTo(rx * .48, -ry * 1.05, rx * 1.04, -ry * .58, rx, ry * .18);
+  ctx.bezierCurveTo(rx * .55, ry * .02, -rx * .55, ry * .02, -rx, ry * .18);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // Glowing cyan rim highlight and bioluminescent cap spots.
+  ctx.strokeStyle = "#4ef6ff99"; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(-rx * .92, ry * .14); ctx.quadraticCurveTo(0, -ry * .04, rx * .92, ry * .14); ctx.stroke();
+  ctx.save(); ctx.clip();
+  for (let i = 0; i < 18; i++) {
+    const sx = (random() * 1.6 - .8) * rx, sy = -ry * (.12 + random() * .76);
+    const sr = 2.2 + random() * (rx * .09);
+    ellipse(ctx, sx, sy, sr * 1.35, sr * .78, i % 3 === 0 ? "#7affffdd" : "#29c5ffaa", (random() - .5) * .6);
   }
-  ctx.restore(); ctx.restore();
+  ctx.restore();
+  ctx.restore();
+}
+
+/** Paint a glowing cyan fern frond at the base of an obstacle. */
+function cyanFern(ctx: CanvasRenderingContext2D, x: number, y: number, dir: number, length: number) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(dir, 1);
+  ctx.strokeStyle = "#3df5ff"; ctx.lineWidth = 1.3;
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(length * .5, -length * .45, length, -length * .65); ctx.stroke();
+  for (let leaf = 1; leaf <= 4; leaf++) {
+    const t = leaf / 5, lx = length * t, ly = -length * .55 * t;
+    ellipse(ctx, lx, ly - 2.2, 3.2, 1.2, "#5cfaffcc", -.6);
+    ellipse(ctx, lx, ly + 1.8, 3.2, 1.2, "#28b8e8cc", .5);
+  }
+  ctx.restore();
 }
 
 type Sprite = { base: HTMLCanvasElement; crown: HTMLCanvasElement; width: number; height: number; anchorX: number; anchorY: number };
@@ -62,78 +91,123 @@ function paintObstacle(obs: SanctuaryObstacle, variant: number): Sprite {
   };
   const base = layer(), crown = layer(), random = randomBrush(91 + variant * 739);
   const ctx = base.ctx, r = obs.r, h = obs.canopyHeight;
-  const shadow = ctx.createRadialGradient(4, 6, 2, 4, 6, r * 1.8);
-  shadow.addColorStop(0, "#17232b66"); shadow.addColorStop(1, "#17232b00");
-  ellipse(ctx, 4, 7, r * 1.8, r * .7, shadow);
-  // The visible foot matches the existing collider; foliage is only overhead.
-  ellipse(ctx, 0, 3, r, r * .56, "#4a625c");
-  for (let i = 0; i < 16; i++) {
-    const a = random() * Math.PI * 2, distance = Math.sqrt(random()) * r * .9;
-    ellipse(ctx, Math.cos(a) * distance, 3 + Math.sin(a) * distance * .5, 2.5 + random() * 2, 1.2, i % 2 ? "#9caa8e66" : "#353e4666", -.3);
+  const shadow = ctx.createRadialGradient(4, 6, 2, 4, 6, r * 1.85);
+  shadow.addColorStop(0, "#0b132b88"); shadow.addColorStop(1, "#0b132b00");
+  ellipse(ctx, 4, 7, r * 1.85, r * .72, shadow);
+  const paintedTree = obs.kind === "ANCIENT_TREE" || obs.kind === "WEEPING_WILLOW";
+  if (forestSpritesReady() && (paintedTree || obs.kind === "MOSS_PILLAR")) {
+    const asset = obs.kind === "WEEPING_WILLOW" ? 2 : obs.kind === "MOSS_PILLAR" ? 3 : variant % 2;
+    // Keep a grounded trunk footprint even when the overhead artwork fades.
+    ellipse(ctx, 0, 3, r, r * .58, "#182746");
+    const maxWidth = obs.canopyRadius * 2, maxHeight = h;
+    drawForestAsset(ctx, asset, 0, 8, maxWidth, maxHeight, "base");
+    drawForestAsset(crown.ctx, asset, 0, 8, maxWidth, maxHeight, "crown");
+    drawForestAsset(ctx, 6, -r * .65, 8, r * 1.1, 15);
+    return { base: base.canvas, crown: crown.canvas, width, height, anchorX, anchorY };
+  }
+  // Dark midnight-indigo mossy turf & Tiny Spore Clusters matching the exact collider foot.
+  ellipse(ctx, 0, 3, r, r * .58, "#141d3b");
+  for (let i = 0; i < 14; i++) {
+    const a = random() * Math.PI * 2, distance = Math.sqrt(random()) * r * .88;
+    ellipse(ctx, Math.cos(a) * distance, 3 + Math.sin(a) * distance * .5, 2.8 + random() * 2.2, 1.4, i % 2 ? "#1e3a5f99" : "#0d1329aa", -.3);
+  }
+  // Tiny glowing cyan mini-mushrooms and spore dots around the base collider.
+  for (const side of [-1, 1]) {
+    const mx = side * r * .62, my = 4;
+    ctx.strokeStyle = "#2d4373"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(mx, my + 2); ctx.lineTo(mx, my - 4); ctx.stroke();
+    ellipse(ctx, mx, my - 5, 4.2, 2.4, "#3bf5ff");
+    ellipse(ctx, mx - side * 5, my + 1, 1.6, 1.2, "#7affff");
   }
 
   const tree = obs.kind === "ANCIENT_TREE" || obs.kind === "WEEPING_WILLOW";
   const upper = crown.ctx;
   if (tree) {
-    const bark = ctx.createLinearGradient(-r, -h * .5, r * .7, 5);
-    bark.addColorStop(0, "#a1988b"); bark.addColorStop(.38, "#776d68"); bark.addColorStop(1, "#3e4247");
-    ctx.strokeStyle = bark; ctx.lineWidth = r * .58;
-    ctx.beginPath(); ctx.moveTo(-r * .7, 6); ctx.quadraticCurveTo(3, -8, -2, -h * .6); ctx.stroke();
-    ctx.lineWidth = r * .34;
+    const shaggy = obs.kind === "WEEPING_WILLOW";
+    // Ribbed dark violet-indigo mushroom stalk (or mossy shaggy trunk) rooted at the collider.
+    const stalk = ctx.createLinearGradient(-r, -h * .55, r * .8, 6);
+    stalk.addColorStop(0, shaggy ? "#2b4f60" : "#37336b");
+    stalk.addColorStop(.45, shaggy ? "#1e334d" : "#231e4a");
+    stalk.addColorStop(1, "#110e29");
+    ctx.strokeStyle = stalk; ctx.lineWidth = r * .68;
+    ctx.beginPath(); ctx.moveTo(-r * .18, 6); ctx.quadraticCurveTo(2, -h * .24, -1, -h * .58); ctx.stroke();
+    ctx.lineWidth = r * .36;
     for (const side of [-1, 1]) {
-      ctx.beginPath(); ctx.moveTo(side * r * .84, 6); ctx.quadraticCurveTo(side * 3, -4, -2, -h * .35);
-      ctx.quadraticCurveTo(side * r * .6, -h * .57, side * r * 1.15, -h * .66); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(side * r * .72, 6); ctx.quadraticCurveTo(side * r * .22, -4, 0, -h * .38); ctx.stroke();
     }
-    // Broken silverwood grain and a small natural knot, not a heavy outline.
-    for (let i = 0; i < 15; i++) {
-      const x = -7 + random() * 13, y = -h * .54 + random() * h * .48;
-      ctx.strokeStyle = i % 2 ? "#d4c6ae65" : "#292d354d"; ctx.lineWidth = .65 + random() * .7;
-      ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x - 2, y + 5, x - .5, y + 10); ctx.stroke();
+    // Glowing cyan bioluminescent veins & bark ridges along the stalk.
+    for (let i = 0; i < 12; i++) {
+      const x = -6 + random() * 12, y = -h * .52 + random() * h * .44;
+      ctx.strokeStyle = i % 3 === 0 ? "#4df8ff99" : "#120d2688"; ctx.lineWidth = .9 + random() * .7;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x - 1.5, y + 5, x + .5, y + 10); ctx.stroke();
     }
-    ellipse(ctx, 2, -18, 3.8, 5.8, "#333c42", -.2);
-    ctx.strokeStyle = "#c0ab874d"; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(2, -18, 5, 7, -.2, 0, Math.PI * 2); ctx.stroke();
-    const willow = obs.kind === "WEEPING_WILLOW";
-    const clusters = [[-.49, .52, .43], [.46, .54, .41], [-.24, .72, .48], [.26, .75, .44], [-.05, .86, .43], [0, .57, .51]];
-    for (const [x, y, size] of clusters) leafCluster(upper, x * obs.canopyRadius, -y * h, size * obs.canopyRadius, random, willow);
-    if (willow) {
-      for (let i = 0; i < 17; i++) {
-        const x = -obs.canopyRadius * .65 + i * obs.canopyRadius * .08;
-        const y = -h * (.49 + random() * .13), length = 16 + random() * 22;
-        upper.strokeStyle = i % 2 ? "#8caa956e" : "#4c6a67a6"; upper.lineWidth = 1.1;
-        upper.beginPath(); upper.moveTo(x, y); upper.quadraticCurveTo(x - 4, y + length * .6, x + 1, y + length); upper.stroke();
-        for (let leaf = 0; leaf < 4; leaf++) ellipse(upper, x + (leaf % 2 ? 2 : -2), y + leaf * length / 4, 3, 1, "#a2b8a58c", -.7);
+    // Shelf fungi climbing the Ancient Shaggy Giant trunk.
+    for (const [sx, sy, srx] of [[-r * .42, -14, 7], [r * .45, -22, 6.5], [-r * .35, -31, 5.5]]) {
+      ellipse(ctx, sx, sy, srx, 2.6, shaggy ? "#5a4b82" : "#364b85");
+      ellipse(ctx, sx, sy - .8, srx * .7, 1.3, "#4df8ff88");
+    }
+    // Double-Cap Giant secondary mushroom sprouting off the side of Ancient Trees.
+    if (!shaggy) {
+      upper.strokeStyle = "#231e4a"; upper.lineWidth = r * .38;
+      upper.beginPath(); upper.moveTo(r * .35, 2); upper.quadraticCurveTo(r * .78, -h * .18, r * .92, -h * .36); upper.stroke();
+      mushroomCap(upper, r * .88, -h * .42, obs.canopyRadius * .46, h * .22, random, false);
+    }
+    // Towering Canopy Mushroom / Ancient Shaggy Giant overhead umbrella cap.
+    mushroomCap(upper, -2, -h * .68, obs.canopyRadius * .94, h * .34, random, shaggy);
+    if (shaggy) {
+      // Hanging moss tendrils and glowing cyan spore droplets beneath the Ancient Shaggy Giant.
+      for (let i = 0; i < 16; i++) {
+        const x = -obs.canopyRadius * .68 + i * obs.canopyRadius * .09;
+        const y = -h * (.52 + random() * .08), length = 14 + random() * 20;
+        upper.strokeStyle = i % 2 ? "#2d6e7ec4" : "#1c3c5ca6"; upper.lineWidth = 1.2;
+        upper.beginPath(); upper.moveTo(x, y); upper.quadraticCurveTo(x - 3, y + length * .6, x + 1, y + length); upper.stroke();
+        ellipse(upper, x + 1, y + length, 1.8, 1.8, "#5efaffcc");
       }
     }
   } else if (obs.kind === "CRYSTAL_SPIRE") {
+    cyanFern(upper, -r * .6, 2, -1, 18); cyanFern(upper, r * .6, 2, 1, 18);
     for (const [x, y, w, height] of [[-15, 0, 8, h * .48], [16, 1, 7, h * .42], [0, -2, 15, h * .88]]) {
       const mineral = upper.createLinearGradient(x - w, y - height, x + w, y);
-      mineral.addColorStop(0, "#b5c5d2"); mineral.addColorStop(.34, "#8196ac"); mineral.addColorStop(1, "#434e68");
+      mineral.addColorStop(0, "#66f7ff"); mineral.addColorStop(.4, "#256db5"); mineral.addColorStop(1, "#162352");
       upper.fillStyle = mineral; upper.beginPath(); upper.moveTo(x - w, y); upper.lineTo(x - w * .68, y - height * .72);
       upper.lineTo(x + w * .14, y - height); upper.lineTo(x + w * .8, y - height * .62); upper.lineTo(x + w, y); upper.closePath(); upper.fill();
-      upper.strokeStyle = "#e1dceb80"; upper.lineWidth = .9;
+      upper.strokeStyle = "#9effffb3"; upper.lineWidth = 1;
       upper.beginPath(); upper.moveTo(x + w * .14, y - height); upper.lineTo(x - w * .14, y - height * .55); upper.lineTo(x + 2, y - 2); upper.stroke();
-      upper.strokeStyle = "#34415366"; upper.beginPath(); upper.moveTo(x - w * .65, y - height * .68); upper.lineTo(x + w * .8, y - height * .62); upper.stroke();
     }
+    mushroomCap(upper, -12, -h * .28, 13, 8, random, false);
+    mushroomCap(upper, 13, -h * .22, 11, 7, random, false);
+  } else if (obs.kind === "MOSS_PILLAR") {
+    // Clustered Forest Obstacles & Glow-Patch Shrubs: multi-stem bioluminescent mushroom cluster.
+    cyanFern(upper, -r * .75, 2, -1, 22); cyanFern(upper, r * .75, 2, 1, 22);
+    const stems: readonly (readonly [number, number, number, number])[] = [
+      [-14, 2, -18, -h * .46], [13, 2, 17, -h * .38], [-4, 3, -2, -h * .76], [7, 4, 9, -h * .58],
+    ];
+    for (const [sx, sy, tx, ty] of stems) {
+      upper.strokeStyle = "#222452"; upper.lineWidth = 6.5;
+      upper.beginPath(); upper.moveTo(sx, sy); upper.quadraticCurveTo((sx + tx) * .5, (sy + ty) * .5, tx, ty); upper.stroke();
+      upper.strokeStyle = "#3f5c94"; upper.lineWidth = 2.2;
+      upper.beginPath(); upper.moveTo(sx - 1, sy); upper.quadraticCurveTo((sx + tx) * .5 - 1, (sy + ty) * .5, tx - 1, ty); upper.stroke();
+    }
+    mushroomCap(upper, -18, -h * .48, 16, 10, random, false);
+    mushroomCap(upper, 17, -h * .40, 14, 9, random, true);
+    mushroomCap(upper, 9, -h * .60, 16, 10, random, false);
+    mushroomCap(upper, -2, -h * .78, 22, 13, random, false);
   } else {
+    // Runed Monolith: mossy dark-indigo stone overgrown with Glow-Patch Shrubs & mini-mushrooms.
     const stone = upper.createLinearGradient(-r, -h, r, 4);
-    stone.addColorStop(0, "#beb7bd"); stone.addColorStop(.4, FOREST_PALETTE.stone); stone.addColorStop(1, "#505967");
+    stone.addColorStop(0, "#4f658f"); stone.addColorStop(.45, "#2b3b63"); stone.addColorStop(1, "#151d3b");
     stonePath(upper, r, h * .9, variant); upper.fillStyle = stone; upper.fill();
     upper.save(); upper.clip();
-    for (let i = 0; i < 70; i++) {
+    for (let i = 0; i < 45; i++) {
       const x = (random() * 2 - 1) * r, y = -random() * h;
-      ellipse(upper, x, y, 1 + random() * 4, .5 + random(), i % 2 ? "#e3daca30" : "#343f5326", -.4);
+      ellipse(upper, x, y, 1.5 + random() * 3.5, .8 + random(), i % 3 === 0 ? "#4df8ff45" : "#0d142b55", -.4);
     }
     upper.restore();
-    upper.strokeStyle = "#3d465a80"; upper.lineWidth = .8;
-    upper.beginPath(); upper.moveTo(-4, -h * .8); upper.lineTo(1, -h * .63); upper.lineTo(-5, -h * .51); upper.lineTo(1, -h * .42); upper.stroke();
-    // Uneven moss shoulders and climbing ivy stop the stone reading as plastic.
-    for (let i = 0; i < 9; i++) ellipse(upper, -r * .55 + random() * r, -h * .77 + random() * 8, 3 + random() * 3, 1.8, "#89977f96", -.3);
-    if (obs.kind === "MOSS_PILLAR") {
-      upper.strokeStyle = "#566e58"; upper.lineWidth = 1.6; upper.beginPath(); upper.moveTo(-r * .5, 3);
-      upper.bezierCurveTo(r, -h * .3, -r, -h * .48, r * .4, -h * .68); upper.stroke();
-      for (let i = 0; i < 8; i++) ellipse(upper, Math.sin(i * 1.4) * r * .5, -8 - i * h * .07, 4, 1.7, i % 2 ? "#a9b197" : "#6c886e", -.5);
-    }
+    cyanFern(upper, -r * .65, 2, -1, 17); cyanFern(upper, r * .65, 2, 1, 17);
+    mushroomCap(upper, -r * .52, -h * .32, 12, 7.5, random, false);
+    mushroomCap(upper, r * .48, -h * .52, 10, 6.5, random, true);
   }
+  drawForestAsset(ctx, 7, 0, 8, r * 2.2, 18);
   return { base: base.canvas, crown: crown.canvas, width, height, anchorX, anchorY };
 }
 
@@ -145,7 +219,9 @@ export function forestCanopyAlpha(obs: SanctuaryObstacle, viewer: WorldPoint) {
 /** Two cached blits per prop; texture complexity does not multiply frame work. */
 export function drawForestObstacle(ctx: CanvasRenderingContext2D, obs: SanctuaryObstacle, time: number, viewer: WorldPoint, reducedMotion = false, crystalBlink = 0) {
   const variant = variantFor(obs.id);
-  const key = `${obs.kind}:${obs.r}:${obs.canopyRadius}:${obs.canopyHeight}:${variant}`;
+  const key = `${forestSpritesReady() ? "painted" : "vector"}:${obs.kind}:${obs.r}:${obs.canopyRadius}:${obs.canopyHeight}:${variant}`;
+  // Loads once; a new cache key replaces fallback props when ready.
+  if (!forestSpritesReady()) drawForestAsset(ctx, -1, 0, 0, 1, 1);
   let sprite = sprites.get(key);
   if (!sprite) {
     sprite = paintObstacle(obs, variant);

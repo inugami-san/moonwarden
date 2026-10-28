@@ -60,6 +60,7 @@ export function FieldNotebook({ roster, notes, onRecord, enabled, open, onOpenCh
   </>;
 }
 
-export function MeetingObservations({ roster, notes, onRecord, onDraft, disabled }: ComposerProps & { notes: readonly ObservationNote[] }) {
-  return <details className="meeting-observations"><summary>Share an observation · private notes ({notes.length})</summary><p>Player-written claims, not confirmed sightings. Drafts are not sent until you press SEND.</p><ObservationComposer roster={roster} onRecord={onRecord} onDraft={onDraft} disabled={disabled} /><NoteList notes={notes} onDraft={disabled ? undefined : onDraft} /></details>;
+export function MeetingObservations({ roster, notes, onRecord, onDraft, disabled, panel = false }: ComposerProps & { notes: readonly ObservationNote[]; panel?: boolean }) {
+  const content = <><p>Private notes, not verified evidence. Draft a message, then send it in Chat.</p><ObservationComposer roster={roster} onRecord={onRecord} onDraft={onDraft} disabled={disabled} /><NoteList notes={notes} onDraft={disabled ? undefined : onDraft} /></>;
+  return panel ? <section className="meeting-observations notes-panel" aria-label="Private observations">{content}</section> : <details className="meeting-observations"><summary>Share an observation · private notes ({notes.length})</summary>{content}</details>;
 }
