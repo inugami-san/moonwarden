@@ -2,7 +2,19 @@
 
 Updated: 2026-10-28 (Asia/Manila).
 
-## Cat presentation patch: v0.6.1 — production release in progress
+## Current frontend: v0.6.1 — LIVE and verified
+
+Released 2026-10-28 to <https://moonwarden-two.vercel.app/>. Public `/api/version`
+confirms `0.6.1` / `silverpine-trust-v8`. Vercel deployment
+`dpl_BxRhiPdnntqjj6M4pZ4iPZLxratS` is READY; unique URL
+<https://moonwarden-o9qy3rt6j-christainj.vercel.app> was verified and promoted.
+Next.js 16.2.6 production build passed in 22 seconds, including TypeScript.
+Exact deployed code commit: `8519e0a98f302db636fe60617d92ffde0a95bdcb`, pushed
+to `codex/moonwarden-release-2026-10-19`. Initial ten-minute Vercel error scan
+returned zero records. Release-version checks: 5 passed. No new full-suite or
+mobile browser claim is made for this patch. The existing v0.6.0 Render server
+and `codex/persistent-room-server` branch were intentionally left unchanged;
+compatibility uses the unchanged v8 protocol, not the frontend patch number.
 
 User requested better in-game cat quality and lobby cats after v0.6.0. The
 existing painted art is reused, not a new 3D model. `tintCatFur` now supplies
@@ -15,9 +27,9 @@ concealed copies only when dirty, and cancels/restarts a single RAF loop.
 Lobby avatars now use a separate LOBBY close-up (full seated home pose remains
 SEATED); roster cards use 76px, compact 48px portraits, no artificial AI dimming.
 `/dev/cats` compares gameplay with lobby framing. Local HMR preview is on
-http://localhost:3101/ (the old built server may remain on 3100). The user has
-now authorized Vercel production deployment. Package version is 0.6.1; protocol
-remains silverpine-trust-v8. Leave the existing v0.6.0 Render room server unchanged.
+http://localhost:3101/ (the old built server may remain on 3100). Package version
+is 0.6.1; protocol remains silverpine-trust-v8. Leave the existing v0.6.0 Render
+room server unchanged for this visual-only patch.
 QA: 82 focused art, portrait, movement/visibility and UI checks pass. TypeScript
 and scoped ESLint pass. Browser verified the brighter home cat, shared gameplay
 renderer, and eight close-up lobby cards at the desktop viewport, with no errors
