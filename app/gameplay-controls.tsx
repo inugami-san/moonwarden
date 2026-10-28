@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef } from "react";
 
-type Glyph = "moon" | "settings" | "exit" | "report" | "sight" | "echo" | "bite" | "veil" | "spark" | "people";
+type Glyph = "moon" | "settings" | "exit" | "report" | "sight" | "echo" | "bite" | "veil" | "spark" | "people" | "paw" | "collar";
 
 /** Shared, code-native icons keep the HUD light and visually consistent. */
 export function GameGlyph({ name }: { name: Glyph }) {
@@ -17,6 +17,8 @@ export function GameGlyph({ name }: { name: Glyph }) {
     {name === "veil" ? <><path d="M5 18c-3-9 1-15 7-15s10 6 7 15l-4-2-3 4-3-4Z" /><path d="m8 10 2 1m4 0 2-1" /></> : null}
     {name === "spark" ? <path d="m12 3 2.6 6.4L21 12l-6.4 2.6L12 21l-2.6-6.4L3 12l6.4-2.6Z" /> : null}
     {name === "people" ? <><path d="M3 19v-2a5 5 0 0 1 10 0v2Zm13-8a4 4 0 0 1 5 4v4h-5" /><circle cx="8" cy="6" r="3" /><path d="M16 3a3 3 0 0 1 0 6" /></> : null}
+    {name === "paw" ? <><ellipse cx="5" cy="9" rx="2" ry="2.7" transform="rotate(-25 5 9)" /><ellipse cx="10" cy="5" rx="2" ry="2.7" transform="rotate(-8 10 5)" /><ellipse cx="16" cy="6" rx="2" ry="2.7" transform="rotate(18 16 6)" /><ellipse cx="20" cy="11" rx="1.8" ry="2.5" transform="rotate(32 20 11)" /><path d="M6.5 17c0-2 2.2-3.1 3.2-5a2.6 2.6 0 0 1 4.6 0c1 1.9 3.2 3 3.2 5 0 4.5-4 2.5-5.5 2.5S6.5 21.5 6.5 17Z" /></> : null}
+    {name === "collar" ? <><path d="M3 7c3-4 15-4 18 0v5c-3 4-15 4-18 0Zm0 0c3 4 15 4 18 0" /><path d="M10 14v3m4-3v3" /><circle cx="12" cy="19" r="3" /><path d="M12 18v2" /></> : null}
   </svg>;
 }
 

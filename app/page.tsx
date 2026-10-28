@@ -19,6 +19,7 @@ import { clampHollowCount, hollowVictory, resolveReporterVote, REPORTER_VOTE_DRI
 import { MovementBuffer } from "./movement";
 import { drawAnimatedCat, sampleCatGait } from "./cat-art";
 import { SlimePortrait } from "./cat-portrait";
+import { WardrobePreview } from "./wardrobe-preview";
 import { CatHead } from "./cat-head";
 import { EyeStylePicker } from "./eye-style-picker";
 import { EYE_LABELS } from "./cat-eyes";
@@ -50,6 +51,7 @@ import { drawFallenCat, loadFallenCat } from "./fallen-cat-art";
 import { ForestAtmosphere } from "./forest-atmosphere";
 import { fittedCanvasBounds } from "./canvas-bounds";
 import { HomeAtmosphere, HomeGrove } from "./home-field-guide";
+import { MenuGroveBackdrop } from "./home-backdrop";
 import { CompactFieldGuide, GameMenu, MENU_TITLES, pageWindow, type MenuScreen } from "./game-menu";
 import { TallyRoster, VoteRoster, useDiscussionCountdown } from "./meeting-roster";
 import { MEETING_DISCUSSION_MS } from "../server/match-rules";
@@ -79,6 +81,8 @@ import "./warden-exploration.css";
 import "./next-chapter.css";
 import "./gameplay-hud.css";
 import "./app-menu.css";
+import "./wardrobe.css";
+import "./home-backdrop.css";
 
 type Role = "CREWMATE" | "IMPOSTOR";
 type RoleChoice = Role | "RANDOM";
@@ -3522,7 +3526,6 @@ class OrdealEngine {
 function Logo() {
   return (
     <div className="brand" aria-label="Moonwarden">
-      <span className="brand-mark"><i /><i /><i /></span>
       <div className="brand-copy">
         <span className="brand-name">MOON<b>WARDEN</b></span>
         <small className="release-badge" data-game-version={GAME_RELEASE_VERSION} title={`Release ${GAME_RELEASE_VERSION}. Multiplayer compatibility: ${GAME_WORLD_VERSION}.`}>{GAME_RELEASE_LABEL}</small>
@@ -3627,7 +3630,7 @@ const CIRCLE_WARDEN_QUIPS: readonly (readonly string[])[] = [
     "Boop me again and I’m calling an emergency meeting!",
   ],
 ];
-const BOOP_EMOTES = ["✦", "♪", "♡", "!", "☽", "✿", "⚡"] as const;
+const BOOP_EMOTES = ["🐾", "♪", "♡", "!", "☽", "✿", "⚡"] as const;
 
 let lobbyAudioCtx: AudioContext | null = null;
 function playLobbySfx(
@@ -3938,7 +3941,7 @@ function Lobby({
     const nextIdx = (HATS.indexOf(selectedHat) + 1) % HATS.length;
     const nextHat = HATS[nextIdx] ?? selectedHat;
     playLobbySfx("customize", nextIdx + 2);
-    triggerWardenBoop(2, "✦");
+    triggerWardenBoop(2, "🐾");
     handleProfileChange(nickname, selectedColor, nextHat, selectedEyes);
   };
 
@@ -4094,7 +4097,7 @@ function Lobby({
 
   return (
     <main data-menu={inRoom ? "ROOM" : menuScreen} data-room-pane={roomPane} data-look-pane={lookPane} className={`lobby-shell moon-studio game-menu-shell ${inRoom ? "studio-in-room" : "studio-at-home"} ${isLaunching ? "studio-launching" : ""} ${motionPaused ? "home-motion-paused" : ""}`}>
-      {!inRoom && <HomeAtmosphere />}
+      {!inRoom && (menuScreen === "HOME" ? <MenuGroveBackdrop /> : <HomeAtmosphere />)}
       {isLaunching && (
         <div className="studio-launch-portal" aria-hidden="true">
           <div className="launch-portal-ring" />
@@ -4127,7 +4130,7 @@ function Lobby({
         {!inRoom && menuScreen === "HOME" ? <GameMenu onNavigate={navigateMenu} /> : null}
         {!inRoom && menuScreen === "GUIDE" ? <CompactFieldGuide /> : null}
 
-        <div className="lobby-copy studio-stage" hidden={inRoom || !["HOME", "LOOK"].includes(menuScreen)}>
+        <div className="lobby-copy studio-stage" hidden={inRoom || menuScreen !== "HOME"}>
           <div className="studio-view-switch" role="group" aria-label="Character preview view">
             <button
               type="button"
@@ -4167,7 +4170,7 @@ function Lobby({
               <h2>{studioView === "WARDEN" ? nickname.trim() || WARDEN_CALLSIGNS[0] : "The usual suspects."}</h2>
               <p>{studioView === "WARDEN" ? `${COLOR_NAMES[selectedColor]} · ${HAT_META[selectedHat].title} · ${EYE_LABELS[selectedEyes]} eyes` : "Preview circle · tap any cat or sweep your lantern"}</p>
             </div>
-            <div className="preview-heading"><span>✦ A PEEK INTO THE SANCTUARY</span><small>INTERACTIVE PREVIEW</small></div>
+            <div className="preview-heading"><span>A PEEK INTO THE SANCTUARY</span><small>INTERACTIVE PREVIEW</small></div>
             <HomeGrove />
             <button
               type="button"
@@ -4185,9 +4188,9 @@ function Lobby({
             <div className="preview-fireflies" aria-hidden="true">{Array.from({ length: 8 }, (_, i) => <i key={i} style={{ "--i": i, "--top": `${16 + (i * 23) % 70}%` } as React.CSSProperties} />)}</div>
             <div className="stage-quick-bar" role="toolbar" aria-label="Quick stage actions">
               <button type="button" onClick={handleCycleColor} title="Cycle cat coat color">🎨 Hue</button>
-              <button type="button" onClick={handleCycleHat} title="Cycle accessory">✦ Accessory</button>
+              <button type="button" onClick={handleCycleHat} title="Cycle accessory"><GameGlyph name="collar" /> Accessory</button>
               <button type="button" onClick={handleCycleEyes} title="Cycle eye expression">👀 Eyes</button>
-              <button type="button" onClick={handleStageWave} title="Say hello to the wardens">✨ Say hi</button>
+              <button type="button" onClick={handleStageWave} title="Say hello to the wardens"><GameGlyph name="paw" /> Say hi</button>
             </div>
             <div className="preview-dialogue" role="status" aria-live="polite" key={`${previewSpeaker}-${previewQuip}`}>
               <b>{previewSpeaker === 2 ? nickname.trim() || WARDEN_CALLSIGNS[0] : CIRCLE_WARDEN_NAMES[previewSpeaker]}:</b>{" "}
@@ -4235,7 +4238,7 @@ function Lobby({
                     setPreviewMood(mood);
                   }}
                 >
-                  {mood === "CALM" ? "☽ Moonlit calm" : mood === "FOG" ? "≋ Sea fog" : "✧ Blackout"}
+                  {mood === "CALM" ? "☽ Moonlit calm" : mood === "FOG" ? "≋ Sea fog" : "◐ Blackout"}
                 </button>
               ))}
             </div>
@@ -4284,16 +4287,14 @@ function Lobby({
             {!inRoom && tab === "SOLO" ? (
               <>
                 <section hidden={menuScreen !== "LOOK"} className="home-wardrobe solo-wardrobe" aria-label="Customize your Warden">
+                  <WardrobePreview color={selectedColor} eyeStyle={selectedEyes} accessory={selectedHat} name={nickname.trim() || WARDEN_CALLSIGNS[0]} animated={!motionPaused && menuScreen === "LOOK"} greeting={isGroupWaving && !motionPaused} onGreet={handleStageWave} onRandomize={handleRandomizeProfile} />
+                  <div className="wardrobe-editor">
                   <div className="wardrobe-summary-bar">
-                    <SlimeAvatar color={selectedColor} hat={selectedHat} eyeStyle={selectedEyes} size="sm" />
                     <span>
-                      <small>YOUR WARDEN</small>
+                      <small>MAKE IT YOURS</small>
                       <strong>{nickname.trim() || WARDEN_CALLSIGNS[0]}</strong>
                       <em>{COLOR_NAMES[selectedColor]} · {HAT_META[selectedHat].label} · {EYE_LABELS[selectedEyes]} eyes</em>
                     </span>
-                    <button type="button" className="wardrobe-surprise-pill" onClick={handleRandomizeProfile} title="Randomize Warden Identity">
-                      🎲 RANDOM
-                    </button>
                   </div>
                   <nav className="menu-tabs look-tabs" aria-label="Customize category">{(["COLOR", "HAT", "EYES"] as const).map(pane => <button type="button" key={pane} aria-pressed={lookPane === pane} onClick={() => setLookPane(pane)}>{pane === "COLOR" ? "Color" : pane === "HAT" ? "Accessories" : "Eyes"}</button>)}</nav>
                   <div className="mp-customizer-card">
@@ -4343,7 +4344,7 @@ function Lobby({
                             type="button"
                             className={`mp-hat-btn ${selectedHat === h ? "active" : ""}`}
                             aria-pressed={selectedHat === h}
-                            onClick={() => { playLobbySfx("customize", idx + 2); triggerWardenBoop(2, "✦"); setSelectedHat(h); }}
+                            onClick={() => { playLobbySfx("customize", idx + 2); triggerWardenBoop(2, "🐾"); setSelectedHat(h); }}
                           >
                             <span className="hat-btn-preview">
                               <HatGraphic hat={h} />
@@ -4355,6 +4356,7 @@ function Lobby({
                       </div>
                       <div hidden={lookPane !== "EYES"}><EyeStylePicker value={selectedEyes} onChange={(eyes) => { playLobbySfx("customize", 5); triggerWardenBoop(2, "👀"); setSelectedEyes(eyes); }} /></div>
                     </div>
+                  </div>
                   </div>
                 </section>
                 <div className="solo-settings" hidden={menuScreen !== "SOLO"}>
@@ -4557,7 +4559,7 @@ function Lobby({
                         <div className="slot-card-top">
                           <span className="roster-badge empty">SLOT 0{slotIdx + 1}</span>
                         </div>
-                        <div className="slot-empty-sigil">✦</div>
+                        <div className="slot-empty-sigil"><GameGlyph name="paw" /></div>
                         <div className="slot-card-meta">
                           <strong className="roster-name">Open Ward</strong>
                           <small>Awaiting player…</small>

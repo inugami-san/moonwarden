@@ -2,7 +2,67 @@
 
 Updated: 2026-10-28 (Asia/Manila).
 
-## Current frontend: v0.6.2 — LIVE and verified
+## Frontend release v0.6.3 — deployment in progress
+
+User now explicitly requested production deployment of the local wardrobe,
+forest-themed landing page and slime-logo removal. Package version is 0.6.3;
+protocol remains silverpine-trust-v8. Deploy only the existing Vercel frontend;
+leave the v0.6.0 Render room server and its branch unchanged. Exclude unrelated
+`prototypes/`. Update this entry with verified deployment evidence on completion.
+
+## Included in v0.6.3: landing-page forest theme
+
+Follow-up: user noticed the old slime-shaped brand icon beside the title and
+asked to remove it. Removed `brand-mark` markup from the shared `Logo()` in
+`app/page.tsx`; wordmark/release badge and all cat previews remain. Added an
+app-menu regression check.
+
+User requested a themed landing-page background. Added `app/home-backdrop.tsx`
+and `.css`, rendering only on HOME (not room/customization/gameplay). New painted
+bioluminescent mushroom grove uses the built-in image-generation tool; project
+asset `public/art/forest/menu-grove-v1.webp` is 1672x941, 251,574 bytes. Exact final
+prompt/provenance are in `public/art/forest/menu-grove-v1.md`; original PNG remains
+in the generated-images library. No external art runtime dependencies or new
+packages were introduced. Shading preserves menu readability; cat showcase now
+sits in the painted grove instead of the old framed SVG scene. Paw/collar icons
+and the previous local wardrobe redesign are preserved.
+
+Motion: 14 CSS spores and two transform/opacity mist bands, no per-frame React
+state or new timers/listeners. Native Pause/Resume verified: computed animation
+names switch to `none` and back. OS reduced-motion rule is included. Browser
+verified loaded image, all menu buttons/no scroll at 390x844, 320x568, 844x390 and
+1280x720. Customization still shows its own preview and no new HOME backdrop.
+Viewport override was reset; default browser size may now be 547x578 rather than
+the earlier 1280x720. No browser console errors. Local HMR still uses port 3101.
+Screenshots: `/private/tmp/moonwarden-grove-home-desktop.png` and
+`/private/tmp/moonwarden-grove-home-mobile.png`.
+
+27 UI/restoration/menu/wardrobe/backdrop checks plus 3 copy checks passed;
+TypeScript, scoped ESLint and diff checks passed during local implementation.
+Unrelated `prototypes/` stays untouched.
+
+## Included in v0.6.3: customization redesign
+
+User requested a visible cat in customization and replacement of the menu's
+generic diamond/sparkle icons. New `app/wardrobe-preview.tsx` owns a large SEATED
+portrait bound to selected coat, hat and eyes, plus greeting/Random actions.
+The old home stage is now HOME-only. `app/wardrobe.css` lays preview and editor
+side-by-side on desktop/landscape and stacks them on portrait phones; no page
+scroll is added. All eight accessories fit at 390x844, 320x568 and 844x390; native
+browser viewport sizes were verified, and the temporary override was reset.
+Replaced main-menu/Customize/quick-action/empty-slot sparkle icons with shared
+SVG paw/collar glyphs, and home boop stars with paws. Cosmic art/stars and Starry
+eyes remain intentional cosmetics. Shared gameplay rules/protocol are unchanged.
+
+33 focused wardrobe/menu/HUD/copy/seated-material tests pass. New wardrobe tests
+are included in `npm run test:ui`. TypeScript, scoped lint and diff checks passed.
+Browser verified color, accessory and eye selection updates. Local HMR server:
+http://localhost:3101/ → Customize. Screenshots:
+`/private/tmp/moonwarden-wardrobe-mobile.png` and
+`/private/tmp/moonwarden-wardrobe-desktop.png`.
+This visual-only redesign requires no room-server or protocol change.
+
+## Previous frontend: v0.6.2 — LIVE and verified
 
 Released 2026-10-28 to <https://moonwarden-two.vercel.app/>. Public `/api/version`
 confirms `0.6.2` / `silverpine-trust-v8`. Vercel deployment

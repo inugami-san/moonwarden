@@ -6,6 +6,32 @@ source releases, not proof that a particular server has been deployed.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-10-28
+
+### Moonlit menu theme
+
+- Removed the leftover slime-shaped brand logo; the shared header now uses a
+  clean Moonwarden wordmark and release label. Cat previews are unchanged.
+- Added a painted full-screen bioluminescent mushroom grove behind the home menu,
+  with readable dark negative space, soft mist and fourteen drifting spores.
+  Optimized the new 1672×941 background to a ~246 KiB WebP.
+- Integrated the cat showcase into the forest instead of a separate geometric
+  scene card; matched preview controls to the midnight-teal scenery. Kept the
+  primary gold Play button, moon interaction and existing navigation.
+- Added phone-specific cropping/readability and reduced-motion/pause support.
+  Other menu backgrounds, customization and gameplay remain unchanged.
+
+### Customization layout
+
+- Added a dedicated full seated-cat wardrobe preview, shared with the current
+  home artwork and live coat/accessory/eye selections. The preview stays visible
+  above controls on portrait phones and beside controls on wider screens.
+- Moved Random onto the preview, retained tap-to-greet and reduced-motion support,
+  and fitted all accessory choices into compact phone/landscape screens.
+- Replaced menu diamond-sparkle glyphs with code-native paw and collar icons,
+  including the primary Play action, Customize, preview actions and vacant slots.
+  Removed leftover puddle wording from the field guide. No gameplay/server changes.
+
 ## [0.6.2] - 2026-10-28
 
 ### Fixed

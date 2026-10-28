@@ -72,6 +72,15 @@ test("all five eye styles remain labeled and selectable", () => {
   assert.equal((html.match(/aria-pressed="true"/g) ?? []).length, 1);
 });
 
+test("shared wordmark has no leftover slime-shaped logo", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const logo = source.slice(source.indexOf("function Logo()"), source.indexOf("const COLOR_NAMES"));
+  assert.match(logo, /aria-label="Moonwarden"/);
+  assert.match(logo, /className="brand-name"/);
+  assert.match(logo, /className="release-badge"/);
+  assert.doesNotMatch(logo, /brand-mark|<canvas|<svg|<img/);
+});
+
 test("app layout uses safe areas and dynamic height without disabling browser zoom", async () => {
   const css = await readFile(new URL("../app/app-menu.css", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
