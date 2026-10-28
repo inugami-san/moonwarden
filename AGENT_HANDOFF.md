@@ -2,7 +2,18 @@
 
 Updated: 2026-10-28 (Asia/Manila).
 
-## Pending frontend patch: v0.6.2 — label cleanup
+## Current frontend: v0.6.2 — LIVE and verified
+
+Released 2026-10-28 to <https://moonwarden-two.vercel.app/>. Public `/api/version`
+confirms `0.6.2` / `silverpine-trust-v8`. Vercel deployment
+`dpl_Rf25bdGptueHXiqqVv1wc3XWxMoe` is READY; unique URL
+<https://moonwarden-97m3wyw6n-christainj.vercel.app> was verified and promoted.
+Exact deployed code commit: `dd261796ec04fd0c23dd3fa435decc8d826d1241`, pushed
+to `codex/moonwarden-release-2026-10-19`. Next.js 16.2.6 production build passed
+in 22 seconds, including TypeScript. Initial ten-minute error scan returned zero
+records; continuous monitoring/drains were not assessed or changed. TypeScript,
+scoped ESLint and diff checks passed locally. Existing Render server and its
+branch were left unchanged. This was a text/accessibility fix, not an art change.
 
 User requested removal of remaining "slime" labels, especially vote-out text,
 and a Vercel production redeploy. Replaced vote-out missing-name copy with
@@ -11,8 +22,9 @@ and a Vercel production redeploy. Replaced vote-out missing-name copy with
 color/report system alerts are translated exactly at `MultiplayerClient.lastError`;
 player names, chat, unknown errors, internal identifiers and game rules remain
 unchanged. No room-server deploy is needed; protocol remains silverpine-trust-v8.
-55 focused copy/banishment/network/role/menu/release checks passed. This entry
-must be updated with deployment evidence once the production release completes.
+55 focused copy/banishment/network/role/menu/release checks passed. Copy checks
+parse UI literals/templates/JSX, verify anonymous verdicts reveal no role, and
+exercise exact legacy alerts while preserving names/chat/unknown errors.
 
 ## Previous frontend: v0.6.1 — LIVE and verified
 
