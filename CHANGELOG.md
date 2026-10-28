@@ -6,6 +6,18 @@ source releases, not proof that a particular server has been deployed.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-28
+
+### Fixed
+
+- Removed leftover player-facing slime terminology from vote-out fallbacks,
+  home preview quips, coat-color controls and Hollow ability tooltips, including
+  accessibility labels. A tied/skipped vote now opens with "The circle" rather
+  than naming a nonexistent character.
+- Translated exact legacy room-server color/report alerts in the client without
+  rewriting player names, chat or unknown errors. Gameplay and the v8 protocol
+  are unchanged; the existing v0.6.0 room server remains compatible.
+
 ## [0.6.1] - 2026-10-28
 
 ### Cat presentation polish

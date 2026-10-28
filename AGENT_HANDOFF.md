@@ -2,7 +2,19 @@
 
 Updated: 2026-10-28 (Asia/Manila).
 
-## Current frontend: v0.6.1 — LIVE and verified
+## Pending frontend patch: v0.6.2 — label cleanup
+
+User requested removal of remaining "slime" labels, especially vote-out text,
+and a Vercel production redeploy. Replaced vote-out missing-name copy with
+"A cat" (role-neutral), skip/tie opening with "The circle", color controls with
+"Coat color", and home quips/ability tooltips with cat terminology. Known legacy
+color/report system alerts are translated exactly at `MultiplayerClient.lastError`;
+player names, chat, unknown errors, internal identifiers and game rules remain
+unchanged. No room-server deploy is needed; protocol remains silverpine-trust-v8.
+55 focused copy/banishment/network/role/menu/release checks passed. This entry
+must be updated with deployment evidence once the production release completes.
+
+## Previous frontend: v0.6.1 — LIVE and verified
 
 Released 2026-10-28 to <https://moonwarden-two.vercel.app/>. Public `/api/version`
 confirms `0.6.1` / `silverpine-trust-v8`. Vercel deployment

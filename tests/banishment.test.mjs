@@ -15,8 +15,9 @@ import { ForestAudio } from "../app/forest-audio.ts";
 test("displayName strips (YOU) suffixes cleanly", () => {
   assert.equal(displayName("Mochi (YOU)"), "Mochi");
   assert.equal(displayName("Pip"), "Pip");
-  assert.equal(displayName("   "), "A slime");
-  assert.equal(displayName(""), "A slime");
+  assert.equal(displayName("   "), "A cat");
+  assert.equal(displayName(""), "A cat");
+  assert.equal(displayName("Slime King (YOU)"), "Slime King", "player-chosen names are never rewritten");
 });
 
 test("verdictRole extracts authoritative roles from current and legacy strings", () => {

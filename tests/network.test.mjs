@@ -60,6 +60,28 @@ test("a socket is not connected until its map revision is acknowledged", async t
   client.disconnect();
 });
 
+test("legacy character alerts use cat terminology without rewriting names, chat or unknown errors", async t => {
+  const sockets = browser(t);
+  const client = new MultiplayerClient();
+  const connecting = client.connect();
+  sockets[0].open();
+  await connecting;
+  for (const [message, expected] of [
+    ["That slime color is already taken. Choose an available color.", "That coat color is already taken. Choose an available color."],
+    ["That puddle is no longer visible within reporting reach.", "That fallen cat is no longer visible within reporting reach."],
+    ['Room "Slime King" not found.', 'Room "Slime King" not found.'],
+    ["toString", "toString"],
+    ["__proto__", "__proto__"],
+  ]) {
+    sockets[0].onmessage({ data: JSON.stringify({ type: "ERROR_ALERT", message }) });
+    assert.equal(client.getSnapshot().lastError, expected);
+  }
+  const message = { id: "chat-1", playerId: "p1", playerName: "Slime King", playerColor: "#63e6be", text: "I like slimes", system: false };
+  sockets[0].onmessage({ data: JSON.stringify({ type: "CHAT_MESSAGE", message }) });
+  assert.deepEqual(client.getSnapshot().lobbyChat.at(-1), message);
+  client.disconnect();
+});
+
 test("an opened legacy socket fails explicitly without creating alternate fallback rooms", async t => {
   const sockets = browser(t);
   const client = new MultiplayerClient();

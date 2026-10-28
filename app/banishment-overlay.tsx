@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   banishmentDuration,
   banishmentRevealAt,
+  displayName,
   type BanishmentOutcome,
 } from "./banishment";
 import { BanishmentScene } from "./banishment-art";
@@ -135,7 +136,7 @@ export function BanishmentOverlay({
         <header className="banishment-header">
           <small className="banishment-eyebrow">{outcome.eyebrow}</small>
           {!revealed ? (
-            <h2 className="banishment-target-name">{outcome.name || "A slime"}</h2>
+            <h2 className="banishment-target-name">{outcome.kind === "NONE" ? "The circle" : displayName(outcome.name)}</h2>
           ) : (
             <div className="banishment-verdict-block">
               <h2 className="banishment-headline">{outcome.headline}</h2>

@@ -3609,7 +3609,7 @@ const CIRCLE_WARDEN_QUIPS: readonly (readonly string[])[] = [
   ],
   [
     "That shadow looked familiar…",
-    "I saw two slimes near the Hollow, then only one.",
+    "I saw two cats near the Hollow, then only one.",
     "Check the moss prints! They lead toward the pond.",
     "Stay in pairs when the sea fog rolls in.",
   ],
@@ -4165,7 +4165,7 @@ function Lobby({
             <div className="studio-stage-title" key={studioView}>
               <small>{studioView === "WARDEN" ? "YOUR MOONLIT ALTER EGO" : "FRIENDLY FACES. QUESTIONABLE ALIBIS."}</small>
               <h2>{studioView === "WARDEN" ? nickname.trim() || WARDEN_CALLSIGNS[0] : "The usual suspects."}</h2>
-              <p>{studioView === "WARDEN" ? `${COLOR_NAMES[selectedColor]} · ${HAT_META[selectedHat].title} · ${EYE_LABELS[selectedEyes]} eyes` : "Preview circle · tap any slime or sweep your lantern"}</p>
+              <p>{studioView === "WARDEN" ? `${COLOR_NAMES[selectedColor]} · ${HAT_META[selectedHat].title} · ${EYE_LABELS[selectedEyes]} eyes` : "Preview circle · tap any cat or sweep your lantern"}</p>
             </div>
             <div className="preview-heading"><span>✦ A PEEK INTO THE SANCTUARY</span><small>INTERACTIVE PREVIEW</small></div>
             <HomeGrove />
@@ -4239,7 +4239,7 @@ function Lobby({
                 </button>
               ))}
             </div>
-            <p className="preview-caption" aria-live="polite">{previewMood === "CALM" ? "Tap a slime to boop & hear an alibi, or use the quick pills above." : previewMood === "FOG" ? "In the fog, colors fade to silhouettes. Move your cursor to part the mist." : "When blackout falls, sweep your cursor like a lantern to reveal hidden wardens."}</p>
+            <p className="preview-caption" aria-live="polite">{previewMood === "CALM" ? "Tap a cat to boop & hear an alibi, or use the quick pills above." : previewMood === "FOG" ? "In the fog, colors fade to silhouettes. Move your cursor to part the mist." : "When blackout falls, sweep your cursor like a lantern to reveal hidden wardens."}</p>
           </div>
         </div>
 
@@ -4313,9 +4313,9 @@ function Lobby({
                       </div>
                       <div hidden={lookPane !== "COLOR"}>
                       <div className="field-label" style={{ marginTop: 12 }}>
-                        SLIME HUE <span>{COLOR_NAMES[selectedColor]}</span>
+                        COAT COLOR <span>{COLOR_NAMES[selectedColor]}</span>
                       </div>
-                      <div className="mp-palette" role="group" aria-label="Slime Color">
+                      <div className="mp-palette" role="group" aria-label="Coat color">
                         {COLORS.map((c, idx) => (
                           <button
                             key={c}
@@ -4325,7 +4325,7 @@ function Lobby({
                             aria-pressed={selectedColor === c}
                             onClick={() => { playLobbySfx("customize", idx); triggerWardenBoop(2, "🎨"); setSelectedColor(c); }}
                             title={COLOR_NAMES[c]}
-                            aria-label={`Select slime color ${COLOR_NAMES[c] || c}`}
+                            aria-label={`Select coat color ${COLOR_NAMES[c] || c}`}
                           >
                             {selectedColor === c && <span className="color-check" aria-hidden="true">✓</span>}
                           </button>
@@ -4445,9 +4445,9 @@ function Lobby({
                     </div>
                     <div hidden={lookPane !== "COLOR"}>
                     <div className="field-label">
-                      SLIME HUE <span>{COLOR_NAMES[selectedColor]}</span>
+                      COAT COLOR <span>{COLOR_NAMES[selectedColor]}</span>
                     </div>
-                    <div className="mp-palette" role="group" aria-label="Slime Color">
+                    <div className="mp-palette" role="group" aria-label="Coat color">
                       {COLORS.map((c) => (
                         <button
                           key={c}
@@ -4458,7 +4458,7 @@ function Lobby({
                           disabled={occupiedColors.has(c)}
                           onClick={() => handleProfileChange(nickname, c, selectedHat)}
                           title={`${COLOR_NAMES[c]}${occupiedColors.has(c) ? " — taken" : ""}`}
-                          aria-label={`Select slime color ${COLOR_NAMES[c] || c}`}
+                          aria-label={`Select coat color ${COLOR_NAMES[c] || c}`}
                         >
                           {selectedColor === c && <span className="color-check" aria-hidden="true">✓</span>}
                         </button>
@@ -5343,9 +5343,9 @@ function Game({
         <div className="action-dock" aria-label="Game actions">
           {snapshot.utility && <button className={`action use ${snapshot.utility.charge && !snapshot.utility.cooldown ? "ready" : ""}`} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || !snapshot.utility.charge || snapshot.utility.cooldown > 0} title={`${UTILITY_LABELS[snapshot.utility.kind]}: aim with your movement direction. One shrine-earned charge; 18s cooldown. Both roles can use it.`} onClick={() => engineRef.current?.useUtility()}><kbd>G</kbd><GameGlyph name="spark" /><span>{snapshot.utility.cooldown ? `${snapshot.utility.cooldown}s` : snapshot.utility.charge ? UTILITY_LABELS[snapshot.utility.kind] : "Earn utility"}</span></button>}
           <button className={`action report ${snapshot.canReport ? "ready" : ""}`} disabled={!snapshot.canReport} aria-label={snapshot.reportHint} title={snapshot.reportHint} onClick={() => engineRef.current?.report()}><kbd>R</kbd><GameGlyph name="report" /><span>{snapshot.reportLabel}</span></button>
-          {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight || snapshot.moonSightActive ? "ready" : ""}`} onClick={() => engineRef.current?.useMoonSight()} disabled={snapshot.phase !== "ORDEAL" || !snapshot.canUseMoonSight} title="Moon Sight: briefly reveal living slimes during an Ordeal"><kbd>V</kbd><GameGlyph name="sight" /><span>{snapshot.moonSightActive ? "Seeing" : "Sight"}</span></button>}
+          {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight || snapshot.moonSightActive ? "ready" : ""}`} onClick={() => engineRef.current?.useMoonSight()} disabled={snapshot.phase !== "ORDEAL" || !snapshot.canUseMoonSight} title="Moon Sight: briefly reveal living cats during an Ordeal"><kbd>V</kbd><GameGlyph name="sight" /><span>{snapshot.moonSightActive ? "Seeing" : "Sight"}</span></button>}
           {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight ? "ready" : ""}`} title="Aim, then create a two-second false rustle. Shares one charge with Sight." onClick={() => engineRef.current?.useEchoLure()} disabled={!snapshot.canUseMoonSight}><kbd>C</kbd><GameGlyph name="echo" /><span>Echo</span></button>}
-          {snapshot.role === "IMPOSTOR" && <button className={`action kill ${snapshot.canKill ? "ready" : ""}`} onClick={() => engineRef.current?.kill()} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.killCooldown > 0} title="Bite a nearby slime. One strike per Ordeal."><kbd>Q</kbd><GameGlyph name="bite" /><span>{snapshot.killSpent ? "Spent" : snapshot.killCooldown > 0 ? `${Math.ceil(snapshot.killCooldown)}s` : "Bite"}</span></button>}
+          {snapshot.role === "IMPOSTOR" && <button className={`action kill ${snapshot.canKill ? "ready" : ""}`} onClick={() => engineRef.current?.kill()} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.killCooldown > 0} title="Bite a nearby cat. One strike per Ordeal."><kbd>Q</kbd><GameGlyph name="bite" /><span>{snapshot.killSpent ? "Spent" : snapshot.killCooldown > 0 ? `${Math.ceil(snapshot.killCooldown)}s` : "Bite"}</span></button>}
           {snapshot.role === "IMPOSTOR" && <button className={`action kill veiled ${snapshot.canKill && !snapshot.stealthCooldown && !snapshot.stealthOrdealsLeft ? "ready" : ""}`} title="Veiled Bite: uses your strike; fallen cat appears 8s later. Cooldown: 45s and two Ordeal starts." onClick={() => engineRef.current?.kill(true)} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.stealthCooldown > 0 || snapshot.stealthOrdealsLeft > 0}><kbd>X</kbd><GameGlyph name="veil" /><span>{snapshot.stealthCooldown ? `${snapshot.stealthCooldown}s` : snapshot.stealthOrdealsLeft ? `${snapshot.stealthOrdealsLeft} rounds` : "Veiled bite"}</span></button>}
           <button className={`action use ${snapshot.charges[snapshot.selectedItem] > 0 ? "ready" : ""}`} onClick={() => engineRef.current?.useItem()} disabled={!snapshot.humanAlive || snapshot.charges[snapshot.selectedItem] <= 0} aria-label={`Use ${ITEM_LABELS[snapshot.selectedItem]}`}><kbd>F</kbd><GameGlyph name="spark" /><span>Use</span></button>
         </div>

@@ -45,7 +45,7 @@ const HATS: readonly Hat[] = ["moonbell", "leafband", "starlock", "mothbow", "an
 
 /** Names on the local roster carry a "(YOU)" marker that is not part of the name. */
 export function displayName(name: string): string {
-  return name.replace(/\s*\(YOU\)$/, "").trim() || "A slime";
+  return name.replace(/\s*\(YOU\)$/, "").trim() || "A cat";
 }
 
 /** Build the presentation from the official verdict; returns null before a tally exists. */
@@ -67,7 +67,7 @@ export function banishmentOutcome(meeting: ConcludedMeeting): BanishmentOutcome 
   const candidate = meeting.candidates.find(item => item.id === ejectedId);
   const name = displayName(entry?.targetName || candidate?.name || "");
   const role = verdictRole(meeting.verdict);
-  // An unreadable verdict still banishes the right slime, but reveals nothing.
+  // An unreadable verdict still banishes the right cat, but reveals nothing.
   const kind = role ? ROLE_KIND[role] : "UNREVEALED";
   const isLocal = Boolean(meeting.localPlayerId && meeting.localPlayerId === ejectedId);
   const subject = isLocal ? "You" : name;

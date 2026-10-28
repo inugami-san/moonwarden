@@ -14,6 +14,12 @@ import type {
 
 export type ConnectionState = "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "ERROR";
 
+// Exact legacy system alerts only: never rewrite names or player-authored chat.
+const LEGACY_CHARACTER_ALERTS: Readonly<Record<string, string>> = {
+  "That slime color is already taken. Choose an available color.": "That coat color is already taken. Choose an available color.",
+  "That puddle is no longer visible within reporting reach.": "That fallen cat is no longer visible within reporting reach.",
+};
+
 class GameVersionMismatch extends Error {
   constructor() { super(GAME_VERSION_MISMATCH); }
 }
@@ -597,7 +603,7 @@ export class MultiplayerClient {
         break;
 
       case "ERROR_ALERT":
-        this.lastError = msg.message;
+        this.lastError = Object.hasOwn(LEGACY_CHARACTER_ALERTS, msg.message) ? LEGACY_CHARACTER_ALERTS[msg.message] : msg.message;
         this.notifyState();
         break;
 
