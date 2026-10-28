@@ -2,13 +2,26 @@
 
 Updated: 2026-10-28 (Asia/Manila).
 
-## Frontend release v0.6.3 — deployment in progress
+## Current frontend: v0.6.3 — LIVE and verified
 
-User now explicitly requested production deployment of the local wardrobe,
-forest-themed landing page and slime-logo removal. Package version is 0.6.3;
-protocol remains silverpine-trust-v8. Deploy only the existing Vercel frontend;
-leave the v0.6.0 Render room server and its branch unchanged. Exclude unrelated
-`prototypes/`. Update this entry with verified deployment evidence on completion.
+User explicitly requested production deployment of the wardrobe, forest-themed
+landing page and slime-logo removal. Released 2026-10-28 to
+<https://moonwarden-two.vercel.app/>. Public `/api/version` confirms `0.6.3` /
+`silverpine-trust-v8`. Deployment `dpl_BaSGKQTRa74fo6xUSRwZDBMKsBAK` is READY;
+<https://moonwarden-km3wnkfon-christainj.vercel.app> was version-verified and
+promoted. Next.js 16.2.6 production build passed in 20 seconds, including
+TypeScript. Exact deployed source commit:
+`94ca64195fc72dff8814acfd6f9ad1b857c30b5e`, pushed to the existing
+`codex/moonwarden-release-2026-10-19` branch. Release tag v0.6.3 identifies it.
+
+Post-release HTTP checks confirmed updated home markup, absence of the old
+brand-mark element, and the public 251,574-byte background matching the local
+asset SHA-256 `5ec8ced0a87f92952d8aae3f4b4737d8d7a435179d885f670234a8ea3316120d`.
+33 release/UI checks passed before deployment. Initial ten-minute Vercel error
+scan returned zero records; continuous monitoring/drains were not changed or
+assessed. No new full multiplayer or post-deploy browser playtest was claimed.
+Existing v0.6.0 Render room server/branch are intentionally unchanged and remain
+protocol-compatible. Unrelated `prototypes/` was excluded from Git and deployment.
 
 ## Included in v0.6.3: landing-page forest theme
 
