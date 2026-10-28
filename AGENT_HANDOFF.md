@@ -2,7 +2,7 @@
 
 Updated: 2026-10-28 (Asia/Manila).
 
-## Current release: v0.6.0 / silverpine-trust-v8 — deployment in progress
+## Current release: v0.6.0 / silverpine-trust-v8 — LIVE and verified
 
 The user approved the design-review recommendations and production deployment.
 Local implementation includes RestorationLedger (first seal 3–4% baseline,
@@ -18,7 +18,27 @@ Frontend and existing Render room server must both deploy this v8 revision.
 No paid resources, plan changes, or unrelated prototypes are authorized.
 Balance targets remain hypotheses pending human multiplayer playtests.
 
-Release evidence will be recorded below after both services are confirmed live.
+Release evidence (2026-10-28, Asia/Manila):
+
+- Production URL: <https://moonwarden-two.vercel.app/>. Public `/api/version`
+  returns `0.6.0` / `silverpine-trust-v8`; browser also shows v0.6.0.
+- Vercel status READY, Next.js 16.2.6, remote build 24s. Deployment
+  `dpl_E6nhRrAVoVcqBAJtwDAVCxRC2oLQ`, unique URL
+  <https://moonwarden-byo2tdipo-christainj.vercel.app>, promoted successfully.
+- Release code commit: `d5f0c7f9ad969ef79f2e3b822aedda8ad02ec730`, pushed to
+  `codex/moonwarden-release-2026-10-19` and `codex/persistent-room-server`.
+- Existing Render service `srv-db8u6cs9v7es73dt2dt0`, confirmed Christian's
+  workspace `tea-db8t48jbc2fs73c3lr1g`, deployment
+  `dep-dbglcaou01pc73aff6f0` is LIVE at the same commit. Health reports
+  `0.6.0` / `silverpine-trust-v8`. Free Singapore plan unchanged.
+- Production WebSocket smoke test passed: three real clients negotiated v8,
+  created/discovered/joined a temporary room with unique colors, synchronized
+  host meeting settings, started four players including AI, enforced one Hollow
+  at four players, kept roles private and synchronized movement. All test
+  sockets were closed afterward.
+- Initial Vercel error-log scan (10-minute window) returned zero error records.
+  Continuous monitoring and drain configuration were not assessed or changed.
+- Screenshot: `/private/tmp/moonwarden-v060-release.png` (live setup controls).
 
 Pre-release checks: all 408 Node/real-WebSocket regression tests pass; TypeScript
 and scoped ESLint are clean. Both Next.js production and alternate vinext builds
@@ -32,8 +52,10 @@ The full-suite log is temporary at `/private/tmp/moonwarden-060-final-tests.log`
   - Unique URL: <https://moonwarden-5xz3l6l9k-christainj.vercel.app>
   - Inspect: <https://vercel.com/christainj/moonwarden/3tNmp4o2UtUb6WcmJ87k6tUadzXc>
   - Live `/api/version` verified: `{"name":"Moonwarden","version":"0.5.0","channel":"beta","worldVersion":"silverpine-rituals-v7"}`
-- **Pending for multiplayer room server**:
-  - Render service `srv-db8u6cs9v7es73dt2dt0` in Christian's workspace (`tea-db8t48jbc2fs73c3lr1g`, manual `autoDeploy` off, source branch `codex/persistent-room-server`, free Singapore plan) still needs the matching `v0.5.0` / `silverpine-rituals-v7` source committed, pushed, and deployed so persistent multiplayer rooms match the new frontend. `prototypes/` remains excluded via `.vercelignore` and untracked.
+- **Previous multiplayer gap — resolved by the v0.6.0 release above**:
+  - Render previously ran v0.4.0/v6 while the frontend used v0.5.0/v7. Both now
+    run v0.6.0/v8; do not redeploy the old v7 source. `prototypes/` remains
+    excluded via `.vercelignore` and untracked.
 
 `app/cat-head.tsx` statically crops the cached painted seated artwork to a cute
 head-only curved silhouette. Role reveals use actual player coat, WardenJOYFUL
