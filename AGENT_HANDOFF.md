@@ -2,16 +2,30 @@
 
 Updated: 2026-10-29 (Asia/Manila).
 
-## v0.7.0 release candidate — onboarding, cat gait and forest ceremonies
+## Current frontend: v0.7.0 — LIVE and verified
 
-The user now explicitly requests production deployment, including the prior
-onboarding work and further cat/wardrobe/cinematic polish. Release is being
-prepared for the existing `christainj/moonwarden` project
-`prj_fnsKcfgCYjBI3vzBDBB5O6r4Njb9`, verified through the cached Vercel CLI 64.2.0.
-Its production domain is `moonwarden-two.vercel.app`. The MCP connection lacks
-that team's grant; CLI authentication works. Do not create/link another project
-or change account permissions. Use the existing release branch and preserve
-unrelated `prototypes/`; `.vercelignore` excludes it from uploads.
+User explicitly approved production release, including the earlier onboarding
+work and subsequent cat/wardrobe/cinematic polish. Released 2026-10-29 to
+<https://moonwarden-two.vercel.app/>. Public `/api/version` confirms `0.7.0` /
+`silverpine-trust-v8`; homepage returns HTTP 200 and `/dev/victory` returns 404.
+Deployment `dpl_7MVkN1DizzNRxY1XzaQZoqxtPChQ` is READY; unique production build
+<https://moonwarden-l997nsc59-christainj.vercel.app> was version-verified through
+authenticated Vercel curl, then promoted. Next.js 16.2.6 production build passed
+in 24s including TypeScript. Exact deployed source commit:
+`5684d0082063506ad746af18f8b879669d540b70`, pushed to the existing
+`codex/moonwarden-release-2026-10-19` branch. Release tag v0.7.0 identifies it.
+
+Target remained `christainj/moonwarden` / `prj_fnsKcfgCYjBI3vzBDBB5O6r4Njb9`.
+MCP lacked that team's grant; the existing cached Vercel CLI 64.2.0 login worked.
+The initial Git push lacked a configured credential helper; the already-signed-in
+GitHub CLI supplied credentials for a single push with per-command `git -c`
+flags. No global Git/auth configuration was changed. Initial ten-minute error
+scan for this deployment returned zero records. Continuous monitoring/drains
+were not changed or assessed. No new full multiplayer/end-to-end test was claimed.
+Existing v0.6.0 Render room server/backend branch remain unchanged and compatible.
+Unrelated `prototypes/` was excluded from Git and deployment.
+
+### Included in v0.7.0
 
 Follow-up polish: intro now reuses FloatingJoystick and shared 1.8-second shrine
 hold/gauge; skip/completion keys are unchanged. Optional `HollowLesson` is in How
@@ -57,7 +71,6 @@ Screenshots from local review: `/private/tmp/moonwarden-v070-hollow-lesson.png`,
 `/private/tmp/moonwarden-v070-painted-cat-review.png`.
 
 The notes below describe the earlier local pass and historical deployment.
-Replace this candidate status with exact deployment evidence once ready/live.
 
 ### Earlier local onboarding pass
 
