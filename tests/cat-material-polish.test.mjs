@@ -35,7 +35,10 @@ test("lobby portraits use seated close-ups, adaptive device-pixel backing and on
   assert.match(portrait, /new ResizeObserver\(resize\)/);
   assert.match(portrait, /observer\?\.disconnect\(\)/);
   assert.match(portrait, /if \(concealed && !shapeDirty\) continue/);
-  assert.match(portrait, /resize\(\);\s*restart\(\); void/);
+  assert.match(portrait, /if \(requestedArt !== source\) \{\s*requestedArt = source; artReady = false/, "shared art readiness is requested only when the source pose changes");
+  assert.match(portrait, /active && requestedArt === source\) \{ artReady = true; shapeDirty = true/, "late art cannot replace the current pose or repaint an unmounted portrait");
+  assert.match(portrait, /useLayoutEffect\(\(\) => \{[\s\S]*?appearance\.current = [\s\S]*?requestPaint\.current\?\.\(\)/, "cosmetic changes repaint through the stable lifecycle");
+  assert.match(portrait, /\}, \[\]\);/, "canvas observers and shared image subscriptions are mounted once");
   assert.match(page, /eyeStyle=\{p.eyeStyle\} size="md" lobbyPose/);
   assert.match(page, /size="md" lobbyPose animated=\{!motionPaused\} isBot/);
   assert.match(css, /slot-avatar-stage \.slime-avatar \{ width: 76px; height: 76px;/);

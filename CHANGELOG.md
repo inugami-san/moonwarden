@@ -6,6 +6,53 @@ source releases, not proof that a particular server has been deployed.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-29
+
+### First-time player clarity
+
+- Added a short, skippable private introduction: move to a shrine, complete a
+  moon-rune ritual, earn a Glowing Mushroom and use it in a safe blackout.
+  Finishing or explicitly skipping is remembered on that browser/device;
+  How to Play offers a replay. It never overlays an active room or match.
+- Replaced overlapping role/preparation/task labels with one phase-specific
+  objective, restoration meter and expandable win explanation. Equipment leads
+  with earned items; the full catalog and advanced Hollow tricks are secondary.
+- Consolidated shrine rewards into one gear handoff while preserving anonymous
+  restoration settlement. Added nearby Sun/Moon duet invitations and clearer
+  turn-taking, duration and audible-risk guidance, without exposing other roles.
+- Matched introductory touch movement to the live floating joystick and taught
+  hold-to-restore with the same timing/gauge. Completion/skip preferences stay
+  valid; no forced replay after this update.
+- Added an optional private Hollow lesson in How to Play: fake ritual, shared
+  Sight/Echo choice and one strike. It returns to the guide and never touches
+  live room state or saved introduction preferences.
+- Simplified the meter to "Forest restored", explained Harmonize as a duet,
+  enlarged help touch targets, and made locked reporting explainable on tap.
+  The first confirmed gear reward briefly highlights its Use control; the cue
+  expires, never repeats within that match, and respects reduced motion.
+- Kept win rules, shrine timing/rewards, visibility gates and multiplayer v8
+  unchanged. The existing room server remains compatible.
+
+### Painted-cat movement and forest ceremonies
+
+- Reworked the live painted-paw rig into a staggered four-beat walk with longer
+  planted support, smooth toe-off/touchdown and stable toe anchoring. Added a
+  short decaying finish when stopping, gentler shoulder transfer and heading
+  hysteresis. Travel still drives the gait; physics and collisions are unchanged.
+- Added a large live cat preview inside room customization. Cosmetic changes
+  repaint without rebuilding portrait observers/listeners; cached art stays
+  visible while loading and wardrobe views omit unused silhouette rendering.
+- Replaced the scanner-style role reveal with a moonlit forest entrance using
+  the chosen cat appearance and clear Warden/Hollow goals. Warden remains the
+  friendly role name.
+- Replaced legacy procedural characters in live voting/endgame scenes with
+  painted cats: a moonward Warden farewell, Hollow shadow unravel, flower-lit
+  Warden victory and eclipsed Hollow grove. Official verdicts, neutral/tied
+  outcomes, existing timings and audio callbacks are preserved.
+- Added local ceremony previews to the development-only `/dev/victory` page.
+  Motion is finite and reduced-motion safe; preview routes stay unavailable
+  in production.
+
 ## [0.6.3] - 2026-10-28
 
 ### Moonlit menu theme

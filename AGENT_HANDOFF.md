@@ -1,8 +1,106 @@
 # Moonwarden — agent handoff and pending work
 
-Updated: 2026-10-28 (Asia/Manila).
+Updated: 2026-10-29 (Asia/Manila).
 
-## Current frontend: v0.6.3 — LIVE and verified
+## v0.7.0 release candidate — onboarding, cat gait and forest ceremonies
+
+The user now explicitly requests production deployment, including the prior
+onboarding work and further cat/wardrobe/cinematic polish. Release is being
+prepared for the existing `christainj/moonwarden` project
+`prj_fnsKcfgCYjBI3vzBDBB5O6r4Njb9`, verified through the cached Vercel CLI 64.2.0.
+Its production domain is `moonwarden-two.vercel.app`. The MCP connection lacks
+that team's grant; CLI authentication works. Do not create/link another project
+or change account permissions. Use the existing release branch and preserve
+unrelated `prototypes/`; `.vercelignore` excludes it from uploads.
+
+Follow-up polish: intro now reuses FloatingJoystick and shared 1.8-second shrine
+hold/gauge; skip/completion keys are unchanged. Optional `HollowLesson` is in How
+to Play and returns there. The meter says Forest restored; help targets are at
+least 44px. `ReportAction` uses aria-disabled plus a short tap explanation while
+preserving authoritative report guards/R binding. First confirmed reward cues
+the Use action once for 2.6s; no new constant prompt.
+
+The actual painted-cat walk lives in `cat-walk-rig.ts`/`mooncat-sprites.ts`, not
+the old vector paws. It now has a 72%-stance staggered four-beat walk, anchored
+toes, smoother support transfer/stop and direction hysteresis. `sampleCatGait`
+still follows actual travel; blocked cats/teleports cannot start fake walking.
+Portrait lifecycle is stable across cosmetic changes; WardrobePreview is added
+to `inroom-wardrobe-layout` as well as the standalone customization page.
+
+`RoleReveal` replaces scanner/orbit markup and keeps selected coat/eyes/hat.
+User confirmed the label Warden (not Wanderer). Shared `role-reveal.css` must
+be imported by the parent (page.tsx and dev/victory preview). Live banishment
+and victory overlays now use painted-cat forest scenes, not the old procedural
+scene renderers; old renderer files remain for legacy art tests only. Official
+outcomes, neutral/tied cases and existing audio/timeline windows are unchanged.
+Development-only `/dev/victory` now previews role, vote-out and endgame scenes.
+No room-server update is needed; protocol stays `silverpine-trust-v8` and the
+existing v0.6.0 Render server remains compatible.
+
+Release checks: 82 UI/onboarding/wardrobe/cinematic tests, 49 art tests and a
+separate overlapping 62-test gait/sprites/head/material/victory/banishment/report
+suite pass. TypeScript, scoped ESLint and diff checks pass. Browser checks at
+844x390 covered the optional Hollow lesson, hold-E cancellation/completion,
+wardrobe, actual Warden practice HUD and tappable report lock, both role reveals,
+both verdict scenes and both endgame variants. `/dev/cats` loaded painted art
+and displayed the new rig plus lobby framing. A 568x320 HUD overlap was fixed
+with a short-landscape 58px gear rail; its final compact geometry is unit-tested.
+The full multiplayer/server playtest was not rerun for this presentation release.
+Browser preview controls were scoped to avoid leaking styles into overlays;
+decorative moons were moved away from story text. Menus remain mounted/inert
+behind lessons, so replaying them does not reset wardrobe choices.
+
+Screenshots from local review: `/private/tmp/moonwarden-v070-hollow-lesson.png`,
+`/private/tmp/moonwarden-v070-warden-farewell.png`,
+`/private/tmp/moonwarden-v070-hollow-banishment.png`,
+`/private/tmp/moonwarden-v070-hollow-ending.png`, and
+`/private/tmp/moonwarden-v070-painted-cat-review.png`.
+
+The notes below describe the earlier local pass and historical deployment.
+Replace this candidate status with exact deployment evidence once ready/live.
+
+### Earlier local onboarding pass
+
+User approved the player-clarity recommendations and asked that the intro not
+return in later games. Implemented `first-steps.tsx/.css` and `intro-state.ts`:
+private movement → shrine/runes → earned light → safe blackout lesson, followed
+by role/win explanation. `moonwarden.first-steps.v1` stores only version/status
+in localStorage after completion or explicit skip. Replay lives in How to Play.
+New browser/device, cleared storage or nonpersistent/private storage may show it
+again; storage failures still dismiss for the current visit. Root uses a
+hydration-safe external-store gate, never above a room or active match. No account
+or live multiplayer tutorial was added.
+
+`player-guidance.tsx/.css` owns one phase/role objective, shared restoration,
+expandable win goal, earned-only equipment and compact reward handoff. Old
+duplicated task/preparation/private-role panels are removed from page markup.
+Hollow Sight/Echo/Veiled Bite now live under Tricks (shortcuts preserved), while
+normal Bite remains visible. `clarity.css` integrates floating-header offsets,
+landscape controls, readable task overlays and disclosure stacking.
+
+`harmonize-invitation.ts` draws local neutral Sun/Moon pads only near a visible,
+available shrine. Counts/turns are private to a joined duet. Explain alternating
+notes, minimum three seconds, both players earning gear and audible exposure;
+do NOT claim all duets are faster than solo (HOLD is 1.8 seconds). Existing rules,
+network schema, v8 compatibility and four-second anonymous gauge settlement are
+unchanged. Help/Danger pings remain a future suggestion, not implemented.
+
+New intro/guidance/invitation tests are included in `npm run test:ui`. 56 UI tests
+and a separate overlapping 66-test guidance/exploration/visibility suite pass,
+as do TypeScript, scoped ESLint and diff checks. Browser verification completed
+the full practice lesson, confirmed completion and skip survive reload, replayed
+from How to Play, and checked Warden/Hollow HUD, gear catalog and Tricks at
+844x390. No console errors were recorded. The viewport override was reset; the
+local replay is left open at http://localhost:3101/. Screenshots:
+`/private/tmp/moonwarden-first-steps-preview.png`,
+`/private/tmp/moonwarden-intro-complete.png`, and
+`/private/tmp/moonwarden-contextual-hud.png`.
+No new full multiplayer/browser playtest or production build was claimed.
+No deploy, push, release tag,
+version bump or Render change was requested in this turn. Production remains
+v0.6.3 below. Preserve unrelated untracked `prototypes/`.
+
+## Previous frontend: v0.6.3 — LIVE and verified on 2026-10-28
 
 User explicitly requested production deployment of the wardrobe, forest-themed
 landing page and slime-logo removal. Released 2026-10-28 to

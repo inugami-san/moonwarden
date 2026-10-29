@@ -1,6 +1,6 @@
 {
   "name": "moonwarden",
-  "version": "0.6.3",
+  "version": "0.7.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -14,7 +14,7 @@
     "test:next": "node --import tsx --test tests/next-chapter.test.mjs",
     "test:art": "node --import tsx --test tests/forest-art.test.mjs tests/cat-art.test.mjs tests/ritual-art.test.mjs tests/sanctuary-map.test.mjs",
     "test:sight": "node --import tsx --test tests/sight.test.mjs tests/world-camera.test.mjs tests/game-feedback.test.mjs",
-    "test:ui": "node --import tsx --test tests/gameplay-ui.test.mjs tests/restoration.test.mjs tests/app-menu.test.mjs tests/wardrobe.test.mjs tests/home-backdrop.test.mjs",
+    "test:ui": "node --import tsx --test tests/gameplay-ui.test.mjs tests/restoration.test.mjs tests/app-menu.test.mjs tests/wardrobe.test.mjs tests/home-backdrop.test.mjs tests/first-steps.test.mjs tests/player-guidance.test.mjs tests/harmonize-invitation.test.mjs tests/hollow-lesson.test.mjs tests/action-feedback.test.mjs tests/forest-cinematics.test.mjs",
     "test:report": "node --import tsx --test tests/report-rules.test.mjs",
     "test:task-hold": "node --import tsx --test tests/task-hold.test.mjs tests/client-exploration.test.mjs",
     "test:victory": "node --import tsx --test tests/victory.test.mjs tests/game-feedback.test.mjs tests/forest-audio.test.mjs",

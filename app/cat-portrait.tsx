@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useLayoutEffect, useRef } from "react";
 import { drawMooncat } from "./mooncat-renderer";
 import { loadMooncatSprites } from "./mooncat-sprites";
 import { SLIME_CORE_PATH, SLIME_EYE_SCALE, SLIME_EYE_SHADE, SLIME_MATERIAL, SLIME_PATH, SLIME_SPROUT, slimePalette } from "./cat-art";
@@ -17,24 +17,49 @@ export function catGreetingPhase(progress: number) {
   return [0, Math.PI / 2, 0, Math.PI / 2, 0][step];
 }
 
+export function portraitPixelSize(width: number, pixelRatio: number) {
+  if (!Number.isFinite(width) || width <= 0) return 0;
+  const ratio = Number.isFinite(pixelRatio) && pixelRatio > 0 ? Math.min(2, pixelRatio) : 1;
+  return Math.max(96, Math.min(672, Math.ceil(width * ratio)));
+}
+
+type PortraitAppearance = { color: string; eyeStyle: EyeStyle; accessory?: Hat; greeting: boolean; pose: "GAMEPLAY" | "SEATED" | "LOBBY"; animated: boolean; concealment: boolean };
+
 /** High-resolution portrait using the exact same artwork as the live character. */
-export function SlimePortrait({ color, eyeStyle = "FIERCE", accessory, greeting = false, pose = "GAMEPLAY", animated = true }: { color: string; eyeStyle?: EyeStyle; accessory?: Hat; greeting?: boolean; pose?: "GAMEPLAY" | "SEATED" | "LOBBY"; animated?: boolean }) {
+export function SlimePortrait({ color, eyeStyle = "FIERCE", accessory, greeting = false, pose = "GAMEPLAY", animated = true, concealment = true }: { color: string; eyeStyle?: EyeStyle; accessory?: Hat; greeting?: boolean; pose?: "GAMEPLAY" | "SEATED" | "LOBBY"; animated?: boolean; concealment?: boolean }) {
   const portrait = useRef<HTMLCanvasElement>(null);
   const silhouette = useRef<HTMLCanvasElement>(null);
+  const appearance = useRef<PortraitAppearance>({ color, eyeStyle, accessory, greeting, pose, animated, concealment });
+  const requestPaint = useRef<(() => void) | null>(null);
+  // Cosmetic changes paint before the next browser frame, without rebuilding
+  // the art loader, visibility subscriptions, or canvas backing stores.
+  useLayoutEffect(() => {
+    appearance.current = { color, eyeStyle, accessory, greeting, pose, animated, concealment };
+    requestPaint.current?.();
+  }, [color, eyeStyle, accessory, greeting, pose, animated, concealment]);
   useEffect(() => {
     let active = true;
     let frame = 0;
-    const start = performance.now();
+    let greetingStart = performance.now();
+    let wasGreeting = false;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
     let lastPaint = -Infinity;
     let shapeDirty = true;
     let visible = true;
+    let layoutVisible = true;
+    let inView = true;
+    let lastPose = appearance.current.pose;
+    let lastConcealment = appearance.current.concealment;
+    let requestedArt: "GAMEPLAY" | "SEATED" | undefined;
+    let artReady = false;
     const paint = (now = performance.now()) => {
     if (!active) return;
     if (document.hidden || !visible) return;
+    if (!artReady) return;
+    const { color, eyeStyle, accessory, greeting, pose, animated } = appearance.current;
     if (pose !== "GAMEPLAY" && animated && !reduced.matches && now - lastPaint < 1000 / 30) { frame = requestAnimationFrame(paint); return; }
     lastPaint = now;
-    const progress = (performance.now() - start) / 780;
+    const progress = (now - greetingStart) / 780;
     const animate = greeting && !reduced.matches && progress < 1;
     const phase = animate ? catGreetingPhase(progress) : 0;
     for (const [canvas, concealed] of [[portrait.current, false], [silhouette.current, true]] as const) {
@@ -61,28 +86,52 @@ export function SlimePortrait({ color, eyeStyle = "FIERCE", accessory, greeting 
     shapeDirty = false;
     if (animate || (pose !== "GAMEPLAY" && animated && !reduced.matches)) frame = requestAnimationFrame(paint);
     };
-    const restart = () => { cancelAnimationFrame(frame); lastPaint = -Infinity; shapeDirty = true; paint(); };
+    const restart = () => {
+      cancelAnimationFrame(frame); lastPaint = -Infinity;
+      const latest = appearance.current;
+      if (latest.greeting && !wasGreeting) greetingStart = performance.now();
+      wasGreeting = latest.greeting;
+      if (latest.pose !== lastPose || latest.concealment !== lastConcealment) shapeDirty = true;
+      lastPose = latest.pose; lastConcealment = latest.concealment;
+      const source = latest.pose === "GAMEPLAY" ? "GAMEPLAY" : "SEATED";
+      if (requestedArt !== source) {
+        requestedArt = source; artReady = false;
+        void (source === "SEATED" ? loadSeatedCat() : loadMooncatSprites()).then(() => {
+          if (active && requestedArt === source) { artReady = true; shapeDirty = true; }
+        }).then(() => { if (active) restart(); });
+      }
+      paint();
+    };
+    requestPaint.current = restart;
     // Match the displayed portrait to device pixels. Tiny roster icons no longer
     // allocate hero-size surfaces; the hero no longer upscales a 336px bitmap.
     const resize = () => {
       const bounds = portrait.current?.getBoundingClientRect();
       const wasVisible = visible;
-      visible = Boolean(bounds?.width);
-      if (!bounds?.width) { cancelAnimationFrame(frame); return; }
-      const size = Math.max(96, Math.min(672, Math.ceil(bounds.width * Math.min(2, window.devicePixelRatio || 1))));
+      layoutVisible = Boolean(bounds?.width);
+      visible = layoutVisible && inView;
+      const size = portraitPixelSize(bounds?.width ?? 0, window.devicePixelRatio);
+      if (!size) { cancelAnimationFrame(frame); return; }
       let changed = false;
       for (const canvas of [portrait.current, silhouette.current]) if (canvas && canvas.width !== size) { canvas.width = size; canvas.height = size; changed = true; }
+      if (changed) shapeDirty = true;
       if (changed || !wasVisible) restart();
     };
     const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(resize);
     if (portrait.current) observer?.observe(portrait.current);
+    const intersection = typeof IntersectionObserver === "undefined" ? undefined : new IntersectionObserver(entries => {
+      inView = entries.some(entry => entry.isIntersecting);
+      visible = layoutVisible && inView;
+      if (visible) restart(); else cancelAnimationFrame(frame);
+    });
+    if (portrait.current) intersection?.observe(portrait.current);
     resize();
-    restart(); void (pose !== "GAMEPLAY" ? loadSeatedCat() : loadMooncatSprites()).then(() => { if (active) restart(); });
+    restart();
     document.addEventListener("visibilitychange", restart); reduced.addEventListener("change", restart);
-    return () => { active = false; cancelAnimationFrame(frame); observer?.disconnect(); document.removeEventListener("visibilitychange", restart); reduced.removeEventListener("change", restart); };
-  }, [color, eyeStyle, accessory, greeting, pose, animated]);
+    return () => { active = false; cancelAnimationFrame(frame); observer?.disconnect(); intersection?.disconnect(); if (requestPaint.current === restart) requestPaint.current = null; document.removeEventListener("visibilitychange", restart); reduced.removeEventListener("change", restart); };
+  }, []);
   return <span className="slime-portrait mooncat-portrait" data-pose={pose} aria-hidden="true">
-    <canvas ref={silhouette} className="cat-portrait-concealed" width={336} height={336} />
+    {concealment ? <canvas ref={silhouette} className="cat-portrait-concealed" width={336} height={336} /> : null}
     <canvas ref={portrait} className="slime-detail" width={336} height={336} />
   </span>;
 }

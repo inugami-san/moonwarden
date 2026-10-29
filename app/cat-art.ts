@@ -533,9 +533,11 @@ function cacheSkin(key: string, canvas: HTMLCanvasElement) {
 
 export type CatDirection = "EAST" | "WEST" | "SOUTH" | "NORTH" | "SE" | "SW" | "NE" | "NW";
 
-type CatGaitState = { dir: CatDirection; phase: number; stride: number; at: number; diagonalUntil: number; lastSpeed: number; x?: number; y?: number };
+type CatGaitState = { dir: CatDirection; phase: number; stride: number; at: number; diagonalUntil: number; lastSpeed: number; settleSpeed: number; x?: number; y?: number };
 const catGaits = new Map<string, CatGaitState>();
 const isDiagonalDirection = (dir: CatDirection) => dir === "NE" || dir === "NW" || dir === "SE" || dir === "SW";
+export const CAT_STRIDE_DISTANCE = 112;
+const HEADING_ANGLES: Readonly<Record<CatDirection, number>> = { EAST: 0, SE: Math.PI / 4, SOUTH: Math.PI / 2, SW: Math.PI * 3 / 4, WEST: Math.PI, NW: -Math.PI * 3 / 4, NORTH: -Math.PI / 2, NE: -Math.PI / 4 };
 
 /** Resolve a 2.5D cat heading direction from movement velocity, preserving the last heading when idle. */
 export function resolveCatDirection(vx: number, vy: number, fallback: CatDirection = "SE"): CatDirection {
@@ -564,23 +566,27 @@ export function sampleCatGait(
   position?: { x: number; y: number },
 ): { direction: CatDirection; stridePhase: number; strideAmount: number } {
   let state = catGaits.get(id);
+  if (!Number.isFinite(elapsed)) return { direction: state?.dir ?? "SE", stridePhase: 0, strideAmount: 0 };
+  const hasPosition = position && Number.isFinite(position.x) && Number.isFinite(position.y);
   if (!state || elapsed < state.at || elapsed - state.at > .3) {
     const previousDirection = state?.dir ?? "SE";
-    state = { dir: previousDirection, phase: 0, stride: 0, at: elapsed, diagonalUntil: 0, lastSpeed: 0, x: position?.x, y: position?.y };
+    state = { dir: previousDirection, phase: 0, stride: 0, at: elapsed, diagonalUntil: 0, lastSpeed: 0, settleSpeed: 0, x: hasPosition ? position.x : undefined, y: hasPosition ? position.y : undefined };
     if (catGaits.size >= 64) catGaits.delete(catGaits.keys().next().value!);
     catGaits.set(id, state);
   }
-  const dt = Math.max(0, Math.min(.05, elapsed - state.at));
+  const frameElapsed = Math.max(0, elapsed - state.at);
+  const dt = Math.min(.05, frameElapsed);
   state.at = elapsed;
   vx = Number.isFinite(vx) ? vx : 0; vy = Number.isFinite(vy) ? vy : 0;
-  if (position && Number.isFinite(position.x) && Number.isFinite(position.y)) {
-    if (dt > 0 && state.x !== undefined && state.y !== undefined) {
+  let traveled: number | undefined;
+  if (hasPosition) {
+    if (frameElapsed > 0 && state.x !== undefined && state.y !== undefined) {
       const dx = position.x - state.x, dy = position.y - state.y;
-      const speed = Math.hypot(dx, dy) / dt;
+      const distance = Math.hypot(dx, dy), speed = distance / frameElapsed;
       // Interpolation and collisions use traveled distance; network teleports
       // reset the gait rather than turning into a burst of frantic foot motion.
-      if (speed <= 600) { vx = dx / dt; vy = dy / dt; }
-      else { vx = 0; vy = 0; state.stride = 0; state.phase = 0; }
+      if (speed <= 600) { vx = dx / frameElapsed; vy = dy / frameElapsed; traveled = distance; }
+      else { vx = 0; vy = 0; state.stride = 0; state.phase = 0; state.settleSpeed = 0; traveled = 0; }
     }
     state.x = position.x; state.y = position.y;
   }
@@ -591,24 +597,42 @@ export function sampleCatGait(
   const effSpeed = Math.hypot(effVx, effVy);
   if (effSpeed > 8) {
     const candidate = resolveCatDirection(effVx, effVy, state.dir);
-    if (isDiagonalDirection(candidate)) {
+    const angleDelta = Math.atan2(Math.sin(Math.atan2(effVy, effVx) - HEADING_ANGLES[state.dir]), Math.cos(Math.atan2(effVy, effVx) - HEADING_ANGLES[state.dir]));
+    // A few degrees of angular hysteresis keep adjacent painted feet from
+    // flickering between registrations when interpolation grazes a sector edge.
+    const clearTurn = candidate === state.dir || Math.abs(angleDelta) > Math.PI / 8 + .07;
+    if (clearTurn && isDiagonalDirection(candidate)) {
       state.dir = candidate;
       state.diagonalUntil = elapsed + .14;
-    } else if (!isDiagonalDirection(state.dir) || (elapsed >= state.diagonalUntil && effSpeed >= state.lastSpeed * .88)) {
+    } else if (clearTurn && (!isDiagonalDirection(state.dir) || (elapsed >= state.diagonalUntil && effSpeed >= state.lastSpeed * .88))) {
       state.dir = candidate;
     }
   }
   state.lastSpeed = effSpeed;
   if (reducedMotion) {
     state.stride = 0;
+    state.settleSpeed = 0;
     return { direction: state.dir, stridePhase: 0, strideAmount: 0 };
   }
   // Gaze may keep facing alive but must never make stationary paws walk.
   const targetStride = rawSpeed > 6 ? Math.min(1, rawSpeed / 130) : 0;
-  const blend = 1 - Math.exp(-dt * 14);
+  const blend = 1 - Math.exp(-dt * (targetStride > state.stride ? 12 : 20));
   state.stride += (targetStride - state.stride) * blend;
-  if (state.stride < .01) state.stride = 0;
-  state.phase = (state.phase + dt * (rawSpeed > 6 ? Math.min(360, rawSpeed) : 0) * Math.PI * 2 / 112) % (Math.PI * 2);
+  let phaseDistance = 0;
+  if (rawSpeed > 6) {
+    phaseDistance = Math.min(traveled ?? rawSpeed * frameElapsed, 360 * frameElapsed);
+    state.settleSpeed = Math.min(200, rawSpeed);
+  } else if (state.stride > .002) {
+    // Finish a small fraction of the current swing while its amplitude fades.
+    // This is visual-only: no blocked cat is moved, and it never starts a loop.
+    const decay = Math.exp(-dt * 18);
+    phaseDistance = state.settleSpeed * (1 - decay) / 18;
+    state.settleSpeed *= decay;
+  } else {
+    state.stride = 0;
+    state.settleSpeed = 0;
+  }
+  state.phase = (state.phase + phaseDistance * Math.PI * 2 / CAT_STRIDE_DISTANCE) % (Math.PI * 2);
   return { direction: state.dir, stridePhase: state.phase, strideAmount: state.stride };
 }
 

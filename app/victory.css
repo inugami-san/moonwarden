@@ -9,11 +9,10 @@
 }
 .victory-overlay::backdrop { background: #101a2a; }
 .victory-hollow { --victory-accent: #e1b5dc; background: #161329; }
-.victory-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -2; pointer-events: none; }
-.victory-overlay::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(#0a142baa, transparent 36%, transparent 64%, #091224d9); }
+.victory-overlay::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(#0a142b55, transparent 36%, transparent 64%, #09122499); }
 .victory-heading { width: min(680px, 100%); text-align: center; }
 .victory-heading > span { font: 800 11px/1.5 var(--font-geist-mono), monospace; text-transform: uppercase; letter-spacing: .18em; color: var(--victory-accent); }
-.victory-heading h2 { margin: 9px 0; font: 900 clamp(25px, 4.6vw, 48px)/1.05 var(--font-geist-sans), sans-serif; letter-spacing: -.045em; text-wrap: balance; text-shadow: 0 3px 18px #0a142b99; }
+.victory-heading h2 { margin: 9px 0; font: 400 clamp(29px, 4.8vw, 50px)/1.1 Georgia, 'Times New Roman', serif; letter-spacing: -.035em; text-wrap: balance; text-shadow: 0 3px 18px #0a142b99; }
 .victory-heading p { max-width: 510px; margin: 0 auto; font: 500 clamp(11px, 1.5vw, 14px)/1.5 var(--font-geist-sans), sans-serif; color: #c7d8df; text-wrap: balance; }
 .victory-footer { display: grid; justify-items: center; gap: 10px; width: min(440px, 100%); text-align: center; }
 .victory-personal { margin: 0; font: 600 12px/1.4 var(--font-geist-sans), sans-serif; color: #d3d9e6; }
@@ -24,14 +23,50 @@
 .victory-footer button:active { transform: translateY(3px) scale(.98); box-shadow: 0 1px 0 #806783; }
 .victory-footer button:focus-visible { outline: 3px solid #f9f3df; outline-offset: 5px; }
 .victory-footer small { color: #a9bdcb; font: 600 9px var(--font-geist-mono), monospace; }
+.victory-heading, .victory-footer { position: relative; z-index: 2; }
+.victory-grove { position: absolute; inset: 19% 0 22%; width: min(800px, 100%); margin: auto; pointer-events: none; }
+.victory-ground { position: absolute; left: 50%; bottom: 2%; width: 85%; height: 30%; border-radius: 50%; transform: translateX(-50%); background: radial-gradient(ellipse, #d8dda947, #b7cdac24 50%, transparent 72%); }
+.victory-hollow .victory-ground { background: radial-gradient(ellipse, #b38cb13b, #62566d20 50%, transparent 72%); }
+.victory-hero, .victory-companion { position: absolute; width: clamp(160px, 34vh, 320px); aspect-ratio: 1; left: 50%; bottom: 4%; transform: translateX(-50%); z-index: 2; filter: drop-shadow(0 14px 20px #07131d8c); }
+.victory-grove .slime-portrait, .victory-grove canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.victory-grove .cat-portrait-concealed { display: none; }
+.victory-companion { width: clamp(105px, 25vh, 240px); z-index: 1; bottom: 7%; opacity: .9; }
+.victory-companion.companion-left { left: 27%; rotate: -4deg; }
+.victory-companion.companion-right { left: 73%; rotate: 4deg; }
+.victory-warden.is-playing .victory-hero { animation: victory-cat-greet 2.2s ease-in-out 1; }
+.victory-warden.is-playing .victory-companion { animation: victory-companion-arrive 1.8s ease-out both; }
+.victory-hollow.is-playing .victory-hero { animation: victory-hollow-emerge 2.2s ease-out both; }
+.victory-neutral .victory-hero { opacity: .7; }
+.victory-blooms { position: absolute; left: 10%; right: 10%; bottom: 2%; height: 20%; }
+.victory-blooms i { position: absolute; width: 8px; height: 8px; left: 7%; bottom: 0; border-radius: 50%; background: #dfbd7c; box-shadow: 6px 0 #e9e7cd, -6px 0 #e9e7cd, 0 -6px #e9e7cd, 0 6px #e9e7cd; }
+.victory-blooms i:nth-child(2) { left: 20%; bottom: 21%; scale: .8; animation-delay: .12s; }
+.victory-blooms i:nth-child(3) { left: 34%; bottom: 9%; scale: .9; animation-delay: .25s; }
+.victory-blooms i:nth-child(4) { left: 48%; bottom: 1%; animation-delay: .38s; }
+.victory-blooms i:nth-child(5) { left: 63%; bottom: 12%; scale: .8; animation-delay: .52s; }
+.victory-blooms i:nth-child(6) { left: 77%; bottom: 23%; scale: .9; animation-delay: .65s; }
+.victory-blooms i:nth-child(7) { left: 91%; bottom: 0; animation-delay: .78s; }
+.victory-overlay:not(.victory-warden) .victory-blooms { display: none; }
+.victory-warden.is-playing .victory-blooms i { animation: victory-flower-bloom 1.5s ease-out both; }
+.victory-brambles { display: none; position: absolute; inset: 0; z-index: 3; }
+.victory-hollow .victory-brambles { display: block; }
+.victory-brambles i { position: absolute; left: 0; bottom: 4%; width: 41%; height: 22%; border: solid #44384d; border-width: 9px 0 0; border-radius: 70% 0 0 0; rotate: 14deg; transform-origin: left center; }
+.victory-brambles i:nth-child(2) { left: auto; right: 0; rotate: -14deg; scale: -1 1; }
+.victory-brambles i:nth-child(3) { bottom: 16%; width: 31%; border-width: 5px 0 0; opacity: .7; }
+.victory-brambles i:nth-child(4) { left: auto; right: 0; bottom: 16%; width: 31%; border-width: 5px 0 0; rotate: -14deg; scale: -1 1; opacity: .7; }
+.victory-hollow.is-playing .victory-brambles i { animation: victory-root-arrive 2.6s ease-out both; }
 .victory-preview { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: #14283d; color: #eef4ed; font-family: var(--font-geist-sans), sans-serif; }
-.victory-preview > div { display: grid; gap: 18px; width: min(500px, 100%); }
-.victory-preview h1, .victory-preview p { margin: 0; }
-.victory-preview small, .victory-preview a { color: #efdca6; }
-.victory-preview button { min-height: 48px; border-radius: 12px; border: 1px solid #d5d0b1; background: #ecd5a6; color: #233249; cursor: pointer; font-weight: 800; }
+.victory-preview-controls { display: grid; gap: 18px; width: min(500px, 100%); }
+.victory-preview-controls h1, .victory-preview-controls p { margin: 0; }
+.victory-preview-controls small, .victory-preview-controls a { color: #efdca6; }
+.victory-preview-controls button { min-height: 48px; border-radius: 12px; border: 1px solid #d5d0b1; background: #ecd5a6; color: #233249; cursor: pointer; font-weight: 800; }
 .victory-overlay.is-settled .victory-heading { animation: victory-arrive .4s ease-out both; }
 .victory-overlay.is-reduced-motion, .victory-overlay.is-reduced-motion .victory-heading { animation: none; }
 @keyframes victory-arrive { from { opacity: 0; } to { opacity: 1; } }
+@keyframes victory-cat-greet { 0% { opacity: 0; transform: translate(-50%, 14px); } 45% { opacity: 1; transform: translate(-50%, -6px); } 70% { transform: translate(-50%, 0); } 85% { transform: translate(-50%, -3px); } 100% { opacity: 1; transform: translateX(-50%); } }
+@keyframes victory-companion-arrive { from { opacity: 0; transform: translate(-50%, 14px); } to { opacity: .9; transform: translateX(-50%); } }
+@keyframes victory-hollow-emerge { from { opacity: 0; transform: translate(-50%, 10px); filter: brightness(.55); } to { opacity: 1; transform: translateX(-50%); filter: brightness(1); } }
+@keyframes victory-flower-bloom { from { opacity: 0; transform: scale(.15); } to { opacity: 1; transform: scale(1); } }
+@keyframes victory-root-arrive { from { opacity: 0; transform: scaleX(.1); } to { opacity: 1; transform: scaleX(1); } }
 @media (max-height: 440px) {
   .victory-overlay { padding-top: 12px; padding-bottom: 10px; }
   .victory-heading h2 { font-size: clamp(23px, 4vw, 34px); margin: 4px 0; }
@@ -39,8 +74,12 @@
   .victory-footer { gap: 6px; }
   .victory-footer button { min-height: 42px; }
   .victory-footer small { display: none; }
+  .victory-grove { inset: 22% 0 25%; }
+  .victory-hero { width: 36vh; min-width: 125px; }
+  .victory-companion { width: 27vh; min-width: 95px; }
 }
+.victory-overlay.is-reduced-motion *, .victory-overlay.is-reduced-motion *::after { animation: none !important; transition: none !important; }
 @media (prefers-reduced-motion: reduce) {
-  .victory-overlay, .victory-overlay.is-settled .victory-heading { animation: none; }
+  .victory-overlay, .victory-overlay *, .victory-overlay *::after { animation: none !important; }
   .victory-footer button { transition: none; }
 }

@@ -149,25 +149,21 @@ function animate(vx, vy, fps = 60, seconds = 2) {
   return { animator, player, poses };
 }
 
-test("slimes idle gently, hop further while moving, and lean/gaze in their actual travel direction", () => {
+test("painted cats keep a planted solid body while gaze and tail follow actual travel", () => {
   const idle = animate(0, 0).poses;
   const right = animate(200, 0).poses;
   const left = animate(-200, 0).poses;
   const up = animate(0, -200).poses;
   const down = animate(0, 200).poses;
-  const lift = poses => Math.max(...poses.map(pose => -pose.offsetY));
-  assert.ok(lift(idle) > 1.3 && lift(idle) <= 1.4);
-  assert.ok(lift(right) > 8.1 && lift(right) <= 9, "walking has a visible jelly lift without turning into a pogo stick");
-  assert.ok(right.at(-1).shear < -.095 && left.at(-1).shear > .095);
   assert.ok(right.at(-1).gazeX > 1.4 && left.at(-1).gazeX < -1.4);
   assert.ok(up.at(-1).gazeY < -1.1 && down.at(-1).gazeY > 1.1);
-  for (const pose of right) {
-    assert.ok(Math.abs(pose.scaleX * pose.scaleY - 1) < 1e-10, "jelly keeps its volume");
-    assert.ok(pose.shadowScale >= .8 && pose.shadowScale <= 1);
-    assert.ok(pose.shadowAlpha >= .74 && pose.shadowAlpha <= 1);
-    assert.ok(Math.abs(pose.sproutTilt) <= .28);
+  for (const pose of [...idle, ...right, ...left, ...up, ...down]) {
+    assert.equal(pose.offsetY, 0, "body cannot hop off its supporting feet");
+    assert.equal(pose.scaleX, 1); assert.equal(pose.scaleY, 1);
+    assert.equal(pose.shear, 0, "do not turn the painted torso into a gel");
+    assert.equal(pose.shadowScale, 1); assert.equal(pose.shadowAlpha, 1);
+    assert.ok(Math.abs(pose.sproutTilt) <= .1);
   }
-  assert.ok(Math.max(...right.map(pose => pose.scaleX)) > 1.1 && Math.max(...right.map(pose => pose.scaleX)) < 1.14, "landings visibly compress while preserving volume");
 });
 
 test("gait is fluid across contact, reversal, and different render frame rates", () => {
@@ -179,13 +175,14 @@ test("gait is fluid across contact, reversal, and different render frame rates",
     }
     let previous = poses[0];
     for (const pose of poses.slice(1)) {
-      assert.ok(Math.abs(pose.offsetY - previous.offsetY) < 70 / fps, "no clipped-sine contact snap");
-      assert.ok(Math.abs(pose.scaleX - previous.scaleX) < 2 / fps, "continuous squash/stretch");
-      assert.ok(Math.abs(pose.shear - previous.shear) < 1.05 / fps, "direction changes have follow-through");
+      assert.equal(pose.offsetY, previous.offsetY);
+      assert.equal(pose.scaleX, previous.scaleX);
+      assert.equal(pose.shear, previous.shear);
       assert.ok(Math.abs(pose.gazeX - previous.gazeX) < 15 / fps, "eyes do not flip instantly");
+      assert.ok(Math.abs(pose.sproutTilt - previous.sproutTilt) < 1.5 / fps, "tail reversals have soft follow-through");
       previous = pose;
     }
-    assert.ok(poses.at(-1).shear > .095 && poses.at(-1).gazeX < -1.4);
+    assert.ok(poses.at(-1).gazeX < -1.4);
   }
 });
 
@@ -197,7 +194,7 @@ test("motion eases to idle when blocked/stopped and resets safely after teleport
   for (let frame = 2; frame <= 60; frame++) animator.sample(player, 2 + frame / 60);
   const stopped = { ...animator.sample(player, 3) };
   assert.ok(Math.abs(stopped.shear) < .001);
-  assert.ok(stopped.offsetY >= -2.31, "idle bounce only; blocked inputs do not imply movement");
+  assert.equal(stopped.offsetY, 0, "blocked inputs cannot make a grounded cat bounce");
   player.x += 500;
   const teleported = { ...animator.sample(player, 3 + 1 / 60) };
   assert.equal(teleported.shear, 0);
@@ -206,10 +203,7 @@ test("motion eases to idle when blocked/stopped and resets safely after teleport
   const revealed = { ...animator.sample(player, 8) };
   assert.equal(revealed.shear, 0);
   assert.ok(Object.values(revealed).every(Number.isFinite));
-  for (const fps of [30, 60, 144]) {
-    const lift = Math.max(...animate(200, 0, fps).poses.map(pose => -pose.offsetY));
-    assert.ok(lift > 8.1 && lift < 8.5, `bounded, consistent motion at ${fps}fps`);
-  }
+  for (const fps of [30, 60, 144]) for (const pose of animate(200, 0, fps).poses) assert.equal(pose.scaleY, 1);
 });
 
 test("reduced motion is neutral and animation never modifies physics or depends on identity/role", () => {
@@ -225,6 +219,61 @@ test("reduced motion is neutral and animation never modifies physics or depends 
   assert.deepEqual(a.sample({ id: "crew", x: 103, y: 200 }, .02), b.sample({ id: "impostor", x: 103, y: 200 }, .02));
   animator.clear();
   assert.deepEqual(animator.sample(player, 5), neutral);
+  for (const [point, time] of [[{ ...player, x: NaN }, 6], [{ ...player, y: Infinity }, 6], [player, NaN]]) assert.deepEqual(animator.sample(point, time), neutral);
+  assert.deepEqual(animator.sample(player, 0), neutral, "a rewound match clock cannot replay stale follow-through");
+});
+
+test("live gait distinguishes a gentle slow walk from a full stride even on uneven frames", () => {
+  for (const fps of [10, 30, 60, 144]) {
+    const id = `slow-walk-${fps}`;
+    sampleCatGait(id, 0, 0, 0, 0, 0, false, { x: 0, y: 0 });
+    let gait;
+    for (let frame = 1; frame <= fps; frame++) gait = sampleCatGait(id, 200, 0, 0, 0, frame / fps, false, { x: frame / fps * 56, y: 0 });
+    assert.ok(Math.abs(gait.stridePhase - Math.PI) < 1e-10, "travel, not a capped render interval, owns foot timing");
+    assert.ok(gait.strideAmount > .42 && gait.strideAmount < .44, "a slow interpolated cat must not stomp at full intensity");
+  }
+});
+
+test("a stopped or blocked cat softly finishes its swing, then remains planted", () => {
+  for (const fps of [30, 60, 144]) {
+    const id = `settled-paws-${fps}`;
+    let x = 0;
+    sampleCatGait(id, 0, 0, 0, 0, 0, false, { x, y: 0 });
+    let gait;
+    for (let frame = 1; frame <= fps; frame++) { x += 200 / fps; gait = sampleCatGait(id, 200, 0, 0, 0, frame / fps, false, { x, y: 0 }); }
+    const moving = gait;
+    const firstStop = sampleCatGait(id, 200, 0, 0, 0, 1 + 1 / fps, false, { x, y: 0 });
+    assert.ok(firstStop.strideAmount > 0 && firstStop.strideAmount < moving.strideAmount);
+    assert.ok(firstStop.stridePhase > moving.stridePhase, "a lifted paw continues its arc rather than dropping vertically");
+    let previous = firstStop;
+    for (let frame = 2; frame <= fps; frame++) {
+      gait = sampleCatGait(id, 200, 0, 0, 0, 1 + frame / fps, false, { x, y: 0 });
+      assert.ok(gait.strideAmount <= previous.strideAmount);
+      previous = gait;
+    }
+    assert.equal(gait.strideAmount, 0, "blocked desired velocity cannot sustain walking");
+    assert.ok(gait.stridePhase - moving.stridePhase < .65, "the settling step is bounded, never an idle walk loop");
+    const held = sampleCatGait(id, 200, 0, 0, 0, 2 + 1 / fps, false, { x, y: 0 });
+    assert.equal(held.stridePhase, gait.stridePhase);
+    assert.equal(held.strideAmount, 0);
+  }
+});
+
+test("painted headings resist tiny sector-edge jitter without delaying clear turns", () => {
+  const id = "heading-edge-hysteresis";
+  const velocity = angle => ({ x: Math.cos(angle * Math.PI / 180) * 100, y: Math.sin(angle * Math.PI / 180) * 100 });
+  sampleCatGait(id, 100, 0, 0, 0, 0);
+  for (const [index, angle] of [22, 23, 21, 25, 23].entries()) {
+    const v = velocity(angle);
+    assert.equal(sampleCatGait(id, v.x, v.y, 0, 0, (index + 1) * .02).direction, "EAST");
+  }
+  const diagonal = velocity(35);
+  assert.equal(sampleCatGait(id, diagonal.x, diagonal.y, 0, 0, .2).direction, "SE");
+  const turn = velocity(10);
+  assert.equal(sampleCatGait(id, turn.x, turn.y, 0, 0, .4).direction, "EAST");
+  const invalid = sampleCatGait(id, NaN, Infinity, NaN, Infinity, NaN);
+  assert.equal(invalid.direction, "EAST");
+  assert.equal(invalid.stridePhase, 0); assert.equal(invalid.strideAmount, 0);
 });
 
 test("lobby animates one wrapper for hats and eyes, with a reduced-motion override", async () => {
@@ -444,7 +493,8 @@ test("the sprout has independent follow-through and is cached separately from th
   const body = slimeSkin("#73bcaa", true, false);
   assert.ok(!body.paths.includes(SLIME_SPROUT.stem), "animated sprout does not duplicate a baked stem");
   const moving = animate(200, 0).poses;
-  assert.ok(Math.max(...moving.map(p => p.sproutTilt)) - Math.min(...moving.map(p => p.sproutTilt)) > .2);
+  const sway = Math.max(...moving.map(p => p.sproutTilt)) - Math.min(...moving.map(p => p.sproutTilt));
+  assert.ok(sway > .07 && sway < .13, "tail keeps soft independent follow-through without a rubbery whip");
 });
 
 test("4-legged cat silhouette and Hollow claw/shadow capture stages render cleanly", t => {

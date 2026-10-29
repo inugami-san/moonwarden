@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { MultiplayerClient, type MultiplayerState } from "./network";
 import type { NetMovement, NetPlayer, PairRitualState, S2CMessage } from "../server/game-types";
 import { FloatingJoystick } from "./floating-joystick";
@@ -12,6 +12,7 @@ import { banishmentOutcome, type BanishmentOutcome } from "./banishment";
 import { BanishmentOverlay } from "./banishment-overlay";
 import { matchVictory, type MatchVictory } from "./match-victory";
 import { VictoryOverlay } from "./victory-overlay";
+import { RoleReveal } from "./role-reveal";
 import { ROLE_LABELS, ejectionVerdict, meetingVerdictLabel } from "../server/role-presentation";
 import { GAME_RELEASE_LABEL, GAME_RELEASE_VERSION, GAME_WORLD_VERSION } from "../server/game-version";
 import { createMatchLayout } from "../server/match-layout";
@@ -53,10 +54,16 @@ import { fittedCanvasBounds } from "./canvas-bounds";
 import { HomeAtmosphere, HomeGrove } from "./home-field-guide";
 import { MenuGroveBackdrop } from "./home-backdrop";
 import { CompactFieldGuide, GameMenu, MENU_TITLES, pageWindow, type MenuScreen } from "./game-menu";
+import { FirstSteps } from "./first-steps";
+import { HollowLesson } from "./hollow-lesson";
+import { shouldShowFirstSteps, subscribeFirstSteps } from "./intro-state";
+import { ObjectiveStrip, EarnedGearDock, RewardHandoff } from "./player-guidance";
+import { drawHarmonizeInvitation } from "./harmonize-invitation";
+import { ReportAction } from "./report-action";
 import { TallyRoster, VoteRoster, useDiscussionCountdown } from "./meeting-roster";
 import { MEETING_DISCUSSION_MS } from "../server/match-rules";
 import { RestorationLedger } from "../server/match-rules";
-import { rootwakeEnvelope, rootwakeMove, rootGatesOpen, ROOT_GATES, ROOT_GATE_Y, SHADE_POCKETS, SHADE_RADIUS, overgrownStationIndex, lurePoint, ORDEAL_HINTS } from "../server/sanctuary-design";
+import { rootwakeEnvelope, rootwakeMove, rootGatesOpen, ROOT_GATES, ROOT_GATE_Y, SHADE_POCKETS, SHADE_RADIUS, overgrownStationIndex, lurePoint } from "../server/sanctuary-design";
 import { createRitual, ritualAnswerIsCorrect, RITUAL_LABELS, type RitualChallenge, type RitualDifficulty, type RitualKind } from "../server/forest-rituals";
 import { ForestUtilities, UTILITY_LABELS, type UtilityKind } from "../server/forest-utilities";
 import { ForestRitual } from "./forest-ritual";
@@ -75,7 +82,7 @@ import { planRoute } from "../server/sanctuary-paths";
 import { cameraViewport, cameraTarget, followCamera, viewportToWorld } from "./world-camera";
 import { sightAt, type Sight, type SightPoint, type SightKind } from "../server/visibility";
 import { advanceEmergency, afterMeeting, finishFirstOrdeal, initialEmergencyState, reportAvailability } from "../server/report-rules";
-import { ORDEAL_PREPARATION, preparationStation, restorationMilestone } from "./warden-objectives";
+import { preparationStation } from "./warden-objectives";
 import { drawRestorationGarden, restorationTier, RESTORATION_MESSAGES } from "./restoration-art";
 import "./warden-exploration.css";
 import "./next-chapter.css";
@@ -83,6 +90,11 @@ import "./gameplay-hud.css";
 import "./app-menu.css";
 import "./wardrobe.css";
 import "./home-backdrop.css";
+import "./first-steps.css";
+import "./hollow-lesson.css";
+import "./role-reveal.css";
+import "./player-guidance.css";
+import "./clarity.css";
 
 type Role = "CREWMATE" | "IMPOSTOR";
 type RoleChoice = Role | "RANDOM";
@@ -566,8 +578,9 @@ class OrdealEngine {
   gameOver = false;
   activeMeeting: Meeting | null = null;
   activePuzzle: TaskPuzzle | null = null;
-  message = "Approach a moon shrine. Press or hold E to restore its ward.";
-  messageUntil = 4;
+  // The contextual objective supplies role-correct first steps without a second toast.
+  message = "";
+  messageUntil = 0;
   onSnapshot: (snapshot: Snapshot) => void;
   onMeeting: (meeting: Meeting | null) => void;
   onPuzzle: (puzzle: TaskPuzzle | null) => void;
@@ -789,11 +802,11 @@ class OrdealEngine {
             station.pending = false;
             station.completed = Boolean(msg.stationCompleted);
             if (msg.accepted) {
+              if (this.message === "Attuning your ritual — waiting for the sanctuary.") { this.message = ""; this.messageUntil = 0; }
               this.selectedItem = station.reward;
               this.rewardNotice = { item: station.reward, station: station.label, progress: msg.wardProgressGain ?? 0 };
               this.rewardNoticeUntil = this.elapsed + 5.5;
               station.completedAt = this.elapsed;
-              this.flashMessage(msg.wardProgressGain ? `Ritual accepted (${msg.wardProgressGain > 0 ? "+" : ""}${msg.wardProgressGain}% queued). ${ITEM_LABELS[station.reward]} is ready.` : `Your personal ritual is complete. ${ITEM_LABELS[station.reward]} is ready.`);
             }
           }
         }
@@ -1469,8 +1482,6 @@ class OrdealEngine {
     }
     this.rewardNotice = { item: reward, station: station.label, progress: earnedProgress };
     this.rewardNoticeUntil = this.elapsed + 5.5;
-    const prefix = wasFake ? "Siphon rite accepted — ward reduction queued" : earnedProgress ? `Your ritual queued +${earnedProgress}% wards` : "Your personal ritual is complete";
-    this.flashMessage(`${prefix}. ${ITEM_LABELS[reward]} acquired for the next Ordeal.`);
     station.completedAt = this.elapsed;
     this.audio.cue("task-complete");
     if (!wasFake) this.checkWin();
@@ -2625,7 +2636,7 @@ class OrdealEngine {
     // Draw state badges above actors, but beneath visibility masks so a sealed
     // shrine stays readable without exposing other Rootwake chambers.
     for (const station of this.stations) {
-      drawSanctumStatus(ctx, station, this.elapsed, this.phase === "DISCUSSION", dist(station, this.human) < 128);
+      if (!this.showHarmonizeInvitation(station)) drawSanctumStatus(ctx, station, this.elapsed, this.phase === "DISCUSSION", dist(station, this.human) < 128);
     }
     this.drawParticles(ctx);
     const atmosphereView = {
@@ -2933,17 +2944,29 @@ class OrdealEngine {
   }
 
 
+  showHarmonizeInvitation(station: Station) {
+    return this.human.alive && this.phase !== "DISCUSSION" && !this.paused && !this.roleRevealActive
+      && !this.activePuzzle && !this.navigationOpen && !this.notebookOpen
+      && !station.completed && !station.pending && station.cooldown <= 0
+      && dist(station, this.human) < 84 && this.visibilityFor(station, this.human, false).kind !== "HIDDEN";
+  }
+
   drawStation(ctx: CanvasRenderingContext2D, station: Station) {
     drawForestSanctum(ctx, station, this.elapsed, this.phase === "DISCUSSION", dist(station, this.human) < 128);
-    if (this.overgrownShrine() === station && !station.completed && this.phase !== "DISCUSSION") {
+    const invitation = this.showHarmonizeInvitation(station);
+    if (this.overgrownShrine() === station && !station.completed && this.phase !== "DISCUSSION" && !invitation) {
       ctx.save(); ctx.strokeStyle = this.phase === "ORDEAL" ? "#ffe0a2" : "#aebeff"; ctx.lineWidth = 2;
       ctx.setLineDash([7, 5]); ctx.beginPath(); ctx.ellipse(station.x, station.y + 20, 76, 40, 0, 0, Math.PI * 2); ctx.stroke();
       ctx.setLineDash([]); ctx.fillStyle = "#fff0c7"; ctx.font = "800 10px sans-serif"; ctx.textAlign = "center";
       ctx.fillText(this.phase === "ORDEAL" ? "OVERGROWN · RISK A BLOOM" : "OVERGROWN · ORDEAL BONUS", station.x, station.y + 76); ctx.restore();
     }
-    if (this.pairRitual?.stationId === station.label && this.pairRitual.participants > 0) {
-      ctx.save(); ctx.strokeStyle = "#e4d3f3a0"; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.ellipse(station.x, station.y + 18, 57, 24, 0, -.5 * Math.PI, -.5 * Math.PI + Math.max(.04, this.pairRitual.progress) * Math.PI * 2); ctx.stroke(); ctx.restore();
+    if (invitation) {
+      const duet = this.pairRitual?.stationId === station.label ? this.pairRitual : null;
+      drawHarmonizeInvitation(ctx, station, {
+        participating: this.pairStationId === station.label,
+        participants: duet?.participants, yourTurn: duet?.nextPlayerId === this.localPlayerId,
+        rune: duet?.rune, beats: duet?.beats,
+      }, this.elapsed, this.reducedMotion);
     }
   }
 
@@ -3758,10 +3781,14 @@ function playLobbySfx(
 
 function Lobby({
   onLaunch,
+  onReplayIntro,
+  onReplayHollow,
   multiplayerClient,
   mpState,
 }: {
   onLaunch: (count: number, role: RoleChoice, profile: SoloProfile, hollowCount: number, chaosMoonsway: boolean) => void;
+  onReplayIntro?: () => void;
+  onReplayHollow?: () => void;
   multiplayerClient?: MultiplayerClient | null;
   mpState?: MultiplayerState | null;
 }) {
@@ -4128,7 +4155,7 @@ function Lobby({
 
       <section className={`lobby-grid ${tab === "MULTI" ? "lobby-grid-multi" : ""} ${inRoom ? "lobby-grid-room" : ""}`}>
         {!inRoom && menuScreen === "HOME" ? <GameMenu onNavigate={navigateMenu} /> : null}
-        {!inRoom && menuScreen === "GUIDE" ? <CompactFieldGuide /> : null}
+        {!inRoom && menuScreen === "GUIDE" ? <CompactFieldGuide onReplayIntro={onReplayIntro} onReplayHollow={onReplayHollow} /> : null}
 
         <div className="lobby-copy studio-stage" hidden={inRoom || menuScreen !== "HOME"}>
           <div className="studio-view-switch" role="group" aria-label="Character preview view">
@@ -4425,7 +4452,9 @@ function Lobby({
 
                 <nav className="menu-tabs room-tabs" aria-label="Waiting room pages">{(["CREW", "CHAT", "SETTINGS"] as const).map(pane => <button type="button" key={pane} aria-pressed={roomPane === pane} onClick={() => setRoomPane(pane)}>{pane === "CREW" ? `Players · ${mpState.players.length}/${activeTargetPlayers}` : pane === "CHAT" ? "Chat" : "Settings"}</button>)}</nav>
                 {roomPane === "LOOK" && (
-                  <div className="inroom-wardrobe-drawer">
+                  <div className="inroom-wardrobe-layout">
+                  <WardrobePreview color={selectedColor} eyeStyle={selectedEyes} accessory={selectedHat} name={nickname.trim() || WARDEN_CALLSIGNS[0]} animated={!motionPaused && roomPane === "LOOK"} greeting={isGroupWaving && !motionPaused} onGreet={handleStageWave} onRandomize={handleRandomizeProfile} />
+                  <div className="inroom-wardrobe-drawer wardrobe-editor">
                     <nav className="menu-tabs look-tabs" aria-label="Customize category">{(["COLOR", "HAT", "EYES"] as const).map(pane => <button type="button" key={pane} aria-pressed={lookPane === pane} onClick={() => setLookPane(pane)}>{pane === "COLOR" ? "Color" : pane === "HAT" ? "Accessories" : "Eyes"}</button>)}</nav>
                     <div className="wardrobe-row">
                       <label className="field-label" htmlFor="inroom-nickname">
@@ -4440,9 +4469,6 @@ function Lobby({
                           onChange={(e) => handleProfileChange(e.target.value, selectedColor, selectedHat)}
                           placeholder="Warden callsign…"
                         />
-                        <button type="button" className="mp-random-btn" onClick={handleRandomizeProfile}>
-                          🎲 RANDOM
-                        </button>
                       </div>
                     </div>
                     <div hidden={lookPane !== "COLOR"}>
@@ -4489,6 +4515,7 @@ function Lobby({
                     </div>
                     </div>
                     <div hidden={lookPane !== "EYES"}><EyeStylePicker value={selectedEyes} onChange={eyes => handleProfileChange(nickname, selectedColor, selectedHat, eyes)} /></div>
+                  </div>
                   </div>
                 )}
 
@@ -4875,6 +4902,9 @@ function Game({
   const meetingSerialRef = useRef(0);
   const [meetingKey, setMeetingKey] = useState(0);
   const [snapshot, setSnapshot] = useState<Snapshot>(initialSnapshot());
+  const firstRewardSeenRef = useRef(false);
+  const firstGearCueTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [firstGearCue, setFirstGearCue] = useState(false);
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [meetingNotesOpen, setMeetingNotesOpen] = useState(false);
   const discussionSeconds = useDiscussionCountdown(meeting && !meeting.tally ? meeting.votingOpensAt : undefined);
@@ -4967,7 +4997,18 @@ function Game({
       canvasRef.current,
       count,
       roleChoice,
-      setSnapshot,
+      next => {
+        setSnapshot(next);
+        // Only a confirmed personal reward starts the cue, once per match.
+        if (next.rewardNotice && !firstRewardSeenRef.current) {
+          firstRewardSeenRef.current = true;
+          setFirstGearCue(true);
+          firstGearCueTimerRef.current = setTimeout(() => {
+            setFirstGearCue(false);
+            firstGearCueTimerRef.current = null;
+          }, 2600);
+        }
+      },
       handleMeeting,
       setPuzzle,
       setKillNotice,
@@ -5022,6 +5063,7 @@ function Game({
     }
     return () => {
       window.clearTimeout(revealTimer);
+      if (firstGearCueTimerRef.current) clearTimeout(firstGearCueTimerRef.current);
       if (unsubChat) unsubChat();
       engine.destroy();
     };
@@ -5287,69 +5329,39 @@ function Game({
           </div>
         )}
 
-        <div className="task-hud">
-          <div className="task-label"><span><GameGlyph name="spark" /> Restore the moonwards</span><b>{Math.floor(snapshot.taskProgress)}<small>%</small></b></div>
-          <div className="task-track" role="progressbar" aria-label="Moonward restoration" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.floor(snapshot.taskProgress)}><i style={{ width: `${snapshot.taskProgress}%` }} /></div>
-          <div className="ward-milestones" aria-label="Forest restoration milestones">{[25, 50, 75, 100].map(value => <span key={value} className={snapshot.taskProgress >= value ? "is-restored" : ""}>{snapshot.taskProgress >= value ? "✦" : "◇"}<small>{value}%</small></span>)}</div>
-          <div className="ward-restoration-caption"><span>{restorationMilestone(snapshot.taskProgress)}</span><b>{snapshot.navigation.personalCompleted.length}/6 rites</b></div>
-        </div>
-
-        {snapshot.phase === "CALM" && snapshot.humanAlive && snapshot.role === "CREWMATE" ? (
-          <details className="warden-preparation" data-no-joystick aria-label="Prepare for the next Ordeal">
-            <summary><GameGlyph name="moon" /><span><small>UP NEXT</small><b>{HAZARD_LABELS[snapshot.hazard]}</b></span><span className="prep-chevron" aria-hidden="true">⌄</span></summary>
-            <strong>{ORDEAL_PREPARATION[snapshot.hazard].title}</strong>
-            <p>{ORDEAL_PREPARATION[snapshot.hazard].reason}</p>
-            <p>Overgrown: {snapshot.overgrownStation?.toLowerCase()} · risk an Ordeal bloom for +1.5%.</p>
-            <span>{snapshot.navigation.destinationId ? `Head to ${snapshot.navigation.destinationId.toLowerCase()}` : "Your ritual kit is complete for this round"}</span>
-          </details>
-        ) : null}
+        <ObjectiveStrip role={snapshot.role} phase={snapshot.phase} hazard={snapshot.hazard} alive={snapshot.humanAlive}
+          progress={snapshot.taskProgress} charges={snapshot.charges} selectedItem={snapshot.selectedItem}
+          allRitesComplete={snapshot.navigation.personalCompleted.length >= mapLayout.stations.length} strikeSpent={snapshot.killSpent}
+          destinationLabel={mapLayout.stations.find(station => station.id === snapshot.navigation.destinationId)?.label.toLowerCase()}
+          allies={(hollowAllies ?? []).filter(id => id !== snapshot.localPlayerId).map(id => initialPlayers?.find(p => p.id === id)?.name).filter(Boolean).join(", ")} />
 
         <div className="crew-count"><GameGlyph name="people" /><b>{snapshot.living}<small> / {snapshot.total}</small></b><span>in the circle</span></div>
-        <div className="current-landmark" aria-label="Your current landmark">⌖ {snapshot.locationName}</div>
         {chaosMoonsway && <div className="chaos-match-badge">CHAOS · MOONSWAY ON</div>}
-
-        {snapshot.role === "IMPOSTOR" && (
-          <details className="private-role" data-no-joystick><summary><GameGlyph name="veil" /><span><small>YOUR SECRET</small><b>{ROLE_LABELS.IMPOSTOR}</b></span><i aria-hidden="true">⌄</i></summary><p>One strike per Ordeal. Choose Sight or Echo for your special action.</p><span>{(hollowAllies ?? []).filter(id => id !== snapshot.localPlayerId).map(id => initialPlayers?.find(p => p.id === id)?.name).filter(Boolean).join(", ") || (hollowCount > 1 && !multiplayerClient ? "Other Hollows share your side" : "You hunt alone")}</span></details>
-        )}
 
         {snapshot.message && !(snapshot.phase === "COUNTDOWN" && snapshot.message.startsWith(`${HAZARD_LABELS[snapshot.hazard]} INCOMING`)) && <div className="toast-message">{snapshot.message}</div>}
         {snapshot.soundCaption && <div className="sound-caption" role="status" aria-live="polite">♬ {snapshot.soundCaption}</div>}
-        {snapshot.phase === "COUNTDOWN" && <div className="ordeal-preparation" role="status"><b>{HAZARD_LABELS[snapshot.hazard]} INCOMING</b><span>{ORDEAL_HINTS[snapshot.hazard]}</span></div>}
-        {!snapshot.humanAlive && <div className="spectator-chip">SPECTATING • FALLEN WARDEN</div>}
 
         {snapshot.rewardNotice && (
-          <aside className="reward-toast" aria-live="polite">
-            <span className="reward-icon"><ItemIcon item={snapshot.rewardNotice.item} /></span>
-            <div><small>{snapshot.rewardNotice.progress ? `${snapshot.rewardNotice.progress > 0 ? "RESTORATION" : "SIPHON"} QUEUED ${Math.abs(snapshot.rewardNotice.progress)}%` : "YOUR RITUAL IS COMPLETE"} • {snapshot.rewardNotice.station}</small><b>{ITEM_LABELS[snapshot.rewardNotice.item]} ready</b><p>{snapshot.role === "IMPOSTOR" ? "Siphon complete. The gauge settles anonymously every four seconds. " : "Gear earned. Shared ward changes settle every four seconds. "}{ITEM_DESCRIPTIONS[snapshot.rewardNotice.item]}.</p></div>
-          </aside>
+          <RewardHandoff key={`${snapshot.rewardNotice.station}-${snapshot.charges[snapshot.rewardNotice.item]}`} item={snapshot.rewardNotice.item} station={snapshot.rewardNotice.station}
+            role={snapshot.role} icon={<ItemIcon item={snapshot.rewardNotice.item} />} description={ITEM_DESCRIPTIONS[snapshot.rewardNotice.item]} />
         )}
 
-        <div className="item-dock">
-          <div className="dock-title"><span>Your little kit</span><small>Earn at shrines</small></div>
-          <div className="dock-items">
-            {(["FLASHLIGHT", "FLARE", "SONAR"] as ItemKind[]).map((item, index) => (
-              <button
-                key={item}
-                className={`${snapshot.selectedItem === item ? "selected" : ""} ${snapshot.charges[item] <= 0 ? "locked" : "acquired"}`}
-                onClick={() => engineRef.current?.selectItem(item)}
-                aria-label={`Select ${ITEM_LABELS[item]}, ${snapshot.charges[item]} charges`}
-                aria-pressed={snapshot.selectedItem === item}
-                title={ITEM_DESCRIPTIONS[item]}
-              >
-                <kbd>{index + 1}</kbd><ItemIcon item={item} /><span>{ITEM_LABELS[item]}</span><b>{snapshot.charges[item] > 0 ? `×${snapshot.charges[item]}` : "Find"}</b>
-              </button>
-            ))}
-          </div>
-        </div>
+        <EarnedGearDock charges={snapshot.charges} selectedItem={snapshot.selectedItem}
+          onSelect={item => engineRef.current?.selectItem(item)} renderIcon={item => <ItemIcon item={item} />}
+          disabled={!snapshot.humanAlive || !!meeting || !!puzzle || !!roleReveal || !!deathReveal || !!result || navigationExpanded || notebookOpen || settingsOpen || landscapeRequired} />
 
         <div className="action-dock" aria-label="Game actions">
-          {snapshot.utility && <button className={`action use ${snapshot.utility.charge && !snapshot.utility.cooldown ? "ready" : ""}`} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || !snapshot.utility.charge || snapshot.utility.cooldown > 0} title={`${UTILITY_LABELS[snapshot.utility.kind]}: aim with your movement direction. One shrine-earned charge; 18s cooldown. Both roles can use it.`} onClick={() => engineRef.current?.useUtility()}><kbd>G</kbd><GameGlyph name="spark" /><span>{snapshot.utility.cooldown ? `${snapshot.utility.cooldown}s` : snapshot.utility.charge ? UTILITY_LABELS[snapshot.utility.kind] : "Earn utility"}</span></button>}
-          <button className={`action report ${snapshot.canReport ? "ready" : ""}`} disabled={!snapshot.canReport} aria-label={snapshot.reportHint} title={snapshot.reportHint} onClick={() => engineRef.current?.report()}><kbd>R</kbd><GameGlyph name="report" /><span>{snapshot.reportLabel}</span></button>
-          {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight || snapshot.moonSightActive ? "ready" : ""}`} onClick={() => engineRef.current?.useMoonSight()} disabled={snapshot.phase !== "ORDEAL" || !snapshot.canUseMoonSight} title="Moon Sight: briefly reveal living cats during an Ordeal"><kbd>V</kbd><GameGlyph name="sight" /><span>{snapshot.moonSightActive ? "Seeing" : "Sight"}</span></button>}
+          {snapshot.utility && (snapshot.utility.charge > 0 || snapshot.utility.cooldown > 0) && <button className={`action use ${snapshot.utility.charge && !snapshot.utility.cooldown ? "ready" : ""}`} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || !snapshot.utility.charge || snapshot.utility.cooldown > 0} title={`${UTILITY_LABELS[snapshot.utility.kind]}: aim with your movement direction. One shrine-earned charge; 18s cooldown. Both roles can use it.`} onClick={() => engineRef.current?.useUtility()}><kbd>G</kbd><GameGlyph name="spark" /><span>{snapshot.utility.cooldown ? `${snapshot.utility.cooldown}s` : UTILITY_LABELS[snapshot.utility.kind]}</span></button>}
+          <ReportAction allowed={snapshot.canReport} label={snapshot.reportLabel} hint={snapshot.reportHint} onReport={() => engineRef.current?.report()} />
+          {snapshot.role === "IMPOSTOR" && <details className="hollow-tricks" data-no-joystick><summary><GameGlyph name="veil" /><span>Tricks</span></summary><div className="hollow-tricks-panel" aria-label="Advanced Hollow actions"><small>One special action per Ordeal: Sight or Echo.</small>
+          <button className={`action sight ${snapshot.canUseMoonSight || snapshot.moonSightActive ? "ready" : ""}`} onClick={() => engineRef.current?.useMoonSight()} disabled={snapshot.phase !== "ORDEAL" || !snapshot.canUseMoonSight} title="Moon Sight: briefly reveal living cats during an Ordeal"><kbd>V</kbd><GameGlyph name="sight" /><span>{snapshot.moonSightActive ? "Seeing" : "Sight"}</span></button>
           {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight ? "ready" : ""}`} title="Aim, then create a two-second false rustle. Shares one charge with Sight." onClick={() => engineRef.current?.useEchoLure()} disabled={!snapshot.canUseMoonSight}><kbd>C</kbd><GameGlyph name="echo" /><span>Echo</span></button>}
-          {snapshot.role === "IMPOSTOR" && <button className={`action kill ${snapshot.canKill ? "ready" : ""}`} onClick={() => engineRef.current?.kill()} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.killCooldown > 0} title="Bite a nearby cat. One strike per Ordeal."><kbd>Q</kbd><GameGlyph name="bite" /><span>{snapshot.killSpent ? "Spent" : snapshot.killCooldown > 0 ? `${Math.ceil(snapshot.killCooldown)}s` : "Bite"}</span></button>}
           {snapshot.role === "IMPOSTOR" && <button className={`action kill veiled ${snapshot.canKill && !snapshot.stealthCooldown && !snapshot.stealthOrdealsLeft ? "ready" : ""}`} title="Veiled Bite: uses your strike; fallen cat appears 8s later. Cooldown: 45s and two Ordeal starts." onClick={() => engineRef.current?.kill(true)} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.stealthCooldown > 0 || snapshot.stealthOrdealsLeft > 0}><kbd>X</kbd><GameGlyph name="veil" /><span>{snapshot.stealthCooldown ? `${snapshot.stealthCooldown}s` : snapshot.stealthOrdealsLeft ? `${snapshot.stealthOrdealsLeft} rounds` : "Veiled bite"}</span></button>}
-          <button className={`action use ${snapshot.charges[snapshot.selectedItem] > 0 ? "ready" : ""}`} onClick={() => engineRef.current?.useItem()} disabled={!snapshot.humanAlive || snapshot.charges[snapshot.selectedItem] <= 0} aria-label={`Use ${ITEM_LABELS[snapshot.selectedItem]}`}><kbd>F</kbd><GameGlyph name="spark" /><span>Use</span></button>
+          </div></details>}
+          {snapshot.role === "IMPOSTOR" && <button className={`action kill ${snapshot.canKill ? "ready" : ""}`} onClick={() => engineRef.current?.kill()} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.killCooldown > 0} title="Bite a nearby cat. One strike per Ordeal."><kbd>Q</kbd><GameGlyph name="bite" /><span>{snapshot.killSpent ? "Spent" : snapshot.killCooldown > 0 ? `${Math.ceil(snapshot.killCooldown)}s` : "Bite"}</span></button>}
+          {snapshot.charges[snapshot.selectedItem] > 0 && <button className={`action use ${snapshot.phase === "ORDEAL" ? "ready" : ""}`} data-first-gear={firstGearCue}
+            onClick={() => { setFirstGearCue(false); engineRef.current?.useItem(); }} disabled={!snapshot.humanAlive} aria-label={`Use ${ITEM_LABELS[snapshot.selectedItem]}`}
+            title={snapshot.phase === "ORDEAL" ? `Use ${ITEM_LABELS[snapshot.selectedItem]}` : "Save your gear—Use activates during an Ordeal."}><kbd>F</kbd><GameGlyph name="spark" /><span>{snapshot.phase === "ORDEAL" ? "Use" : "Ordeal gear"}</span></button>}
         </div>
 
         {snapshot.taskPrompt && (
@@ -5367,7 +5379,7 @@ function Game({
               onKeyUp={event => { if (["Space", "Enter"].includes(event.code)) engineRef.current?.setTouch("KeyE", false); }}
             >
               <kbd>E</kbd>
-              <span><b>{snapshot.taskMode === "PUZZLE" ? (snapshot.role === "IMPOSTOR" ? "Fake a ritual" : "Begin ritual") : (snapshot.role === "IMPOSTOR" ? "Hold to fake a ritual" : "Hold to attune")}</b><small>{snapshot.stationStatus?.label} · {snapshot.stationStatus?.overgrown && snapshot.phase === "ORDEAL" ? "Risk a bloom · +1.5% team bonus" : snapshot.stationStatus?.teamRestored ? "Gear + capped team support" : "Restore ward + earn gear"}</small></span><GameGlyph name="spark" />
+              <span><b>{snapshot.taskMode === "PUZZLE" ? (snapshot.role === "IMPOSTOR" ? "Fake ritual" : "Restore shrine") : (snapshot.role === "IMPOSTOR" ? "Hold to fake ritual" : "Hold to restore")}</b><small>{snapshot.stationStatus?.label} · {snapshot.stationStatus?.overgrown && snapshot.phase === "ORDEAL" ? "Dangerous bloom · stay exposed" : snapshot.taskMode === "HOLD" ? "Stay still · earn gear" : "Complete a puzzle · earn gear"}</small></span><GameGlyph name="spark" />
             </button>
             {snapshot.taskMode === "HOLD" && <TaskHoldGauge progress={snapshot.taskHoldProgress} holding={snapshot.taskHolding} />}
           </div>
@@ -5383,8 +5395,8 @@ function Game({
           <button type="button" className="paired-ritual-button" aria-pressed={!!snapshot.pairRitual}
             title="Join a duet, stay still, and take turns playing the lit rune. Both earn gear. Your chant is audible; a Hollow can join too. Move or press H again to leave."
             onClick={() => engineRef.current?.setPairRitual(!snapshot.pairRitual)}>
-            <span><kbd>H</kbd> {snapshot.pairRitual ? "Leave duet" : "Harmonize together"}</span>
-            <small>{snapshot.pairRitual ? `${snapshot.pairRitual.participants}/2 ready · ${snapshot.pairRitual.beats ?? 0}/4 notes · audible nearby` : `Take turns · at least ${PAIR_RITUAL_SECONDS}s · audible nearby`}</small>
+            <span><kbd>H</kbd> {snapshot.pairRitual ? "Leave duet" : "Join a duet"}</span>
+            <small>{snapshot.pairRitual ? `${snapshot.pairRitual.participants}/2 ready · ${snapshot.pairRitual.beats ?? 0}/4 notes` : `Take turns · at least ${PAIR_RITUAL_SECONDS}s · audible nearby`}</small>
             <i style={{ width: `${(snapshot.pairRitual?.progress ?? 0) * 100}%` }} />
           </button>
           {snapshot.pairRitual && <div className="duet-runes" role="group" aria-label="Duet runes">
@@ -5410,23 +5422,10 @@ function Game({
       </footer>
 
       {roleReveal && (
-        <div className={`impostor-reveal ${roleReveal === "IMPOSTOR" ? "impostor-theme" : "warden-theme"}`} role="dialog" aria-modal="true" aria-labelledby="role-reveal-title">
-          <div className="reveal-vignette" />
-          <div className="reveal-scanline" />
-          <div className="reveal-core" aria-hidden="true">
-            <span className="reveal-orbit orbit-one" />
-            <span className="reveal-orbit orbit-two" />
-            <span className="reveal-cat-sigil"><CatHead color={networkState?.players.find(player => player.id === snapshot.localPlayerId)?.color ?? soloProfile?.color ?? COLORS[0]} eyeStyle={roleReveal === "IMPOSTOR" ? "FIERCE" : "JOYFUL"} /></span>
-          </div>
-          <div className="reveal-copy">
-            <small>{roleReveal === "IMPOSTOR" ? "PRIVATE IDENTITY // DECRYPTING" : "CIRCLE IDENTITY // ATTUNING"}</small>
-            <p className="reveal-lead">YOU ARE{roleReveal === "CREWMATE" ? " A" : ""}</p>
-            <h2 id="role-reveal-title">{ROLE_LABELS[roleReveal].toUpperCase()}</h2>
-            <p className="reveal-order">{roleReveal === "IMPOSTOR" ? "One strike. One trick: choose Moon Sight or Echo Lure each Ordeal." : "Restore the moon wards. Keep your circle alive."}</p>
-            <div className="reveal-progress" aria-hidden="true"><i /><i /><i /><i /><i /></div>
-            <button onClick={dismissRoleReveal}>ENTER THE SANCTUARY</button>
-          </div>
-        </div>
+        <RoleReveal role={roleReveal} color={networkState?.players.find(player => player.id === snapshot.localPlayerId)?.color ?? soloProfile?.color ?? COLORS[0]}
+          accessory={networkState?.players.find(player => player.id === snapshot.localPlayerId)?.hat ?? soloProfile?.hat ?? "moonbell"}
+          eyeStyle={networkState?.players.find(player => player.id === snapshot.localPlayerId)?.eyeStyle ?? soloProfile?.eyeStyle ?? "FIERCE"}
+          onContinue={dismissRoleReveal} />
       )}
 
       {killNotice && (
@@ -5597,6 +5596,10 @@ function Game({
 }
 
 export default function Home() {
+  const [introOpen, setIntroOpen] = useState(false);
+  const [hollowLessonOpen, setHollowLessonOpen] = useState(false);
+  const [introDismissed, setIntroDismissed] = useState(false);
+  const introNeeded = useSyncExternalStore(subscribeFirstSteps, shouldShowFirstSteps, () => false);
   const [match, setMatch] = useState<
     | { mode: "SOLO"; count: number; role: RoleChoice; profile: SoloProfile; hollowCount: number; layoutSeed: number; chaosMoonsway: boolean }
     | { mode: "MULTI"; client: MultiplayerClient; initialPlayers: NetPlayer[]; assignedRole: Role; hollowCount: number; layoutSeed: number; hollowAllies?: string[]; chaosMoonsway: boolean }
@@ -5615,6 +5618,9 @@ export default function Home() {
 
     const unsubMsg = client.onMessage((msg) => {
       if (msg.type === "MATCH_STARTED") {
+        setIntroOpen(false);
+        setHollowLessonOpen(false);
+        setIntroDismissed(true);
         gameAnalytics.start("multiplayer", msg.players.length);
         setMatch({
           mode: "MULTI",
@@ -5644,6 +5650,9 @@ export default function Home() {
     setMatch(null);
   };
 
+  const introVisible = (introOpen || (introNeeded && !introDismissed)) && !match && !client.roomCode;
+  const hollowLessonVisible = hollowLessonOpen && !introVisible && !match && !client.roomCode;
+
   return match ? (
     <Game
       count={match.mode === "SOLO" ? match.count : match.initialPlayers.length}
@@ -5660,13 +5669,26 @@ export default function Home() {
       onMatchComplete={handleMatchComplete}
     />
   ) : (
+    <>
+    <div inert={introVisible || hollowLessonVisible}>
     <Lobby
+      onReplayIntro={() => { if (!match && !client.roomCode) setIntroOpen(true); }}
+      onReplayHollow={() => { if (!match && !client.roomCode) setHollowLessonOpen(true); }}
       onLaunch={(count, role, profile, hollowCount, chaosMoonsway) => {
+        setHollowLessonOpen(false);
+        setIntroOpen(false);
+        setIntroDismissed(true);
         gameAnalytics.start("solo", count);
         setMatch({ mode: "SOLO", count, role, profile, hollowCount, chaosMoonsway, layoutSeed: Math.floor(Math.random() * 4294967296) });
       }}
       multiplayerClient={client}
       mpState={mpState}
     />
+    </div>
+    {introVisible && <FirstSteps
+      onComplete={() => { setIntroOpen(false); setIntroDismissed(true); }}
+      onSkip={() => { setIntroOpen(false); setIntroDismissed(true); }} />}
+    {hollowLessonVisible && <HollowLesson onExit={() => setHollowLessonOpen(false)} />}
+    </>
   );
 }

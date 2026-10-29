@@ -14,8 +14,9 @@ export class SlimeAnimator {
   private motions = new Map<string, Motion>();
 
   sample(player: Point, time: number, reducedMotion = false): SlimePose {
+    if (![player.x, player.y, time].every(Number.isFinite)) return restingPose();
     let motion = this.motions.get(player.id);
-    if (!motion) {
+    if (!motion || time < motion.at) {
       motion = { x: player.x, y: player.y, at: time, phase: 0, vx: 0, vy: 0, pose: restingPose() };
       this.motions.set(player.id, motion);
     }
@@ -33,30 +34,21 @@ export class SlimeAnimator {
       motion.vy += ((distance ? dy / distance * targetSpeed : 0) - motion.vy) * blend;
       const speed = Math.hypot(motion.vx, motion.vy);
       const pace = Math.min(1, speed / 200);
-      // A rounded lift has zero velocity at contact and at the top of a hop.
-      // Unlike a clipped sine, it never changes direction abruptly at the feet.
-      motion.phase = (motion.phase + dt * (2.5 + pace * 8)) % (Math.PI * 2);
-      const contact = Math.cos(motion.phase);
-      const rise = Math.pow((1 - contact) * .5, 2);
-      const width = 1 + contact * (.018 + pace * .112) - rise * pace * .025;
-      const bodyBlend = 1 - Math.exp(-dt * 24);
+      motion.phase = (motion.phase + dt * (1.8 + pace * 5)) % (Math.PI * 2);
       const gazeBlend = 1 - Math.exp(-dt * 14);
       const approach = (current: number, target: number, blend: number) => current + (target - current) * blend;
       const travelX = Math.max(-1, Math.min(1, motion.vx / 200));
       const travelY = Math.max(-1, Math.min(1, motion.vy / 200));
       if (reset) motion.pose = restingPose();
-      const scaleX = approach(motion.pose.scaleX, width, bodyBlend);
       Object.assign(motion.pose, {
-        offsetY: approach(motion.pose.offsetY, -rise * (1.4 + pace * 7.6), bodyBlend),
-        scaleX,
-        scaleY: 1 / scaleX,
-        shear: reset ? 0 : approach(motion.pose.shear, -travelX * .10, gazeBlend),
+        // Keep the legacy pose API, but the painted cat is not a gel: shoulder
+        // transfer belongs to the paw rig, never whole-body squash or hopping.
+        offsetY: 0, scaleX: 1, scaleY: 1, shear: 0,
         gazeX: reset ? 0 : approach(motion.pose.gazeX, travelX * 1.5, gazeBlend),
         gazeY: reset ? 0 : approach(motion.pose.gazeY, travelY * 1.2, gazeBlend),
-        hatTilt: approach(motion.pose.hatTilt, Math.sin(motion.phase - .8) * pace * .058 - travelX * .035, 1 - Math.exp(-dt * 10)),
-        sproutTilt: approach(motion.pose.sproutTilt, Math.sin(motion.phase - 1.1) * (.025 + pace * .15) - travelX * .1, 1 - Math.exp(-dt * 8)),
-        shadowScale: approach(motion.pose.shadowScale, 1 - rise * (.03 + pace * .15), bodyBlend),
-        shadowAlpha: approach(motion.pose.shadowAlpha, 1 - rise * (.04 + pace * .19), bodyBlend),
+        hatTilt: approach(motion.pose.hatTilt, Math.sin(motion.phase - .8) * pace * .014 - travelX * .012, 1 - Math.exp(-dt * 10)),
+        sproutTilt: approach(motion.pose.sproutTilt, Math.sin(motion.phase - 1.1) * (.012 + pace * .045) - travelX * .035, 1 - Math.exp(-dt * 8)),
+        shadowScale: 1, shadowAlpha: 1,
       });
       motion.x = player.x;
       motion.y = player.y;

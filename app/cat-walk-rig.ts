@@ -3,8 +3,10 @@ export type PawRegion = { left: number; right: number; top: number; bottom: numb
 export function bodyPose(phase: number, amount: number) {
   const s = Number.isFinite(amount) ? Math.max(0, Math.min(1, amount)) : 0;
   const p = Number.isFinite(phase) ? phase : 0;
-  return { x: Math.sin(p) * .55 * s, y: -(1 - Math.cos(p * 2)) * .6 * s,
-    lean: Math.sin(p) * .018 * s };
+  // A supported shoulder transfer, not a whole-body hop. The paw endpoints are
+  // solved separately below, so even this small torso motion cannot lift them.
+  return { x: Math.sin(p) * .3 * s, y: -(1 - Math.cos(p * 2)) * .35 * s,
+    lean: Math.sin(p) * .01 * s };
 }
 
 /** A tiny shoulder breath while resting. Zero/omitted phase is deliberately
@@ -29,6 +31,15 @@ export function fitPawPose(pose: { lift: number; reach: number }, width: number,
 export function movingHip(x: number, y: number, pose: ReturnType<typeof bodyPose>) {
   const c = Math.cos(pose.lean), s = Math.sin(pose.lean);
   return { x: pose.x + c * x - s * (y - 8), y: 8 + pose.y + s * x + c * (y - 8) };
+}
+
+/** Attach the original painted leg at its moving hip while solving its toe
+ * against the ground trajectory. No torso scale leaks into the planted paw. */
+export function applyPawTransform(ctx: CanvasRenderingContext2D, x: number, y: number, height: number, body: ReturnType<typeof bodyPose>, paw: { lift: number; reach: number }) {
+  const hip = movingHip(x, y, body);
+  const h = Number.isFinite(height) && height > 0 ? height : 1;
+  ctx.translate(hip.x, hip.y);
+  ctx.transform(1, 0, (x + paw.reach - hip.x) / h, (y + h - paw.lift - hip.y) / h, 0, 0);
 }
 
 /** Measure separated painted paws below the belly, once per heading at load.
@@ -66,13 +77,31 @@ export function measurePaws(data: Uint8ClampedArray, width: number, column: numb
   }));
 }
 
-/** Continuous, zero-velocity swing/stance transitions. The hip stays fixed;
- * shear moves the paw and shortening lifts it, never stretching the whole cat. */
+export const PAW_SWING_FRACTION = .28;
+const PAW_PHASE_OFFSETS = [0, .5, .25, .75] as const;
+const TAU = Math.PI * 2;
+const smootherstep = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
+
+/** A four-beat walk spends 72% of each paw's cycle on the ground. The support
+ * stroke has constant backward speed; the returning paw matches its velocity
+ * and acceleration at both ends instead of pausing/snapping at foot contact.
+ * A fourth-power arc also meets the ground with zero vertical acceleration.
+ * First two regions remain opposite when a side profile contains two pairs. */
 export function pawPose(phase: number, amount: number, index: number, frontFacing: boolean, mirrored: boolean) {
   const strength = Number.isFinite(amount) ? Math.max(0, Math.min(1, amount)) : 0;
-  const p = (Number.isFinite(phase) ? phase : 0) + index % 2 * Math.PI;
-  const swing = Math.max(0, Math.sin(p));
-  const lift = swing * swing * strength * (frontFacing ? 3.8 : 3.2);
-  const reach = -Math.cos(p) * strength * (frontFacing ? .65 : 6.5) * (mirrored ? -1 : 1);
+  const leg = Number.isFinite(index) ? ((Math.trunc(index) % 4) + 4) % 4 : 0;
+  const p = (Number.isFinite(phase) ? phase / TAU : 0) + PAW_PHASE_OFFSETS[leg];
+  const cycle = ((p % 1) + 1) % 1;
+  const stance = 1 - PAW_SWING_FRACTION;
+  let lift = 0, reachUnit: number;
+  if (cycle < PAW_SWING_FRACTION) {
+    const t = cycle / PAW_SWING_FRACTION;
+    const contactVelocity = -2 * PAW_SWING_FRACTION / stance;
+    reachUnit = -1 + contactVelocity * t + (2 - contactVelocity) * smootherstep(t);
+    lift = Math.sin(Math.PI * t) ** 4 * strength * (frontFacing ? 3.2 : 2.8);
+  } else {
+    reachUnit = 1 - 2 * (cycle - PAW_SWING_FRACTION) / stance;
+  }
+  const reach = reachUnit * strength * (frontFacing ? .6 : 6) * (mirrored ? -1 : 1);
   return { lift, reach };
 }

@@ -1,5 +1,5 @@
 import type { MooncatOptions } from "./mooncat-renderer";
-import { bodyPose, idleBodyPose, fitPawPose, measurePaws, movingHip, pawPose, type PawRegion } from "./cat-walk-rig";
+import { applyPawTransform, bodyPose, idleBodyPose, fitPawPose, measurePaws, pawPose, type PawRegion } from "./cat-walk-rig";
 
 export const MOONCAT_ATLAS_URL = "/art/mooncat/mooncat-walk-v2.png";
 export const SPRITE_DIRECTIONS = ["NORTH", "NE", "EAST", "SE", "SOUTH", "SW", "WEST", "NW"] as const;
@@ -268,11 +268,9 @@ export function drawMooncatSprite(ctx: CanvasRenderingContext2D, options: Moonca
     const paintRig = (target: CanvasRenderingContext2D) => {
     legs.forEach((leg, index) => {
       const w = (leg.right - leg.left) * scale, h = (leg.bottom - leg.top) * scale;
-      const { lift, reach } = fitPawPose(pawPose(options.stridePhase, amount, index, front, mirrored), w, h);
+      const paw = fitPawPose(pawPose(options.stridePhase, amount, index, front, mirrored), w, h);
       const x = (leg.left + leg.right) / 2 * scale - 56, y = leg.top * scale - 64;
-      const hip = movingHip(x, y, body);
-      target.save(); target.translate(hip.x, hip.y);
-      target.transform(1, 0, (x + reach - hip.x) / h, (y + h - lift - hip.y) / h, 0, 0);
+      target.save(); applyPawTransform(target, x, y, h, body, paw);
       target.drawImage(sprite.image, column * TILE + leg.left, leg.top, leg.right - leg.left, leg.bottom - leg.top, -w / 2, 0, w, h);
       target.restore();
     });

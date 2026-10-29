@@ -47,13 +47,19 @@ test("meeting chat avatars use cat heads while system messages stay avatar-free"
   assert.match(page, /meeting.reason.replace\("WAS FOUND AS A JELLY PUDDLE", "— FALLEN WARDEN REPORTED"\)/);
 });
 
-test("both role reveals replace the old CSS blob and keep role-specific cat expression", async () => {
+test("both role reveals use the shared painted cat and preserve the chosen appearance", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const role = page.slice(page.indexOf("{roleReveal && ("), page.indexOf("{killNotice && ("));
-  assert.match(role, /reveal-cat-sigil/); assert.match(role, /<CatHead color=\{networkState\?\.players.find/);
+  assert.match(role, /<RoleReveal role=\{roleReveal\} color=\{networkState\?\.players.find/);
   assert.match(role, /soloProfile\?\.color \?\? COLORS\[0\]/);
-  assert.match(role, /"FIERCE" : "JOYFUL"/); assert.doesNotMatch(role, /impostor-sigil|<i \/><i \/><b \/>/);
-  const css = await readFile(new URL("../app/play-menu.css", import.meta.url), "utf8");
-  assert.match(css, /\.warden-theme \.reveal-cat-sigil/); assert.match(css, /\.impostor-theme \.reveal-cat-sigil/);
+  assert.match(role, /accessory=\{networkState\?\.players.find/);
+  assert.match(role, /eyeStyle=\{networkState\?\.players.find/);
+  assert.doesNotMatch(role, /reveal-scanline|reveal-orbit|impostor-sigil/);
+  const component = await readFile(new URL("../app/role-reveal.tsx", import.meta.url), "utf8");
+  assert.match(component, /<SlimePortrait color=\{color\}/);
+  assert.match(component, /ForestCinematicBackdrop/);
+  const css = await readFile(new URL("../app/role-reveal.css", import.meta.url), "utf8");
+  assert.match(component, /role-reveal-hollow.*role-reveal-warden/);
+  assert.match(css, /\.role-reveal-forest/); assert.match(css, /role-reveal-hollow/);
   assert.match(css, /prefers-reduced-motion: reduce/);
 });

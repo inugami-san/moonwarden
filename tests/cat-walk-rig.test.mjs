@@ -1,14 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { bodyPose, idleBodyPose, fitPawPose, measurePaws, movingHip, pawPose } from "../app/cat-walk-rig.ts";
+import { applyPawTransform, bodyPose, idleBodyPose, fitPawPose, measurePaws, movingHip, pawPose, PAW_SWING_FRACTION } from "../app/cat-walk-rig.ts";
 
 test("body follow-through is bounded, continuous and fades to neutral without jelly scale", () => {
   let previous = bodyPose(0, 1);
   for (let i = 0; i <= 2000; i++) {
     const p = bodyPose(i / 2000 * Math.PI * 2, 1);
-    assert.ok(Math.abs(p.x) <= .55 && p.y >= -1.2 && p.y <= 0);
-    assert.ok(Math.abs(p.lean) <= .018);
+    assert.ok(Math.abs(p.x) <= .3 && p.y >= -.7 && p.y <= 0);
+    assert.ok(Math.abs(p.lean) <= .01);
     for (const key of Object.keys(p)) assert.ok(Math.abs(p[key] - previous[key]) < .01);
     previous = p;
   }
@@ -51,7 +51,7 @@ test("narrow paws have smooth bounded reach rather than sharp clipping or torn j
   let previous = fitPawPose(pawPose(0, 1, 0, false, false), 7, 9);
   for (let i = 1; i <= 1000; i++) {
     const pose = fitPawPose(pawPose(i / 1000 * Math.PI * 2, 1, 0, false, false), 7, 9);
-    assert.ok(Math.abs(pose.reach - previous.reach) < .02 && Math.abs(pose.lift - previous.lift) < .03);
+    assert.ok(Math.abs(pose.reach - previous.reach) < .05 && Math.abs(pose.lift - previous.lift) < .07);
     previous = pose;
   }
   assert.ok(Object.values(fitPawPose({ lift: 0, reach: 0 }, NaN, Infinity)).every(Number.isFinite));
@@ -89,8 +89,8 @@ test("paw motion is continuous at swing, contact and cycle boundaries", () => {
     let last = pawPose(0, 1, 0, front, mirror);
     for (let i = 1; i <= 2000; i++) {
       const pose = pawPose(i / 2000 * Math.PI * 2, 1, 0, front, mirror);
-      assert.ok(Math.abs(pose.lift - last.lift) < .025);
-      assert.ok(Math.abs(pose.reach - last.reach) < .025);
+      assert.ok(Math.abs(pose.lift - last.lift) < .05);
+      assert.ok(Math.abs(pose.reach - last.reach) < .055);
       assert.ok(pose.lift >= 0 && pose.lift <= 3.8);
       assert.ok(Math.abs(pose.reach) <= 6.5);
       last = pose;
@@ -101,8 +101,9 @@ test("paw motion is continuous at swing, contact and cycle boundaries", () => {
 });
 
 test("opposite paws alternate and eased stops converge to the identical painted resting pose", () => {
-  assert.ok(pawPose(Math.PI / 2, 1, 0, false, false).lift > 3);
-  assert.equal(pawPose(Math.PI / 2, 1, 1, false, false).lift, 0);
+  const peak = Math.PI * PAW_SWING_FRACTION;
+  assert.ok(pawPose(peak, 1, 0, false, false).lift > 2.7);
+  assert.equal(pawPose(peak, 1, 1, false, false).lift, 0);
   for (const phase of [0, .3, 1.5, 3, 5, 6]) {
     const resting = pawPose(phase, 0, 0, false, false);
     assert.equal(Math.abs(resting.lift), 0); assert.equal(Math.abs(resting.reach), 0);
@@ -111,6 +112,53 @@ test("opposite paws alternate and eased stops converge to the identical painted 
   }
   const invalid = pawPose(NaN, Infinity, 0, false, false);
   assert.ok(Object.values(invalid).every(Number.isFinite));
+});
+
+test("four-beat footfalls keep at least two supporting paws and usually three", () => {
+  let tripleSupport = 0;
+  const peaks = new Set();
+  for (let i = 0; i < 1000; i++) {
+    const phase = i / 1000 * Math.PI * 2;
+    const poses = [0, 1, 2, 3].map(index => pawPose(phase, 1, index, false, false));
+    const planted = poses.filter(pose => pose.lift < 1e-10).length;
+    assert.ok(planted >= 2, "the body never has an unsupported airborne frame");
+    if (planted >= 3) tripleSupport++;
+    poses.forEach((pose, index) => { if (pose.lift > 2.799) peaks.add(index); });
+  }
+  assert.ok(tripleSupport > 800, "long support strokes read as a walk rather than paired stomps");
+  assert.equal(peaks.size, 4, "each painted paw takes its own turn");
+});
+
+test("toe-off and touchdown match stance velocity and acceleration without a pause", () => {
+  const tau = Math.PI * 2, h = 1e-4;
+  for (const phase of [0, PAW_SWING_FRACTION * tau, tau]) {
+    const before = pawPose(phase - h, 1, 0, false, false);
+    const at = pawPose(phase, 1, 0, false, false);
+    const after = pawPose(phase + h, 1, 0, false, false);
+    const leftVelocity = (at.reach - before.reach) / h;
+    const rightVelocity = (after.reach - at.reach) / h;
+    assert.ok(Math.abs(leftVelocity - rightVelocity) < .001);
+    assert.ok(leftVelocity < -2.6 && leftVelocity > -2.7, "support foot travels backward steadily, rather than easing to a slippery stop");
+    assert.ok(Math.abs((after.reach - 2 * at.reach + before.reach) / (h * h)) < .05);
+    assert.ok(Math.abs((after.lift - 2 * at.lift + before.lift) / (h * h)) < .001);
+  }
+});
+
+test("painted-leg Canvas transforms pin every supporting toe despite shoulder movement", () => {
+  for (let frame = 0; frame < 120; frame++) for (let index = 0; index < 4; index++) {
+    const phase = frame / 120 * Math.PI * 2;
+    const paw = fitPawPose(pawPose(phase, .85, index, false, false), 13, 17);
+    const calls = [];
+    const ctx = { translate: (...values) => calls.push(["translate", ...values]), transform: (...values) => calls.push(["transform", ...values]) };
+    applyPawTransform(ctx, 14, 11, 17, bodyPose(phase, .85), paw);
+    assert.deepEqual(calls.map(call => call[0]), ["translate", "transform"]);
+    const [, hipX, hipY] = calls[0], [, a, b, c, d, tx, ty] = calls[1];
+    assert.equal(a, 1); assert.equal(b, 0); assert.equal(tx, 0); assert.equal(ty, 0);
+    assert.ok(Math.abs(hipX + c * 17 - (14 + paw.reach)) < 1e-10);
+    assert.ok(Math.abs(hipY + d * 17 - (28 - paw.lift)) < 1e-10);
+    if (paw.lift === 0) assert.ok(Math.abs(hipY + d * 17 - 28) < 1e-10, "a support foot never inherits the torso bob");
+    assert.ok(calls.flat().filter(value => typeof value === "number").every(Number.isFinite));
+  }
 });
 
 test("live walk uses cached body plates and transforms rather than crossfading ghost paws", async () => {

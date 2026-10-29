@@ -23,12 +23,12 @@ export function GameMenu({ onNavigate }: { onNavigate: (screen: MenuScreen) => v
 }
 
 const LESSONS = [
-  ["01", "Protect the sanctuary", "Hold E at a shrine, then solve its puzzle. Earn magical gear and restore the forest. Harmonize with a partner for faster—but louder—progress."],
+  ["01", "Protect the sanctuary", "Restore shrines to earn gear and heal the forest. Harmonize (a two-player duet): take turns playing four notes. Both earn gear, but nearby cats can hear your chant."],
   ["02", "Survive the Ordeal", "Stay close to light, remember who passed you, and use your items. The Hollow can hunt once each Ordeal; danger hides beyond your sight."],
   ["03", "Question the circle", "Report a fallen cat or call a meeting after the first Ordeal. Discuss, compare stories, then vote. Wardens win by restoring the wards or banishing every Hollow."],
 ] as const;
 
-export function CompactFieldGuide() {
+export function CompactFieldGuide({ onReplayIntro, onReplayHollow }: { onReplayIntro?: () => void; onReplayHollow?: () => void } = {}) {
   const [page, setPage] = useState(0);
   const count = LESSONS.length + ORDEALS.length;
   const lesson = page < LESSONS.length ? LESSONS[page] : null;
@@ -40,6 +40,8 @@ export function CompactFieldGuide() {
       <h2>{lesson?.[1] ?? ordeal?.name}</h2>
       <p>{lesson?.[2] ?? ordeal?.text}</p>
       {ordeal ? <p className="guide-tip">Tip: {ordeal.tip}</p> : null}
+      {onReplayIntro ? <button type="button" className="guide-replay-intro" onClick={onReplayIntro}>Play the introduction</button> : null}
+      {onReplayHollow ? <button type="button" className="guide-hollow-lesson" onClick={onReplayHollow}>Try the Hollow lesson</button> : null}
     </article>
     <nav className="menu-pagination" aria-label="Guide pages"><button onClick={() => setPage(page - 1)} disabled={page === 0} aria-label="Previous guide page">←</button><span>{page + 1} / {count}</span><button onClick={() => setPage(page + 1)} disabled={page === count - 1} aria-label="Next guide page">→</button></nav>
   </section>;

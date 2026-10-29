@@ -14,8 +14,8 @@ export function WardrobePreview({ color, eyeStyle, accessory, name, animated, gr
     <div className="wardrobe-preview-moon" aria-hidden="true" />
     <div className="wardrobe-preview-ground" aria-hidden="true" />
     <button type="button" className="wardrobe-cat-button" aria-label={`Say hello to ${name}`} onClick={onGreet}>
-      <span className="wardrobe-portrait-frame"><SlimePortrait color={color} eyeStyle={eyeStyle} accessory={accessory} pose="SEATED" animated={animated} greeting={greeting} /></span>
+      <span className="wardrobe-portrait-frame"><SlimePortrait color={color} eyeStyle={eyeStyle} accessory={accessory} pose="SEATED" animated={animated} greeting={greeting} concealment={false} /></span>
     </button>
-    <p className="wardrobe-preview-hint">Made for moonlit mischief.<span>Tap your cat to say hello</span></p>
+    <p className="wardrobe-preview-hint"><strong>{name}</strong><span>Tap your cat to say hello</span></p>
   </aside>;
 }
