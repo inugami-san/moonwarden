@@ -3,6 +3,12 @@
 .openai
 .wrangler
 .vinext
+.next
 dist
 node_modules
 work
+prototypes
+*.tsbuildinfo
+app/_sites-preview
+app/animation-check
+app/mvp-visual-check

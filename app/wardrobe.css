@@ -1,0 +1,102 @@
+/* The cat stays on screen while browsing every wardrobe category. */
+.game-menu-shell.moon-studio[data-menu="LOOK"] .lobby-grid { grid-template-columns: minmax(0, 1fr); max-width: 1180px; }
+.game-menu-shell.moon-studio[data-menu="LOOK"] .lobby-console { max-width: none; }
+.game-menu-shell.moon-studio[data-menu="LOOK"] .console-head { display: none; }
+.game-menu-shell.moon-studio .solo-wardrobe { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); gap: clamp(16px, 3vw, 36px); height: 100%; }
+.game-menu-shell.moon-studio .wardrobe-editor { min-height: 0; min-width: 0; align-self: center; }
+.game-menu-shell.moon-studio .wardrobe-editor .wardrobe-summary-bar { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 18px; }
+.game-menu-shell.moon-studio .wardrobe-editor .wardrobe-summary-bar strong { font-size: 23px; }
+.game-menu-shell.moon-studio .wardrobe-editor .wardrobe-summary-bar em { font-size: 11px; line-height: 1.5; }
+.game-menu-shell.moon-studio .wardrobe-editor .wardrobe-summary-bar small { color: var(--menu-gold); font-size: 9px; letter-spacing: .12em; }
+.game-menu-shell.moon-studio .wardrobe-editor .mp-palette { gap: 20px 12px; margin: 20px 0 8px; }
+.game-menu-shell.moon-studio .wardrobe-editor .mp-color-btn { width: 48px; height: 48px; border-width: 3px; }
+.game-menu-shell.moon-studio .inroom-wardrobe-layout { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); gap: clamp(14px, 2.5vw, 28px); flex: 1; height: 100%; min-height: 0; min-width: 0; }
+.game-menu-shell.moon-studio .inroom-wardrobe-layout > .wardrobe-editor { width: 100%; min-width: 0; }
+.game-menu-shell.moon-studio .inroom-wardrobe-layout .wardrobe-row { flex-wrap: nowrap; }
+.game-menu-shell.moon-studio .inroom-wardrobe-layout .mp-palette { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.game-menu-shell.moon-studio .wardrobe-preview { position: relative; isolation: isolate; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; overflow: hidden; border: 1px solid #7184a45c; border-radius: 20px; background: radial-gradient(ellipse at 50% 40%, #58668866, transparent 65%), linear-gradient(155deg, #293d56, #202c46 60%, #1a2c3b); }
+.game-menu-shell.moon-studio .wardrobe-preview-heading { position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 12px 0; pointer-events: none; }
+.game-menu-shell.moon-studio .wardrobe-shuffle { pointer-events: auto; min-height: 44px; padding: 8px 12px; border: 1px solid #7184a47a; border-radius: 12px; color: var(--menu-ink); background: #233249d9; font-size: 11px; font-weight: 650; }
+.game-menu-shell.moon-studio .wardrobe-preview-heading small { display: flex; align-items: center; gap: 6px; color: #b4ccd5; font-size: 10px; white-space: nowrap; }
+.game-menu-shell.moon-studio .wardrobe-preview-heading i { width: 5px; height: 5px; border-radius: 50%; background: #9cd8c0; }
+.game-menu-shell.moon-studio .wardrobe-preview-moon { position: absolute; width: 64%; aspect-ratio: 1; left: 18%; top: 15%; border: 1px solid #bdcbe11f; border-radius: 50%; box-shadow: 0 0 0 22px #bbcbe605, 0 0 0 50px #bbcbe604; pointer-events: none; }
+.game-menu-shell.moon-studio .wardrobe-preview-ground { position: absolute; left: 8%; right: 8%; height: 22%; bottom: 9%; border-radius: 50%; background: radial-gradient(ellipse, #7ca5bb26, #15283a44 58%, transparent 70%); pointer-events: none; }
+.game-menu-shell.moon-studio .wardrobe-cat-button { container-type: size; position: relative; width: 100%; height: 100%; min-height: 44px; display: block; padding: 0; border: 0; border-radius: 20px; background: transparent; color: inherit; }
+.game-menu-shell.moon-studio .wardrobe-cat-button:focus-visible, .game-menu-shell.moon-studio .wardrobe-shuffle:focus-visible { outline: 3px solid var(--menu-gold, #dfbd7c); outline-offset: -4px; }
+.game-menu-shell.moon-studio .wardrobe-cat-button:not(:disabled):active { translate: 0 0; }
+.game-menu-shell.moon-studio .wardrobe-portrait-frame { position: absolute; left: 50%; top: 52%; translate: -50% -50%; display: block; width: min(96%, 420px); aspect-ratio: 1; pointer-events: none; transition: scale .2s ease-out; }
+@supports (width: 1cqw) { .game-menu-shell.moon-studio .wardrobe-portrait-frame { width: min(104cqw, 104cqh, 560px); } }
+.game-menu-shell.moon-studio .wardrobe-cat-button:hover .wardrobe-portrait-frame { scale: 1.025; }
+.game-menu-shell.moon-studio .wardrobe-cat-button:active .wardrobe-portrait-frame { scale: .98; }
+.game-menu-shell.moon-studio .wardrobe-preview-hint { position: relative; margin: 0; padding: 0 12px 14px; z-index: 2; text-align: center; color: #e1e8f4; font-size: 12px; pointer-events: none; }
+.game-menu-shell.moon-studio .wardrobe-preview-hint strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.game-menu-shell.moon-studio .wardrobe-preview-hint span { display: block; margin-top: 5px; color: #a9bfd1; font-size: 10px; }
+.game-menu-shell.moon-studio .menu-action-icon { display: inline-flex; align-items: center; }
+.game-menu-shell.moon-studio .menu-action-icon .game-glyph { width: 32px; height: 32px; }
+.game-menu-shell.moon-studio .menu-secondary button, .game-menu-shell.moon-studio .stage-quick-bar button { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.game-menu-shell.moon-studio .menu-secondary .game-glyph, .game-menu-shell.moon-studio .stage-quick-bar .game-glyph { width: 20px; height: 20px; flex-shrink: 0; }
+.game-menu-shell.moon-studio .slot-empty-sigil .game-glyph { width: 25px; height: 25px; }
+
+@media (max-height: 650px) {
+  .game-menu-shell.moon-studio .solo-wardrobe { gap: 18px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .wardrobe-summary-bar { min-height: 40px; padding-bottom: 7px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .wardrobe-summary-bar strong { font-size: 18px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .mp-palette { gap: 10px 8px; margin: 12px 0 4px; grid-template-columns: repeat(4, 1fr); }
+  .game-menu-shell.moon-studio .wardrobe-editor .mp-color-btn { width: 44px; height: 44px; border-radius: 50%; }
+  .game-menu-shell.moon-studio .wardrobe-preview-heading { padding: 8px 10px 0; }
+  .game-menu-shell.moon-studio .wardrobe-preview-hint { padding-bottom: 10px; font-size: 10px; }
+}
+@media (max-width: 650px) and (orientation: portrait) {
+  .game-menu-shell.moon-studio .solo-wardrobe { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(150px, 1fr) auto; gap: 14px; }
+  .game-menu-shell.moon-studio .inroom-wardrobe-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(120px, 1fr) auto; gap: 10px; }
+  .game-menu-shell.moon-studio .wardrobe-editor { align-self: stretch; }
+  .game-menu-shell.moon-studio .wardrobe-editor .wardrobe-summary-bar { min-height: 44px; padding-bottom: 9px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .wardrobe-summary-bar strong { font-size: 19px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .wardrobe-summary-bar em { display: none; }
+  .game-menu-shell.moon-studio .wardrobe-editor .mp-palette { gap: 12px; margin: 14px 0 5px; }
+  .game-menu-shell.moon-studio .wardrobe-preview-heading { padding: 8px 10px 0; }
+  .game-menu-shell.moon-studio .wardrobe-preview-hint { padding-bottom: 8px; font-size: 10px; }
+  .game-menu-shell.moon-studio .wardrobe-preview-hint span { display: none; }
+  .game-menu-shell.moon-studio .wardrobe-editor .mp-hat-btn { min-height: 66px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .hat-btn-preview { width: 48px; height: 35px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .eye-style-options { gap: 5px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .eye-style-options button { min-height: 65px; padding: 7px 2px; font-size: 10px; }
+}
+@media (max-width: 650px) and (max-height: 700px) and (orientation: portrait) {
+  .game-menu-shell.moon-studio .solo-wardrobe { grid-template-rows: minmax(110px, 1fr) auto; gap: 8px; }
+  .game-menu-shell.moon-studio .inroom-wardrobe-layout { grid-template-rows: minmax(110px, 1fr) auto; gap: 8px; }
+  .game-menu-shell.moon-studio .wardrobe-preview { grid-template-rows: minmax(0, 1fr); }
+  .game-menu-shell.moon-studio .wardrobe-editor .wardrobe-summary-bar { padding-bottom: 5px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .wardrobe-summary-bar small { display: none; }
+  .game-menu-shell.moon-studio .wardrobe-editor .mp-hat-row { gap: 6px; margin-top: 6px; }
+  .game-menu-shell.moon-studio .wardrobe-preview-heading small, .game-menu-shell.moon-studio .wardrobe-preview-hint { display: none; }
+  .game-menu-shell.moon-studio .wardrobe-preview-heading { position: absolute; inset: 8px 8px auto auto; padding: 0; justify-content: flex-end; }
+  .game-menu-shell.moon-studio .wardrobe-editor .mp-hat-btn { min-height: 58px; padding: 4px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .hat-btn-preview { height: 30px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .look-name { margin-bottom: 5px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .look-name { display: flex; align-items: center; gap: 8px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .look-name .field-label { margin: 0; font-size: 9px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .look-name .field-label span { display: none; }
+  .game-menu-shell.moon-studio .wardrobe-editor .look-name .mp-field { flex: 1; min-width: 0; }
+  .game-menu-shell.moon-studio .wardrobe-editor .look-tabs { padding: 2px; margin-bottom: 8px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .look-tabs button { min-height: 44px; padding: 5px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .mp-palette { margin-top: 8px; gap: 8px; }
+}
+@media (max-height: 550px) and (orientation: landscape) {
+  .game-menu-shell.moon-studio .solo-wardrobe, .game-menu-shell.moon-studio .inroom-wardrobe-layout { gap: 12px; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
+  .game-menu-shell.moon-studio .wardrobe-editor .wardrobe-summary-bar { display: none; }
+  .game-menu-shell.moon-studio .wardrobe-editor .mp-hat-btn { min-height: 52px; padding: 4px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .hat-btn-preview { width: 44px; height: 27px; }
+  .game-menu-shell.moon-studio .wardrobe-editor .mp-hat-btn b { font-size: 8px; line-height: 1; }
+  .game-menu-shell.moon-studio .wardrobe-editor .mp-hat-row { gap: 6px; }
+  .game-menu-shell.moon-studio .wardrobe-preview-hint { display: none; }
+  .game-menu-shell.moon-studio .wardrobe-preview-heading { padding: 6px 8px 0; }
+  .game-menu-shell.moon-studio .wardrobe-preview-heading small { font-size: 9px; }
+  .game-menu-shell.moon-studio .wardrobe-shuffle { padding: 6px 9px; }
+  .game-menu-shell.moon-studio .inroom-wardrobe-layout .wardrobe-row { gap: 6px; }
+  .game-menu-shell.moon-studio .inroom-wardrobe-layout .mp-input-with-btn { min-width: 0; }
+  .game-menu-shell.moon-studio .inroom-wardrobe-layout .mp-random-btn { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-menu-shell.moon-studio .wardrobe-portrait-frame { transition: none; }
+}

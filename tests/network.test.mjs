@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MultiplayerClient } from "../app/network.ts";
+import { GAME_WORLD_VERSION } from "../server/game-version.ts";
+
+const serverInfo = { type: "SERVER_INFO", worldVersion: GAME_WORLD_VERSION, compatible: true };
+function relayResponse(payload) { return Response.json({ ...payload, messages: [serverInfo, ...(payload.messages ?? [])] }); }
 
 function browser(t, hostname = "localhost") {
   const previous = { window: globalThis.window, WebSocket: globalThis.WebSocket };
@@ -21,7 +25,7 @@ function browser(t, hostname = "localhost") {
     constructor(url) { this.url = url; sockets.push(this); }
     send(value) { this.sent.push(JSON.parse(value)); }
     close() { this.readyState = 3; this.onclose?.(); }
-    open() { this.readyState = 1; this.onopen?.(); }
+    open(info = serverInfo) { this.readyState = 1; this.onopen?.(); if (info) this.onmessage?.({ data: JSON.stringify(info) }); }
   }
   globalThis.WebSocket = FakeSocket;
   t.after(() => {
@@ -41,6 +45,136 @@ function externalServer(t) {
   });
 }
 
+test("a socket is not connected until its map revision is acknowledged", async t => {
+  const sockets = browser(t);
+  const client = new MultiplayerClient();
+  const connecting = client.connect();
+  sockets[0].open(null);
+  assert.equal(client.connected, false);
+  client.createRoom("Blocked", "#20d8ed", "hood");
+  assert.deepEqual(sockets[0].sent.map(message => message.type), ["CLIENT_HELLO"]);
+  sockets[0].onmessage({ data: JSON.stringify(serverInfo) });
+  await connecting;
+  assert.equal(client.connected, true);
+  assert.equal(client.lastError, "");
+  client.disconnect();
+});
+
+test("legacy character alerts use cat terminology without rewriting names, chat or unknown errors", async t => {
+  const sockets = browser(t);
+  const client = new MultiplayerClient();
+  const connecting = client.connect();
+  sockets[0].open();
+  await connecting;
+  for (const [message, expected] of [
+    ["That slime color is already taken. Choose an available color.", "That coat color is already taken. Choose an available color."],
+    ["That puddle is no longer visible within reporting reach.", "That fallen cat is no longer visible within reporting reach."],
+    ['Room "Slime King" not found.', 'Room "Slime King" not found.'],
+    ["toString", "toString"],
+    ["__proto__", "__proto__"],
+  ]) {
+    sockets[0].onmessage({ data: JSON.stringify({ type: "ERROR_ALERT", message }) });
+    assert.equal(client.getSnapshot().lastError, expected);
+  }
+  const message = { id: "chat-1", playerId: "p1", playerName: "Slime King", playerColor: "#63e6be", text: "I like slimes", system: false };
+  sockets[0].onmessage({ data: JSON.stringify({ type: "CHAT_MESSAGE", message }) });
+  assert.deepEqual(client.getSnapshot().lobbyChat.at(-1), message);
+  client.disconnect();
+});
+
+test("an opened legacy socket fails explicitly without creating alternate fallback rooms", async t => {
+  const sockets = browser(t);
+  const client = new MultiplayerClient();
+  const connecting = client.connect();
+  const rejected = assert.rejects(connecting, /different map versions/);
+  sockets[0].open({ type: "PONG", sentAt: 1 });
+  await rejected;
+  assert.equal(client.connected, false);
+  assert.equal(sockets.length, 1, "incompatibility is never an excuse to split the room onto another authority");
+  assert.match(client.lastError, /matching local room server/);
+  assert.deepEqual(sockets[0].sent.map(message => message.type), ["CLIENT_HELLO"]);
+  client.disconnect();
+});
+
+test("a server that closes after accepting a socket cannot bypass the map handshake through fallback", async t => {
+  const sockets = browser(t);
+  const client = new MultiplayerClient();
+  const rejected = assert.rejects(client.connect(), /different map versions/);
+  sockets[0].open(null);
+  sockets[0].close();
+  await rejected;
+  assert.equal(sockets.length, 1);
+  assert.equal(client.connected, false);
+  client.disconnect();
+});
+
+test("an unresponsive legacy socket times out as incompatible before any room action", async t => {
+  const sockets = browser(t);
+  let timeout;
+  window.setTimeout = callback => { timeout = callback; return 1; };
+  const client = new MultiplayerClient();
+  const rejected = assert.rejects(client.connect(), /different map versions/);
+  sockets[0].open(null);
+  timeout();
+  await rejected;
+  assert.equal(sockets.length, 1);
+  assert.equal(client.connected, false);
+  client.disconnect();
+});
+
+test("external health rejects absent or outdated map revisions before opening a socket", async t => {
+  const sockets = browser(t, "test.vercel.app");
+  externalServer(t);
+  for (const worldVersion of [undefined, "old-1280-map"]) {
+    t.mock.method(globalThis, "fetch", async () => Response.json({ status: "ok", worldVersion }));
+    const client = new MultiplayerClient();
+    await assert.rejects(client.connect(), /different map versions/);
+    assert.equal(sockets.length, 0);
+    assert.equal(client.connected, false);
+    client.disconnect();
+  }
+});
+
+test("a legacy HTTP relay cannot create a room before acknowledging this client's map", async t => {
+  browser(t, "test.vercel.app");
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (_url, init) => {
+    requests.push(JSON.parse(init.body));
+    return Response.json({ ok: true, sessionId: "old-world", messages: [] });
+  });
+  const client = new MultiplayerClient();
+  await assert.rejects(client.connect(), /different map versions/);
+  client.createRoom("Never sent", "#20d8ed", "hood");
+  assert.equal(client.connected, false);
+  assert.deepEqual(requests[0].messages, [{ type: "CLIENT_HELLO", worldVersion: GAME_WORLD_VERSION }]);
+  assert.equal(requests.some(request => request.messages?.some(message => message.type === "CREATE_ROOM")), false);
+  assert.ok(requests.some(request => request.disconnect), "the old empty relay session is closed");
+  client.disconnect();
+});
+
+test("a rejected relay revision cannot deliver later room or match events from the same response", async t => {
+  browser(t, "test.vercel.app");
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => ++calls === 1
+    ? relayResponse({ ok: true, sessionId: "changing-world", messages: [] })
+    : Response.json({ ok: true, sessionId: "changing-world", messages: [
+      { ...serverInfo, worldVersion: "retired-world" },
+      { type: "ROOM_STATE", roomCode: "WRONG", playerId: "stale", isHost: true, players: [], state: "LOBBY" },
+      { type: "MATCH_STARTED", role: "CREWMATE", players: [] },
+    ] }));
+  const client = new MultiplayerClient();
+  await client.connect();
+  const matches = [];
+  client.onMessage(message => { if (message.type === "MATCH_STARTED") matches.push(message); });
+  client.createRoom("Changed server", "#20d8ed", "hood");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(client.connected, false);
+  assert.equal(client.roomCode, "");
+  assert.equal(client.state, "LOBBY");
+  assert.equal(matches.length, 0);
+  client.disconnect();
+});
+
 test("external room servers wake through health before opening one shared socket", async t => {
   const sockets = browser(t, "test.vercel.app");
   externalServer(t);
@@ -55,7 +189,7 @@ test("external room servers wake through health before opening one shared socket
   assert.equal(client.connect(), connecting);
   assert.equal(sockets.length, 0);
   assert.deepEqual(urls, ["https://rooms.example/health"]);
-  release(Response.json({ status: "ok" }));
+  release(Response.json({ status: "ok", worldVersion: GAME_WORLD_VERSION }));
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(sockets.length, 1);
   sockets[0].open();
@@ -84,7 +218,7 @@ test("cancelling server warmup never opens a late WebSocket", async t => {
   const client = new MultiplayerClient();
   const cancelled = assert.rejects(client.connect(), /cancelled/);
   client.disconnect();
-  release(Response.json({ status: "ok" }));
+  release(Response.json({ status: "ok", worldVersion: GAME_WORLD_VERSION }));
   await cancelled;
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(sockets.length, 0);
@@ -103,7 +237,8 @@ test("simultaneous connection requests share one socket and error/close produces
   sockets[1].open();
   await first;
   assert.equal(client.getSnapshot().transport, "WS");
-  assert.equal(sockets[1].sent[0].type, "PING");
+  assert.equal(sockets[1].sent[0].type, "CLIENT_HELLO");
+  assert.equal(sockets[1].sent[1].type, "PING");
   client.disconnect();
   assert.equal(sockets.length, 2);
 });
@@ -133,7 +268,7 @@ test("HTTP relay coalesces queued positions and preserves action ordering", asyn
     const payload = JSON.parse(init.body);
     requests.push(payload);
     if (requests.length === 2) await new Promise((resolve) => { release = resolve; });
-    return Response.json({ ok: true, sessionId: "http-session", messages: [] });
+    return relayResponse({ ok: true, sessionId: "http-session", messages: [] });
   });
   const client = new MultiplayerClient();
   await client.connect();
@@ -172,7 +307,7 @@ test("HTTP instance/session loss is surfaced instead of silently continuing a fr
   window.clearInterval = (id) => cleared.push(id);
   let calls = 0;
   t.mock.method(globalThis, "fetch", async () => ++calls === 1
-    ? Response.json({ ok: true, sessionId: "original", messages: [] })
+    ? relayResponse({ ok: true, sessionId: "original", messages: [] })
     : Response.json({ error: "SESSION_EXPIRED" }, { status: 409 }));
   const client = new MultiplayerClient();
   await client.connect();
@@ -203,7 +338,7 @@ test("a delayed JSON body cannot restore a disconnected room", async (t) => {
   let release;
   let calls = 0;
   t.mock.method(globalThis, "fetch", async () => {
-    if (++calls !== 2) return Response.json({ ok: true, sessionId: "original", messages: [] });
+    if (++calls !== 2) return relayResponse({ ok: true, sessionId: "original", messages: [] });
     return { ok: true, status: 200, json: () => new Promise(resolve => { release = resolve; }) };
   });
   const client = new MultiplayerClient();
@@ -222,7 +357,7 @@ test("a delayed JSON body cannot restore a disconnected room", async (t) => {
 test("HTTP responses cannot silently move a player into a different session", async (t) => {
   browser(t, "test.vercel.app");
   let calls = 0;
-  t.mock.method(globalThis, "fetch", async () => Response.json({ ok: true, sessionId: ++calls === 1 ? "original" : "other", messages: [] }));
+  t.mock.method(globalThis, "fetch", async () => relayResponse({ ok: true, sessionId: ++calls === 1 ? "original" : "other", messages: [] }));
   const client = new MultiplayerClient();
   await client.connect();
   client.sendChat("Pending");
@@ -251,7 +386,7 @@ test("a dropped HTTP response retries the same action ID before later queued act
     const request = JSON.parse(init.body);
     requests.push(request);
     if (requests.length === 2) throw new Error("Response lost after the server processed it");
-    return Response.json({ ok: true, sessionId: "retry-session", messages: [] });
+    return relayResponse({ ok: true, sessionId: "retry-session", messages: [] });
   });
   const client = new MultiplayerClient();
   await client.connect();

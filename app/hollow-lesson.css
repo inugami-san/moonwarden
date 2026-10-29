@@ -1,0 +1,111 @@
+.hollow-lesson { position: fixed; inset: 0; z-index: 200; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: clamp(12px, 2.4vh, 24px); height: 100dvh; overflow: hidden; box-sizing: border-box; padding: max(18px, env(safe-area-inset-top)) max(22px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(22px, env(safe-area-inset-left)); color: #f0e9e7; background: radial-gradient(ellipse at 25% 40%, #34304c, #191e34 65%, #111a2d); font-family: var(--font-geist-sans), sans-serif; isolation: isolate; text-align: left; }
+.hollow-lesson *, .hollow-lesson *::before, .hollow-lesson *::after { box-sizing: border-box; }
+.hollow-lesson:focus, .hollow-lesson h1:focus { outline: none; }
+.hollow-lesson button { font: inherit; color: inherit; cursor: pointer; min-height: 44px; }
+.hollow-lesson button:focus-visible { outline: 3px solid #e2c78b; outline-offset: 3px; }
+.hollow-lesson button:active { transform: translateY(2px); }
+.hollow-lesson .game-glyph { width: 23px; height: 23px; flex: none; }
+.hollow-lesson-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.hollow-lesson-header > div { display: grid; gap: 5px; }
+.hollow-lesson-header strong { font-size: 17px; letter-spacing: .17em; color: #dfbdcd; }
+.hollow-lesson-header small { font-size: 11px; color: #c0b8ce; }
+.hollow-lesson-header button { padding: 8px 14px; border: 1px solid #756b83; border-radius: 10px; background: #34324a; font-size: 12px; }
+.hollow-lesson-header button span { margin-left: 10px; color: #e4ccac; }
+.hollow-lesson-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(275px, 360px); gap: clamp(20px, 4vw, 54px); width: 100%; max-width: 1280px; min-height: 0; margin: auto; height: 100%; }
+.hollow-lesson-scene { position: relative; min-height: 0; overflow: hidden; border: 1px solid #807587; border-radius: 26px; background: radial-gradient(ellipse at 44% 55%, #45415a, #252f40 55%, #1b2638); box-shadow: inset 0 0 80px #0a122caa, 0 20px 60px #07102055; }
+.hollow-lesson-scene::before { content: ""; position: absolute; inset: 10% -10%; background: repeating-radial-gradient(ellipse at center, transparent 0 42px, #b9a9cc09 43px 44px); transform: rotate(-20deg); }
+.hollow-lesson-phase { position: absolute; z-index: 2; top: 18px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; white-space: nowrap; color: #e9d5d3; background: #202536cc; border: 1px solid #a2929b66; border-radius: 30px; padding: 7px 12px; font-size: 10px; }
+.hollow-lesson-phase .game-glyph { width: 18px; height: 18px; }
+.hollow-lesson-shrine { position: absolute; top: 21%; left: 22%; width: 90px; height: 110px; transform: translateX(-50%); border: 2px solid #9192aa; border-radius: 40px 40px 10px 10px; background: linear-gradient(90deg, #343a58, #515472 48%, #2d344e); box-shadow: 0 5px 0 #141b2e, 0 10px 30px #101827; }
+.hollow-lesson-shrine::after { content: ""; position: absolute; bottom: -10px; left: -10%; width: 120%; height: 20px; border: 2px solid #8a8ea5; border-radius: 50%; background: #3a455f; }
+.hollow-lesson-shrine > .game-glyph { position: absolute; width: 38px; height: 38px; top: 24px; left: 24px; color: #d2cadf; }
+.hollow-lesson-shrine[data-complete="true"] { box-shadow: 0 0 35px #b6baf066, 0 5px 0 #141b2e; }
+.hollow-lesson-shrine[data-complete="true"] > .game-glyph { color: #f2d7f2; filter: drop-shadow(0 0 7px #e6bdff); }
+.hollow-lesson-you, .hollow-lesson-dummy { position: absolute; z-index: 3; width: clamp(85px, 22%, 170px); aspect-ratio: 1; top: 50%; left: 43%; transform: translate(-50%, -50%); }
+.hollow-lesson-dummy { left: 69%; top: 47%; filter: brightness(.48) saturate(.2); transition: filter .3s, opacity .4s, transform .4s; }
+.hollow-lesson-scene[data-revealed="true"] .hollow-lesson-dummy { filter: none; }
+.hollow-lesson-you .slime-portrait, .hollow-lesson-dummy .slime-portrait { display: block; width: 100%; height: 100%; }
+.hollow-lesson-you canvas, .hollow-lesson-dummy canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.hollow-lesson :is(.hollow-lesson-you, .hollow-lesson-dummy) .cat-portrait-concealed { display: none; }
+.hollow-lesson-you small, .hollow-lesson-dummy small { position: absolute; bottom: -12px; left: 50%; transform: translateX(-50%); padding: 5px 8px; color: #eee4e2; background: #141d2cdb; border-radius: 20px; font-size: 10px; white-space: nowrap; }
+.hollow-lesson-dummy[data-fallen="true"] { opacity: .12; transform: translate(-75%, -50%) scale(.35); }
+.hollow-lesson-capture { position: absolute; z-index: 4; top: 39%; left: 62%; width: 17%; height: 25%; display: flex; align-items: center; justify-content: center; gap: 9%; transform: rotate(30deg); }
+.hollow-lesson-capture i { height: 80%; width: 3px; border-radius: 50%; background: #e3c6de; box-shadow: 0 0 10px #d9a4da; animation: hollow-lesson-claw .55s ease-out both; }
+@keyframes hollow-lesson-claw { from { opacity: 0; transform: scaleY(0); } 50% { opacity: 1; } to { opacity: 0; transform: scaleY(1); } }
+.hollow-lesson-rustle { position: absolute; top: 33%; left: 49%; width: 38%; height: 20%; display: flex; gap: 14%; align-items: center; transform: rotate(-14deg); }
+.hollow-lesson-rustle i { width: 18%; height: 50%; border: 2px solid #cad6c4; border-left-color: transparent; border-radius: 50%; animation: hollow-lesson-echo 1.3s ease-out 2; }
+.hollow-lesson-rustle i:nth-child(2) { animation-delay: .15s; }
+.hollow-lesson-rustle i:nth-child(3) { animation-delay: .3s; }
+.hollow-lesson-rustle small { position: absolute; top: -18px; left: 0; font-size: 10px; color: #d1dac8; }
+@keyframes hollow-lesson-echo { from { opacity: .2; transform: translateX(-10px) scale(.7); } to { opacity: .8; transform: translateX(12px) scale(1); } }
+.hollow-lesson-scene-status { position: absolute; bottom: 22px; left: 16px; right: 16px; color: #ddcfd6; font-size: 11px; line-height: 1.6; text-align: center; }
+.hollow-lesson-copy { display: flex; flex-direction: column; justify-content: center; min-height: 0; gap: 22px; }
+.hollow-lesson-step { font-size: 10px; font-weight: 750; letter-spacing: .15em; color: #dfc39c; }
+.hollow-lesson h1 { margin: 12px 0 16px; font-family: Georgia, "Times New Roman", serif; font-size: clamp(30px, 3.3vw, 44px); font-weight: 400; letter-spacing: -.025em; line-height: 1.12; }
+.hollow-lesson-copy p { margin: 0; color: #c9c2d3; font-size: 14px; line-height: 1.8; }
+.hollow-lesson-primary { display: flex; justify-content: center; align-items: center; gap: 10px; min-height: 52px !important; padding: 13px 15px; border: 1px solid #e5c2cf; border-radius: 12px; color: #26253a !important; background: #dec0c9; font-size: 13px !important; font-weight: 750 !important; }
+.hollow-lesson-primary:hover { background: #efd4db; }
+.hollow-lesson kbd { font: inherit; font-size: 10px; opacity: .7; border: 1px solid currentColor; border-radius: 4px; padding: 1px 5px; }
+.hollow-lesson-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.hollow-lesson-choices button { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 72px; padding: 10px; border: 1px solid #9e8da8; border-radius: 12px; background: #403a55; font-size: 12px; }
+.hollow-lesson-choices button:hover { background: #514661; border-color: #dfc0d4; }
+.hollow-lesson-copy .hollow-lesson-transfer { color: #abacbe; font-size: 10px; line-height: 1.6; }
+.hollow-lesson-finish { display: grid; gap: 12px; }
+.hollow-lesson-finish > span { display: flex; align-items: center; gap: 8px; color: #d6bacd; font-size: 11px; }
+.hollow-lesson-finish > span .game-glyph { width: 19px; height: 19px; }
+.hollow-lesson-footer { display: flex; justify-content: space-between; gap: 14px; width: 100%; max-width: 1280px; margin: auto; }
+.hollow-lesson-footer ol { display: flex; gap: 24px; padding: 0; margin: 0; list-style: none; }
+.hollow-lesson-footer li { display: flex; align-items: center; gap: 8px; color: #a9a5ba; font-size: 11px; white-space: nowrap; }
+.hollow-lesson-footer li > span { display: grid; place-items: center; width: 24px; height: 24px; border: 1px solid #827b91; border-radius: 50%; font-size: 10px; }
+.hollow-lesson-footer li[aria-current="step"], .hollow-lesson-footer li[data-done="true"] { color: #e3c5ce; }
+.hollow-lesson-footer li[data-done="true"] > span { border-color: #d7b9c9; background: #94748d33; }
+.hollow-lesson-footer > small { color: #aaa8ba; font-size: 10px; }
+.game-menu-shell.moon-studio .guide-hollow-lesson { min-height: 44px; margin: 14px 0 0 10px; padding: 9px 16px; border: 1px solid #a291ad; border-radius: 12px; background: #3c3852; color: #eadce5; font-size: 12px; font-weight: 750; }
+@media (max-width: 720px) {
+  .hollow-lesson { padding: max(12px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); gap: 12px; }
+  .hollow-lesson-header strong { font-size: 13px; }
+  .hollow-lesson-header small { font-size: 9px; }
+  .hollow-lesson-header button { font-size: 10px; padding: 7px 10px; }
+  .hollow-lesson-header button span { margin-left: 4px; }
+  .hollow-lesson-main { grid-template-columns: 1fr; grid-template-rows: minmax(150px, 1fr) auto; gap: 15px; }
+  .hollow-lesson-scene { border-radius: 18px; }
+  .hollow-lesson-phase { top: 10px; font-size: 9px; padding: 5px 10px; }
+  .hollow-lesson-copy { gap: 13px; }
+  .hollow-lesson h1 { font-size: 28px; margin: 7px 0 9px; }
+  .hollow-lesson-copy p { font-size: 12px; line-height: 1.6; }
+  .hollow-lesson-scene-status { bottom: 12px; font-size: 9px; line-height: 1.4; }
+  .hollow-lesson-shrine { width: 58px; height: 70px; top: 25%; }
+  .hollow-lesson-shrine > .game-glyph { width: 25px; height: 25px; top: 14px; left: 15px; }
+  .hollow-lesson-you, .hollow-lesson-dummy { top: 55%; }
+  .hollow-lesson-footer ol { width: 100%; justify-content: space-between; gap: 8px; }
+  .hollow-lesson-footer li { font-size: 10px; gap: 6px; }
+  .hollow-lesson-footer > small { display: none; }
+  .game-menu-shell.moon-studio .guide-hollow-lesson { margin-left: 0; }
+}
+@media (max-height: 690px) and (max-width: 720px) {
+  .hollow-lesson { gap: 8px; }
+  .hollow-lesson-main { grid-template-rows: minmax(120px, 1fr) auto; gap: 9px; }
+  .hollow-lesson-copy { gap: 9px; }
+  .hollow-lesson h1 { font-size: 23px; margin: 5px 0 7px; }
+  .hollow-lesson-copy p { font-size: 11px; line-height: 1.5; }
+  .hollow-lesson-primary { min-height: 44px !important; padding: 9px; }
+}
+@media (orientation: landscape) and (max-height: 540px) {
+  .hollow-lesson { padding-top: max(9px, env(safe-area-inset-top)); padding-bottom: max(9px, env(safe-area-inset-bottom)); gap: 9px; }
+  .hollow-lesson-main { grid-template-columns: minmax(0, 1fr) minmax(230px, 310px); grid-template-rows: minmax(0, 1fr); gap: 20px; }
+  .hollow-lesson-header small { display: none; }
+  .hollow-lesson-copy { gap: 10px; }
+  .hollow-lesson h1 { font-size: 23px; margin: 5px 0 7px; }
+  .hollow-lesson-copy p { font-size: 11px; line-height: 1.5; }
+  .hollow-lesson-copy .hollow-lesson-transfer { font-size: 9px; }
+  .hollow-lesson-primary { min-height: 44px !important; padding: 9px; font-size: 12px !important; }
+  .hollow-lesson-choices button { min-height: 55px; padding: 6px; font-size: 11px; }
+  .hollow-lesson-shrine { width: 65px; height: 80px; top: 26%; }
+  .hollow-lesson-shrine > .game-glyph { width: 28px; height: 28px; top: 18px; left: 17px; }
+  .hollow-lesson-phase { top: 9px; }
+  .hollow-lesson-scene-status { font-size: 9px; bottom: 12px; }
+  .hollow-lesson-footer > small { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hollow-lesson *, .hollow-lesson *::before, .hollow-lesson *::after { animation: none !important; transition: none !important; }
+}

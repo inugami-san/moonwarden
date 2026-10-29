@@ -1,3 +1,7 @@
+import type { EyeStyle } from "../server/appearance";
+import type { RitualDifficulty } from "../server/forest-rituals";
+import type { UtilityKind } from "../server/forest-utilities";
+import { GAME_VERSION_MISMATCH, GAME_WORLD_VERSION, isCompatibleServerInfo } from "../server/game-version";
 import type {
   C2SMessage,
   Hat,
@@ -10,6 +14,16 @@ import type {
 
 export type ConnectionState = "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "ERROR";
 
+// Exact legacy system alerts only: never rewrite names or player-authored chat.
+const LEGACY_CHARACTER_ALERTS: Readonly<Record<string, string>> = {
+  "That slime color is already taken. Choose an available color.": "That coat color is already taken. Choose an available color.",
+  "That puddle is no longer visible within reporting reach.": "That fallen cat is no longer visible within reporting reach.",
+};
+
+class GameVersionMismatch extends Error {
+  constructor() { super(GAME_VERSION_MISMATCH); }
+}
+
 export interface MultiplayerState {
   roomCode: string;
   playerId: string;
@@ -18,6 +32,11 @@ export interface MultiplayerState {
   state: "LOBBY" | "PLAYING" | "ENDED";
   targetPlayers: number;
   botFill: boolean;
+  hollowCount: number;
+  chaosMoonsway: boolean;
+  puzzleDifficulty?: RitualDifficulty;
+  meetingSeconds?: number;
+  utility?: UtilityKind;
   openRooms: RoomSummary[];
   lobbyChat: NetChatMessage[];
   lastError: string;
@@ -56,6 +75,11 @@ export class MultiplayerClient {
   public state: "LOBBY" | "PLAYING" | "ENDED" = "LOBBY";
   public targetPlayers: number = 6;
   public botFill: boolean = true;
+  public hollowCount = 1;
+  public chaosMoonsway = false;
+  public puzzleDifficulty: RitualDifficulty = "STANDARD";
+  public meetingSeconds = 75;
+  public utility: UtilityKind = "WISP_STEP";
   public openRooms: RoomSummary[] = [];
   public lobbyChat: NetChatMessage[] = [];
   public lastError: string = "";
@@ -87,6 +111,11 @@ export class MultiplayerClient {
       state: this.state,
       targetPlayers: this.targetPlayers,
       botFill: this.botFill,
+      hollowCount: this.hollowCount,
+      chaosMoonsway: this.chaosMoonsway,
+      puzzleDifficulty: this.puzzleDifficulty,
+      meetingSeconds: this.meetingSeconds,
+      utility: this.utility,
       openRooms: [...this.openRooms],
       lobbyChat: [...this.lobbyChat],
       lastError: this.lastError,
@@ -138,8 +167,12 @@ export class MultiplayerClient {
       const response = await fetch(url.href, { signal: abort.signal, cache: "no-store", credentials: "omit" });
       if (!response.ok) throw new Error("Realtime server not ready");
       if (generation !== this.generation) throw new Error("Connection cancelled");
-    } catch {
+      const info = await response.json() as { worldVersion?: unknown } | null;
       if (generation !== this.generation) throw new Error("Connection cancelled");
+      if (info?.worldVersion !== GAME_WORLD_VERSION) throw new GameVersionMismatch();
+    } catch (error) {
+      if (generation !== this.generation) throw new Error("Connection cancelled");
+      if (error instanceof GameVersionMismatch) throw error;
       throw new Error("The realtime server is waking up or unavailable. Please retry in a moment.");
     } finally {
       window.clearTimeout(timeout);
@@ -156,7 +189,7 @@ export class MultiplayerClient {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sessionId: this.httpSessionId || undefined,
-        messages: [],
+        messages: [{ type: "CLIENT_HELLO", worldVersion: GAME_WORLD_VERSION }],
       }),
       signal: AbortSignal.timeout(8000),
       cache: "no-store",
@@ -172,6 +205,15 @@ export class MultiplayerClient {
     if (generation !== this.generation) throw new Error("Connection cancelled");
     if (data.ok !== true || typeof data.sessionId !== "string" || !data.sessionId || !Array.isArray(data.messages)) {
       throw new Error("The game server returned an invalid session. Please reconnect.");
+    }
+    const serverInfo = data.messages.filter(message => message?.type === "SERVER_INFO");
+    if (serverInfo.length === 0 || !serverInfo.every(isCompatibleServerInfo)) {
+      this.lastError = GAME_VERSION_MISMATCH;
+      this.notifyState();
+      // The old relay might have allocated an empty session before proving its
+      // revision. Close it without ever sending a create/join/gameplay action.
+      void fetch("/api/mp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: data.sessionId, disconnect: true }), keepalive: true }).catch(() => undefined);
+      throw new GameVersionMismatch();
     }
     this.ping = Math.max(1, Math.round(performance.now() - t0));
     if (data.sessionId) {
@@ -329,10 +371,31 @@ export class MultiplayerClient {
           this.ws = socket;
 
           let failed = false;
+          let opened = false;
+          let serverAccepted = false;
+          let handshakeTimeout: number | null = null;
+          const clearConnectionTimers = () => {
+            window.clearTimeout(connectTimeout);
+            if (handshakeTimeout !== null) window.clearTimeout(handshakeTimeout);
+            handshakeTimeout = null;
+          };
+          const rejectIncompatible = () => {
+            if (failed || generation !== this.generation || this.ws !== socket) return;
+            failed = true;
+            hasResolved = true;
+            clearConnectionTimers();
+            socket.onopen = socket.onclose = socket.onerror = socket.onmessage = null;
+            socket.close();
+            this.ws = null;
+            this.transport = "NONE";
+            this.markDisconnected(GAME_VERSION_MISMATCH);
+            reject(new GameVersionMismatch());
+          };
           const fail = () => {
             if (failed || hasResolved || generation !== this.generation) return;
+            if (opened) { rejectIncompatible(); return; }
             failed = true;
-            window.clearTimeout(connectTimeout);
+            clearConnectionTimers();
             socket.onopen = socket.onclose = socket.onerror = socket.onmessage = null;
             socket.close();
             if (customWsUrl) {
@@ -351,6 +414,17 @@ export class MultiplayerClient {
           socket.onopen = () => {
             if (generation !== this.generation) { socket.close(); reject(new Error("Connection cancelled")); return; }
             window.clearTimeout(connectTimeout);
+            opened = true;
+            // An open socket is not proof that the server uses this map. Old
+            // containers can listen on the fallback port and silently clamp
+            // players against geometry that this client cannot see.
+            handshakeTimeout = window.setTimeout(rejectIncompatible, 4000);
+            socket.send(JSON.stringify({ type: "CLIENT_HELLO", worldVersion: GAME_WORLD_VERSION }));
+          };
+
+          const acceptServer = () => {
+            serverAccepted = true;
+            clearConnectionTimers();
             this.transport = "WS";
             this.connected = true;
             this.lastError = "";
@@ -378,6 +452,13 @@ export class MultiplayerClient {
             this.lastReceivedAt = Date.now();
             try {
               const msg: S2CMessage = JSON.parse(event.data);
+              if (!serverAccepted) {
+                if (!isCompatibleServerInfo(msg)) { rejectIncompatible(); return; }
+                acceptServer();
+                return;
+              }
+              if (!this.connected) return;
+              if (msg.type === "SERVER_INFO" && !isCompatibleServerInfo(msg)) { rejectIncompatible(); return; }
               this.handleIncoming(msg);
             } catch (err) {
               console.error("[MP Client] Failed to parse message:", err);
@@ -385,7 +466,7 @@ export class MultiplayerClient {
           };
 
           socket.onclose = () => {
-            window.clearTimeout(connectTimeout);
+            clearConnectionTimers();
             if (generation !== this.generation || this.ws !== socket) return;
             if (this.transport === "WS") {
               this.markDisconnected("Connection to the game room was lost. Return to the lobby to reconnect.");
@@ -419,11 +500,27 @@ export class MultiplayerClient {
   }
 
   private handleIncoming(msg: S2CMessage) {
+    if (!this.connected) return;
     switch (msg.type) {
+      case "SERVER_INFO":
+        if (!isCompatibleServerInfo(msg)) {
+          this.markDisconnected(GAME_VERSION_MISMATCH);
+          this.ws?.close();
+        }
+        return;
       case "PONG":
         this.ping = Math.max(1, Math.round(performance.now() - msg.sentAt));
         this.notifyState();
         return;
+      case "RITUAL_SETTINGS":
+        this.meetingSeconds = msg.meetingSeconds ?? this.meetingSeconds;
+        this.puzzleDifficulty = msg.difficulty;
+        this.notifyState();
+        break;
+      case "UTILITY_STATE":
+        this.utility = msg.kind;
+        if (this.state === "LOBBY") this.notifyState();
+        break;
       case "ROOM_STATE":
         this.roomCode = msg.roomCode;
         this.playerId = msg.playerId;
@@ -432,6 +529,8 @@ export class MultiplayerClient {
         this.state = msg.state;
         this.targetPlayers = msg.targetPlayers ?? 6;
         this.botFill = msg.botFill ?? true;
+        this.hollowCount = msg.hollowCount ?? 1;
+        this.chaosMoonsway = msg.chaosMoonsway === true;
         this.lobbyChat = msg.chatHistory ? [...msg.chatHistory] : [];
         this.lastError = "";
         this.notifyState();
@@ -441,6 +540,8 @@ export class MultiplayerClient {
         this.players = msg.players;
         this.targetPlayers = msg.targetPlayers;
         this.botFill = msg.botFill;
+        this.hollowCount = msg.hollowCount ?? 1;
+        this.chaosMoonsway = msg.chaosMoonsway === true;
         this.isHost = msg.hostId === this.playerId;
         this.notifyState();
         break;
@@ -502,7 +603,7 @@ export class MultiplayerClient {
         break;
 
       case "ERROR_ALERT":
-        this.lastError = msg.message;
+        this.lastError = Object.hasOwn(LEGACY_CHARACTER_ALERTS, msg.message) ? LEGACY_CHARACTER_ALERTS[msg.message] : msg.message;
         this.notifyState();
         break;
 
@@ -555,42 +656,42 @@ export class MultiplayerClient {
     }
   }
 
-  public createRoom(playerName: string, color: string, hat: Hat) {
-    this.send({ type: "CREATE_ROOM", playerName, color, hat });
+  public createRoom(playerName: string, color: string, hat: Hat, eyeStyle: EyeStyle = "FIERCE") {
+    this.send({ type: "CREATE_ROOM", playerName, color, hat, eyeStyle });
   }
 
-  public joinRoom(roomCode: string, playerName: string, color: string, hat: Hat) {
-    this.send({ type: "JOIN_ROOM", roomCode: roomCode.toUpperCase().trim(), playerName, color, hat });
+  public joinRoom(roomCode: string, playerName: string, color: string, hat: Hat, eyeStyle: EyeStyle = "FIERCE") {
+    this.send({ type: "JOIN_ROOM", roomCode: roomCode.toUpperCase().trim(), playerName, color, hat, eyeStyle });
   }
 
-  public updateProfile(playerName: string, color: string, hat: Hat) {
-    this.send({ type: "UPDATE_PROFILE", playerName, color, hat });
+  public updateProfile(playerName: string, color: string, hat: Hat, eyeStyle?: EyeStyle) {
+    this.send({ type: "UPDATE_PROFILE", playerName, color, hat, ...(eyeStyle ? { eyeStyle } : {}) });
   }
 
   public toggleReady(ready?: boolean) {
     this.send({ type: "TOGGLE_READY", ready });
   }
 
-  public updateRoomConfig(targetPlayers: number, botFill: boolean) {
-    this.send({ type: "UPDATE_ROOM_CONFIG", targetPlayers, botFill });
+  public updateRoomConfig(targetPlayers: number, botFill: boolean, hollowCount = this.hollowCount, chaosMoonsway = this.chaosMoonsway) {
+    this.send({ type: "UPDATE_ROOM_CONFIG", targetPlayers, botFill, hollowCount, chaosMoonsway });
   }
 
   public requestRoomsList() {
     this.send({ type: "LIST_ROOMS" });
   }
 
-  public startMatch(botFill = true, targetPlayers = 6) {
-    this.send({ type: "START_MATCH", botFill, targetPlayers });
+  public startMatch(botFill = true, targetPlayers = 6, hollowCount = this.hollowCount, chaosMoonsway = this.chaosMoonsway) {
+    this.send({ type: "START_MATCH", botFill, targetPlayers, hollowCount, chaosMoonsway });
   }
 
-  public sendInput(x: number, y: number, vx: number, vy: number, angle: number, flashlight: boolean) {
+  public sendInput(x: number, y: number, vx: number, vy: number, angle: number, flashlight: boolean, working?: boolean) {
     const seq = ++this.inputSeq;
-    this.send({ type: "PLAYER_INPUT", x, y, vx, vy, angle, flashlight, seq });
+    this.send({ type: "PLAYER_INPUT", x, y, vx, vy, angle, flashlight, ...(working ? { working: true } : {}), seq });
     return seq;
   }
 
-  public sendKill(victimId: string) {
-    this.send({ type: "TRIGGER_KILL", victimId });
+  public sendKill(victimId: string, style: "NORMAL" | "STEALTH" = "NORMAL") {
+    this.send({ type: "TRIGGER_KILL", victimId, style });
   }
 
   public sendReport(bodyId?: string) {
@@ -601,9 +702,28 @@ export class MultiplayerClient {
     this.send({ type: "USE_ITEM", item, x, y });
   }
 
+  public useAbility(ability: "MOON_SIGHT" | "ECHO_LURE", x: number, y: number, roundId: number) {
+    this.send({ type: "USE_ABILITY", ability, x, y, roundId });
+  }
+
   public sendTask(stationId: string, reward: ItemKind, roundId?: number) {
     this.send({ type: "TASK_UPDATE", stationId, reward, roundId });
   }
+
+  public pairRitual(stationId: string, active: boolean, roundId: number) {
+    this.send({ type: "PAIR_RITUAL", stationId, active, roundId });
+  }
+  public pairRune(stationId: string, rune: number, roundId: number) {
+    this.send({ type: "PAIR_RUNE", stationId, rune, roundId });
+  }
+
+  public setDifficulty(difficulty: RitualDifficulty) { this.send({ type: "SET_DIFFICULTY", difficulty }); }
+  public setMeetingDuration(seconds: number) { this.send({ type: "SET_MEETING_DURATION", seconds }); }
+  public setUtility(utility: UtilityKind) { this.send({ type: "SET_UTILITY", utility }); }
+  public useUtility(angle: number, roundId: number) { this.send({ type: "USE_UTILITY", angle, roundId }); }
+  public openRitual(stationId: string, roundId: number) { this.send({ type: "OPEN_RITUAL", stationId, roundId }); }
+  public answerRitual(challengeId: string, answer: number[], roundId: number) { this.send({ type: "ANSWER_RITUAL", challengeId, answer, roundId }); }
+  public cancelRitual() { this.send({ type: "CANCEL_RITUAL" }); }
 
   public sendChat(text: string) {
     this.send({ type: "SEND_CHAT", text });
@@ -665,6 +785,9 @@ export class MultiplayerClient {
       } catch {}
     }
     if (this.ws) {
+      // A close event can arrive after this client/component has been disposed.
+      // Do not let stale handlers touch browser timers or revive room state.
+      this.ws.onopen = this.ws.onclose = this.ws.onerror = this.ws.onmessage = null;
       this.ws.close();
       this.ws = null;
     }

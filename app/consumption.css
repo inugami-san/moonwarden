@@ -1,0 +1,3 @@
+.consumption-portrait { display: block; width: 260px; max-width: 100%; height: auto; aspect-ratio: 26 / 17; margin: 8px 0 14px; pointer-events: none; }
+/* Motion preference is also honored by the shared canvas attack renderer. */
+@media (prefers-reduced-motion: reduce) { .consumption-portrait { animation: none; } }

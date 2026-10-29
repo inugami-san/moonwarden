@@ -1,0 +1,83 @@
+.forest-map-dock { position: absolute; z-index: 6; top: 86px; left: 18px; width: 218px; overflow: hidden; border: 1px solid #9cbeac70; border-radius: 12px; color: #e5f0e3; background: #102f36f2; box-shadow: 0 8px 28px #071d2933; font-family: inherit; }
+.forest-map-dock:not(.is-open) { width: 178px; }
+.forest-map-dock button, .forest-map-dialog button { font-family: inherit; cursor: pointer; }
+.forest-map-dock button:focus-visible, .forest-map-dialog button:focus-visible { outline: 3px solid #ffe6aa; outline-offset: -3px; }
+.forest-map-dock-header { display: flex; align-items: center; min-height: 37px; }
+.forest-map-open { flex: 1; display: flex; align-items: center; gap: 8px; padding: 10px; border: 0; color: #e5eee1; background: transparent; text-align: left; font-size: 11px; font-weight: 750; }
+.forest-map-open kbd { margin-left: auto; padding: 1px 4px; border: 1px solid #b1c0a84d; border-radius: 3px; color: #c9d5bb; font-size: 9px; }
+.forest-map-collapse { align-self: stretch; min-width: 34px; padding: 5px 9px; border: 0; border-left: 1px solid #9cbeac24; color: #c6d5c0; background: #cbdfba08; font-size: 18px; }
+.forest-map-open:hover, .forest-map-collapse:hover { background: #cfdeb915; }
+.forest-map-compact { padding: 0 8px 9px; }
+.forest-map-preview { display: block; width: 100%; padding: 0; overflow: hidden; border: 1px solid #9cbeac28; border-radius: 7px; background: #18333a; }
+.forest-map-diagram { display: block; width: 100%; height: auto; }
+.forest-map-zone { fill: #d0d8be; font: 600 26px ui-monospace, monospace; letter-spacing: 1px; }
+.forest-map-north { fill: #b6c6b3; font: 700 28px ui-monospace, monospace; }
+.forest-map-veiled-label { fill: #acb5a3; font: 600 24px ui-monospace, monospace; letter-spacing: 1px; }
+.forest-map-destination { display: flex; align-items: center; gap: 5px; padding: 8px 3px 0; color: #ecddae; font-size: 10px; line-height: 1.3; }
+.forest-map-destination i { width: 6px; height: 6px; border: 1px solid #e1c78c; border-radius: 50%; flex: 0 0 6px; }
+.forest-map-root-note { display: block; padding: 4px 3px 0; color: #bec8b3; font-size: 9px; }
+.forest-map-dialog { width: min(1060px, calc(100vw - 40px)); max-width: none; max-height: calc(100dvh - 40px); margin: auto; padding: 0; overflow: auto; border: 1px solid #94b4a7; border-radius: 22px; color: #e9eee1; background: #143039; box-shadow: 0 30px 100px #031521b3; }
+.forest-map-dialog::backdrop { background: #071720b8; backdrop-filter: blur(6px); }
+.forest-map-sheet { padding: 26px 28px 16px; }
+.forest-map-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.forest-map-eyebrow { display: block; margin-bottom: 8px; color: #d9c68f; font: 700 9px ui-monospace, monospace; letter-spacing: .14em; }
+.forest-map-heading h2 { margin: 0; color: #f0f1de; font-size: clamp(21px, 2.6vw, 30px); line-height: 1.18; letter-spacing: -.04em; }
+.forest-map-heading p { max-width: 590px; margin: 9px 0 0; color: #bdd1c7; font-size: 12px; line-height: 1.5; }
+.forest-map-close { flex: 0 0 36px; height: 36px; border: 1px solid #b2c4ad55; border-radius: 50%; color: #e5e8cc; background: #c2dbbd0d; font-size: 25px; line-height: 1; }
+.forest-map-close:hover { background: #c2dbbd26; }
+.forest-map-layout { display: grid; grid-template-columns: minmax(0, 1fr) 294px; gap: 25px; margin-top: 24px; }
+.forest-map-main { min-width: 0; }
+.forest-map-main > .forest-map-diagram { overflow: hidden; border: 1px solid #96b7a34a; border-radius: 16px; background: radial-gradient(ellipse, #285159, #102830); }
+.forest-map-main > p { max-width: 580px; margin: 11px 3px 0; color: #b2c4ba; font-size: 11px; line-height: 1.6; }
+.forest-map-legend { display: flex; justify-content: center; flex-wrap: wrap; gap: 21px; margin-top: 13px; color: #d1ddc8; font-size: 10px; }
+.forest-map-legend span { display: flex; align-items: center; gap: 7px; }
+.forest-map-legend i { display: inline-block; width: 8px; height: 8px; }
+.forest-map-legend .is-you { border-radius: 50%; background: #c8fbef; box-shadow: 0 0 0 3px #c8fbef25; }
+.forest-map-legend .is-shrine { border: 1px solid #e8d39e; transform: rotate(45deg); background: #e8d39e; }
+.forest-map-legend .is-destination { border: 1px solid #f7d995; border-radius: 50%; box-shadow: 0 0 0 3px #f7d99520; }
+.forest-map-shrines h3 { margin: 0; font-size: 14px; line-height: 1.3; color: #f0e9c9; }
+.forest-map-shrine-intro { margin: 7px 0 13px; color: #b1c8bd; font-size: 10px; line-height: 1.5; }
+.forest-map-shrine-list { display: grid; gap: 7px; }
+.forest-map-shrine { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 53px; padding: 9px 10px; border: 1px solid #90af9b3b; border-radius: 9px; color: #dae6d7; background: #071f281f; text-align: left; transition: background .15s ease, border-color .15s ease; }
+.forest-map-shrine:hover { border-color: #d6c991a8; background: #bacbb21a; }
+.forest-map-shrine.is-selected { border-color: #e0c88f; background: #d7cda11c; box-shadow: inset 3px 0 #e0c88f; }
+.forest-map-shrine-icon { display: grid; place-items: center; width: 25px; height: 25px; flex: 0 0 25px; border: 1px solid #d4bf8780; border-radius: 7px; color: #f1d9a4; background: #d8bb790d; font-size: 19px; }
+.forest-map-shrine b { display: block; font-size: 11px; line-height: 1.4; }
+.forest-map-shrine small { display: block; margin-top: 3px; color: #bfcdb1; font-size: 9px; line-height: 1.35; }
+.forest-map-shrine-select { margin-left: auto; color: #dac68f; font-size: 17px; }
+.forest-map-shrine.is-claimed .forest-map-shrine-icon { border-color: #9ac2b573; color: #b1d8c6; }
+.forest-map-shrine.is-claimed small { color: #a2cbbb; }
+.forest-map-shrine:disabled { cursor: default; opacity: .75; }
+.forest-map-shrine:disabled:hover { border-color: #90af9b3b; background: #071f281f; }
+.forest-map-shrine.is-locked small { color: #cfbea2; }
+.forest-map-selected { margin-top: 16px; padding-top: 13px; border-top: 1px solid #93ae9b3b; }
+.forest-map-selected > span { color: #d3c38e; font: 600 8px ui-monospace, monospace; letter-spacing: .1em; }
+.forest-map-selected b { display: block; margin-top: 6px; color: #eef1da; font-size: 12px; }
+.forest-map-selected small, .forest-map-empty { display: block; margin-top: 7px; color: #b8cbbd; font-size: 10px; line-height: 1.5; }
+.forest-map-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 21px; padding-top: 14px; border-top: 1px solid #9eb59d3b; }
+.forest-map-footer > span { color: #a9c0b4; font-size: 10px; line-height: 1.4; }
+.forest-map-footer button { display: flex; align-items: center; justify-content: center; gap: 13px; flex: 0 0 auto; min-height: 38px; padding: 8px 13px; border: 1px solid #cbbb8680; border-radius: 8px; color: #eee8cc; background: #bdc29612; font-size: 11px; }
+.forest-map-footer kbd { padding: 2px 4px; border: 1px solid #cbbc855e; border-radius: 4px; color: #c9c7a5; font-size: 9px; }
+@media (max-width: 760px), (pointer: coarse) {
+  .forest-map-dock { top: 82px; left: 12px; width: 185px; }
+  .forest-map-dock:not(.is-open) { width: 157px; }
+  .forest-map-open { min-height: 40px; font-size: 10px; }
+  .forest-map-collapse { min-width: 40px; }
+  .forest-map-open kbd { display: none; }
+  .forest-map-dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); border-radius: 16px; }
+  .forest-map-sheet { padding: 20px 16px 14px; }
+  .forest-map-heading { gap: 12px; }
+  .forest-map-heading h2 { max-width: 300px; font-size: 22px; }
+  .forest-map-heading p { font-size: 11px; }
+  .forest-map-close { flex-basis: 40px; height: 40px; }
+  .forest-map-layout { grid-template-columns: 1fr; gap: 20px; margin-top: 20px; }
+  .forest-map-shrine-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .forest-map-shrine { min-height: 62px; gap: 7px; padding: 9px 7px; }
+  .forest-map-shrine b { font-size: 10px; }
+  .forest-map-shrine small { font-size: 9px; }
+  .forest-map-shrine-select { display: none; }
+  .forest-map-footer { flex-direction: column-reverse; gap: 13px; }
+  .forest-map-footer button { width: 100%; min-height: 44px; }
+  .forest-map-footer > span { text-align: center; }
+}
+@media (prefers-reduced-motion: reduce) { .forest-map-shrine { transition: none; } }

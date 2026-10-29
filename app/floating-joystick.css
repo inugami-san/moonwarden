@@ -1,0 +1,8 @@
+.game-stage { touch-action: none; }
+.floating-joystick { position: absolute; left: 0; top: 0; width: 108px; height: 108px; z-index: 12; border: 1px solid #e1d8f4a6; border-radius: 50%; background: radial-gradient(circle, #c4b8dc17, #1f243746); box-shadow: inset 0 0 22px #d9d5ec14, 0 6px 25px #10182730; transform: translate(calc(var(--stick-x, 0px) - 54px), calc(var(--stick-y, 0px) - 54px)); pointer-events: none; opacity: 0; visibility: hidden; }
+.floating-joystick[data-active="true"] { opacity: 1; visibility: visible; }
+.joystick-orbit { position: absolute; inset: 12px; border: 1px dashed #f1dfbd52; border-radius: 50%; }
+.joystick-thumb { position: absolute; left: 31px; top: 31px; width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid #eee4c7e6; border-radius: 50%; background: radial-gradient(circle at 35% 25%, #f3ead8de, #b8aec6a8 60%, #71678fb8); box-shadow: 0 3px 12px #17233c50, inset 0 1px 2px #ffffffa0; transform: translate(var(--thumb-x, 0px), var(--thumb-y, 0px)); }
+.joystick-thumb i { width: 9px; height: 9px; border-radius: 50%; border: 1px solid #f9f4e8c2; background: #77658e80; }
+.joystick-hint { display: none; position: absolute; left: max(16px, env(safe-area-inset-left)); bottom: 22px; pointer-events: none; color: #edf0e4b5; font: 10px/1.4 sans-serif; text-shadow: 0 1px 4px #14252e; }
+@media (pointer: coarse) { .joystick-hint { display: block; } }

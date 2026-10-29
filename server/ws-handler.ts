@@ -1,8 +1,10 @@
 import { gameRegistry, IWebSocketClient } from "./game-room";
 import type { C2SMessage, S2CMessage } from "./game-types";
+import { GAME_RELEASE_VERSION, GAME_VERSION_MISMATCH, GAME_WORLD_VERSION } from "./game-version";
 
 export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?: string) {
   let currentRoomCode: string | null = null;
+  let compatible = false;
   const playerId: string =
     customPlayerId || `player-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
@@ -22,6 +24,7 @@ export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?
   };
 
   const onMessage = (dataString: string) => {
+    if (socket.readyState !== 1) return;
     let msg: C2SMessage;
     try {
       msg = JSON.parse(dataString);
@@ -29,20 +32,48 @@ export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?
       return;
     }
     if (!msg || typeof msg !== "object" || typeof msg.type !== "string") return;
-    if ((msg.type === "CREATE_ROOM" || msg.type === "JOIN_ROOM" || msg.type === "UPDATE_PROFILE")
-      && (typeof msg.playerName !== "string" || typeof msg.color !== "string" || typeof msg.hat !== "string")) return;
-    if (msg.type === "JOIN_ROOM" && typeof msg.roomCode !== "string") return;
-    if (msg.type === "SEND_CHAT" && typeof msg.text !== "string") return;
-    if (msg.type === "UPDATE_ROOM_CONFIG" && !Number.isFinite(msg.targetPlayers)) return;
-    if (msg.type === "START_MATCH" && msg.targetPlayers !== undefined && !Number.isFinite(msg.targetPlayers)) return;
-    if (msg.type === "CAST_VOTE" && msg.targetId !== null && typeof msg.targetId !== "string") return;
-    if (msg.type === "USE_ITEM" && !["FLASHLIGHT", "FLARE", "SONAR"].includes(msg.item)) return;
-    if (msg.type === "TASK_UPDATE" && msg.roundId !== undefined && (!Number.isSafeInteger(msg.roundId) || msg.roundId < 1)) return;
-
+    if (msg.type === "CLIENT_HELLO") {
+      compatible = msg.worldVersion === GAME_WORLD_VERSION;
+      send({ type: "SERVER_INFO", worldVersion: GAME_WORLD_VERSION, compatible, version: GAME_RELEASE_VERSION });
+      if (!compatible) {
+        leaveCurrentRoom();
+        send({ type: "ERROR_ALERT", message: GAME_VERSION_MISMATCH });
+        socket.close();
+      }
+      return;
+    }
     if (msg.type === "PING") {
       if (Number.isFinite(msg.sentAt)) send({ type: "PONG", sentAt: msg.sentAt });
       return;
     }
+    if (!compatible) {
+      send({ type: "SERVER_INFO", worldVersion: GAME_WORLD_VERSION, compatible: false, version: GAME_RELEASE_VERSION });
+      send({ type: "ERROR_ALERT", message: GAME_VERSION_MISMATCH });
+      socket.close();
+      return;
+    }
+    if ((msg.type === "CREATE_ROOM" || msg.type === "JOIN_ROOM" || msg.type === "UPDATE_PROFILE")
+      && (typeof msg.playerName !== "string" || typeof msg.color !== "string" || typeof msg.hat !== "string")) return;
+    if (msg.type === "JOIN_ROOM" && typeof msg.roomCode !== "string") return;
+    if (msg.type === "SEND_CHAT" && typeof msg.text !== "string") return;
+    if (msg.type === "SET_DIFFICULTY" && !["STANDARD", "CHALLENGING"].includes(msg.difficulty)) return;
+    if (msg.type === "SET_MEETING_DURATION" && ![60, 75, 90].includes(msg.seconds)) return;
+    if (msg.type === "SET_UTILITY" && !["WISP_STEP", "WATCHROOT"].includes(msg.utility)) return;
+    if (msg.type === "USE_UTILITY" && (!Number.isFinite(msg.angle) || !Number.isSafeInteger(msg.roundId))) return;
+    if (msg.type === "OPEN_RITUAL" && (typeof msg.stationId !== "string" || !Number.isSafeInteger(msg.roundId))) return;
+    if (msg.type === "ANSWER_RITUAL" && (typeof msg.challengeId !== "string" || !Number.isSafeInteger(msg.roundId) || !Array.isArray(msg.answer) || msg.answer.length > 9 || !msg.answer.every(value => Number.isInteger(value) && value >= 0 && value < 4))) return;
+    if (msg.type === "UPDATE_ROOM_CONFIG" && !Number.isFinite(msg.targetPlayers)) return;
+    if (msg.type === "START_MATCH" && msg.targetPlayers !== undefined && !Number.isFinite(msg.targetPlayers)) return;
+    if ((msg.type === "START_MATCH" || msg.type === "UPDATE_ROOM_CONFIG") && msg.hollowCount !== undefined && !Number.isFinite(msg.hollowCount)) return;
+    if ((msg.type === "START_MATCH" || msg.type === "UPDATE_ROOM_CONFIG") && msg.chaosMoonsway !== undefined && typeof msg.chaosMoonsway !== "boolean") return;
+    if (msg.type === "PAIR_RITUAL" && (typeof msg.stationId !== "string" || typeof msg.active !== "boolean" || !Number.isSafeInteger(msg.roundId))) return;
+    if (msg.type === "PAIR_RUNE" && (typeof msg.stationId !== "string" || ![0, 1].includes(msg.rune) || !Number.isSafeInteger(msg.roundId))) return;
+    if (msg.type === "TRIGGER_KILL" && (typeof msg.victimId !== "string" || (msg.style !== undefined && !["NORMAL", "STEALTH"].includes(msg.style)))) return;
+    if (msg.type === "CAST_VOTE" && msg.targetId !== null && typeof msg.targetId !== "string") return;
+    if (msg.type === "USE_ITEM" && !["FLASHLIGHT", "FLARE", "SONAR"].includes(msg.item)) return;
+    if (msg.type === "USE_ABILITY" && (!["MOON_SIGHT", "ECHO_LURE"].includes(msg.ability)
+      || ![msg.x, msg.y].every(Number.isFinite) || !Number.isSafeInteger(msg.roundId))) return;
+    if (msg.type === "TASK_UPDATE" && msg.roundId !== undefined && (!Number.isSafeInteger(msg.roundId) || msg.roundId < 1)) return;
 
     if (msg.type === "LIST_ROOMS") {
       send({ type: "ROOMS_LIST", rooms: gameRegistry.listOpenRooms() });
@@ -53,7 +84,7 @@ export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?
       leaveCurrentRoom();
       const room = gameRegistry.createRoom();
       currentRoomCode = room.code;
-      room.addClient(playerId, socket, msg.playerName, msg.color, msg.hat);
+      room.addClient(playerId, socket, msg.playerName, msg.color, msg.hat, msg.eyeStyle);
       return;
     }
 
@@ -74,7 +105,7 @@ export function handleSocketConnection(socket: IWebSocketClient, customPlayerId?
       }
       leaveCurrentRoom();
       currentRoomCode = room.code;
-      room.addClient(playerId, socket, msg.playerName, msg.color, msg.hat);
+      room.addClient(playerId, socket, msg.playerName, msg.color, msg.hat, msg.eyeStyle);
       return;
     }
 

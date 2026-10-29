@@ -1,20 +1,109 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { MultiplayerClient, type MultiplayerState } from "./network";
-import type { NetMovement, NetPlayer, S2CMessage } from "../server/game-types";
+import type { NetMovement, NetPlayer, PairRitualState, S2CMessage } from "../server/game-types";
+import { FloatingJoystick } from "./floating-joystick";
+import { movementVector, type MoveVector } from "./joystick-input";
+import { PAIR_RITUAL_SECONDS, PairedRituals } from "../server/pair-ritual";
+import { FieldNotebook, MeetingObservations } from "./field-notebook";
+import type { KnownName, ObservationNote } from "./field-notes";
+import { banishmentOutcome, type BanishmentOutcome } from "./banishment";
+import { BanishmentOverlay } from "./banishment-overlay";
+import { matchVictory, type MatchVictory } from "./match-victory";
+import { VictoryOverlay } from "./victory-overlay";
+import { RoleReveal } from "./role-reveal";
+import { ROLE_LABELS, ejectionVerdict, meetingVerdictLabel } from "../server/role-presentation";
+import { GAME_RELEASE_LABEL, GAME_RELEASE_VERSION, GAME_WORLD_VERSION } from "../server/game-version";
+import { createMatchLayout } from "../server/match-layout";
+import { clampHollowCount, hollowVictory, resolveReporterVote, REPORTER_VOTE_DRIFT_CHANCE, type VoteReceipt, WARD_SETTLE_SECONDS, STEALTH_BODY_DELAY_SECONDS, STEALTH_COOLDOWN_SECONDS, STEALTH_ORDEAL_LOCKOUT } from "../server/match-rules";
 import { MovementBuffer } from "./movement";
-import { slimeOutline, slimeSkin } from "./slime-art";
-import { drawForestSanctum } from "./sanctum-art";
-import { PLAYER_COLORS as COLORS } from "../server/palette";
+import { drawAnimatedCat, sampleCatGait } from "./cat-art";
+import { SlimePortrait } from "./cat-portrait";
+import { WardrobePreview } from "./wardrobe-preview";
+import { CatHead } from "./cat-head";
+import { EyeStylePicker } from "./eye-style-picker";
+import { EYE_LABELS } from "./cat-eyes";
+import { SlimeAnimator } from "./cat-motion";
+import { ACCESSORY_FRAME, drawAccessory, drawWornAccessory, isCollar } from "./accessory-art";
+import { EYE_STYLES, normalizeEyeStyle, type EyeStyle } from "../server/appearance";
+import { drawForestSanctum, drawSanctumStatus } from "./sanctum-art";
+import { availablePlayerName, PLAYER_COLORS as COLORS, randomWardenCallsign, WARDEN_CALLSIGNS } from "../server/palette";
+import {
+  ECHO_RANGE,
+  HEARING_RANGE,
+  MIRROR_BUMP_COOLDOWN_MS,
+  MIRROR_BUMP_DISTANCE,
+  MOON_SIGHT_SECONDS,
+  SANCTUARY_OBSTACLES,
+  nextHazard,
+  ordealDuration,
+  phantomPaths,
+  resolveObstacleMovement,
+  resolveObstaclePosition,
+  sanctuaryZoneName,
+  type SanctuaryObstacle,
+} from "../server/ordeal-rules";
+import { ForestAudio, soundDirection } from "./forest-audio";
+import { drawMoonGlade } from "./moon-glade";
+import { drawForestObstacle, drawGroundResponse } from "./forest-art";
+import { forestSpritesReady } from "./forest-sprites";
+import { drawFallenCat, loadFallenCat } from "./fallen-cat-art";
+import { ForestAtmosphere } from "./forest-atmosphere";
+import { fittedCanvasBounds } from "./canvas-bounds";
+import { HomeAtmosphere, HomeGrove } from "./home-field-guide";
+import { MenuGroveBackdrop } from "./home-backdrop";
+import { CompactFieldGuide, GameMenu, MENU_TITLES, pageWindow, type MenuScreen } from "./game-menu";
+import { FirstSteps } from "./first-steps";
+import { HollowLesson } from "./hollow-lesson";
+import { shouldShowFirstSteps, subscribeFirstSteps } from "./intro-state";
+import { ObjectiveStrip, EarnedGearDock, RewardHandoff } from "./player-guidance";
+import { drawHarmonizeInvitation } from "./harmonize-invitation";
+import { ReportAction } from "./report-action";
+import { TallyRoster, VoteRoster, useDiscussionCountdown } from "./meeting-roster";
+import { MEETING_DISCUSSION_MS } from "../server/match-rules";
+import { RestorationLedger } from "../server/match-rules";
+import { rootwakeEnvelope, rootwakeMove, rootGatesOpen, ROOT_GATES, ROOT_GATE_Y, SHADE_POCKETS, SHADE_RADIUS, overgrownStationIndex, lurePoint } from "../server/sanctuary-design";
+import { createRitual, ritualAnswerIsCorrect, RITUAL_LABELS, type RitualChallenge, type RitualDifficulty, type RitualKind } from "../server/forest-rituals";
+import { ForestUtilities, UTILITY_LABELS, type UtilityKind } from "../server/forest-utilities";
+import { ForestRitual } from "./forest-ritual";
+import { DEVOUR_SECONDS, drawCatConsumption, type DevourVisual } from "./cat-devour";
+import { ConsumptionPortrait } from "./consumption-portrait";
+import { trackGameEvent } from "./analytics";
+import { GameAnalyticsLifecycle } from "./analytics-game";
+import { AnalyticsSettingsButton } from "./analytics-consent";
+import { NavigationMap } from "./navigation-map";
+import { GameGlyph, GameplaySettings } from "./gameplay-controls";
+import { LandscapeGuard, useLandscapeRequired } from "./gameplay-orientation";
+import { TaskHoldGauge } from "./task-hold-gauge";
+import { holdTaskProgress, TASK_HOLD_SECONDS } from "./task-hold";
+import { WORLD_WIDTH, WORLD_HEIGHT, VIEW_WIDTH, VIEW_HEIGHT, ROOM, PLAYER_BOUNDS, CENTER, CALM_SECONDS, ROOT_BARRIERS, STATIONS, getRootCell, sharesRootCell, clampWorldPoint } from "../server/sanctuary-map";
+import { planRoute } from "../server/sanctuary-paths";
+import { cameraViewport, cameraTarget, followCamera, viewportToWorld } from "./world-camera";
+import { sightAt, type Sight, type SightPoint, type SightKind } from "../server/visibility";
+import { advanceEmergency, afterMeeting, finishFirstOrdeal, initialEmergencyState, reportAvailability } from "../server/report-rules";
+import { preparationStation } from "./warden-objectives";
+import { drawRestorationGarden, restorationTier, RESTORATION_MESSAGES } from "./restoration-art";
+import "./warden-exploration.css";
+import "./next-chapter.css";
+import "./gameplay-hud.css";
+import "./app-menu.css";
+import "./wardrobe.css";
+import "./home-backdrop.css";
+import "./first-steps.css";
+import "./hollow-lesson.css";
+import "./role-reveal.css";
+import "./player-guidance.css";
+import "./clarity.css";
 
 type Role = "CREWMATE" | "IMPOSTOR";
 type RoleChoice = Role | "RANDOM";
 type Phase = "CALM" | "COUNTDOWN" | "ORDEAL" | "DISCUSSION";
-type Hazard = "BLACKOUT" | "FOG" | "MOONGLARE" | "ROOTWAKE" | "PHANTOMS";
+type Hazard = "BLACKOUT" | "FOG" | "MOONGLARE" | "ROOTWAKE" | "PHANTOMS" | "MIRROR_POOL";
 type ItemKind = "FLASHLIGHT" | "FLARE" | "SONAR";
-type Hat = "antlers" | "hood" | "moth" | "mooncap";
-type PuzzleKind = "MATH" | "LINK";
+type Hat = import("../server/game-types").Hat;
+type SoloProfile = { name: string; color: string; hat: Hat; eyeStyle: EyeStyle; difficulty?: RitualDifficulty; utility?: UtilityKind; meetingSeconds?: number };
+type PuzzleKind = "MATH" | "LINK" | RitualKind;
 
 type Player = {
   id: string;
@@ -26,7 +115,9 @@ type Player = {
   vy: number;
   angle?: number;
   color: string;
+  trueColor?: string;
   hat: Hat;
+  eyeStyle: EyeStyle;
   alive: boolean;
   ai: boolean;
   targetX: number;
@@ -34,6 +125,7 @@ type Player = {
   thinkAt: number;
   atStation: number;
   flashlight: boolean;
+  working?: boolean;
   flareDropped: boolean;
   gearCharges: Record<ItemKind, number>;
 };
@@ -46,6 +138,8 @@ type Station = {
   pulse: number;
   cooldown: number;
   completed: boolean;
+  teamRestored?: boolean;
+  pending?: boolean;
   completedAt?: number;
   rootClosure?: number;
   reward: ItemKind;
@@ -56,6 +150,7 @@ type Body = { id: string; x: number; y: number; color: string; name: string; age
 type Flare = { x: number; y: number; life: number; owner: string };
 
 type Snapshot = {
+  utility?: { kind: UtilityKind; charge: number; cooldown: number };
   phase: Phase;
   time: number;
   hazard: Hazard;
@@ -68,19 +163,32 @@ type Snapshot = {
   canKill: boolean;
   killCooldown: number;
   killSpent: boolean;
+  stealthCooldown: number;
+  stealthOrdealsLeft: number;
+  taskFailure: string;
   canUseMoonSight: boolean;
   moonSightActive: boolean;
+  soundCaption: string;
   canReport: boolean;
+  reportLabel: string;
+  reportHint: string;
   taskPrompt: boolean;
   taskMode: "PUZZLE" | "HOLD" | null;
-  stationStatus: { label: string; completed: boolean; reward: ItemKind } | null;
-  rewardNotice: { item: ItemKind; station: string } | null;
+  taskHoldProgress: number;
+  taskHolding: boolean;
+  stationStatus: { label: string; completed: boolean; reward: ItemKind; teamRestored?: boolean; pending?: boolean; overgrown?: boolean } | null;
+  overgrownStation?: string;
+  rewardNotice: { item: ItemKind; station: string; progress?: number } | null;
+  navigation: { x: number; y: number; personalCompleted: string[]; teamRestored: string[]; destinationId: string | null };
   humanAlive: boolean;
   message: string;
   localPlayerId: string;
+  pairRitual: PairRitualState | null;
+  locationName: string;
 };
 
 type TaskPuzzle = {
+  challenge?: RitualChallenge;
   stationIndex: number;
   stationLabel: string;
   reward: ItemKind;
@@ -95,6 +203,16 @@ type TaskPuzzle = {
 type DeathReveal = {
   killerName: string;
   killerColor: string;
+  victimColor?: string;
+};
+
+type DevourEvent = DevourVisual & {
+  witnessed: SightKind;
+  id: string;
+  killerId?: string;
+  startedAt: number;
+  duration: number;
+  lastChomp: number;
 };
 
 type KillNotice = {
@@ -114,13 +232,20 @@ type VoteTally = {
   targetId: string | null;
   targetName: string;
   targetColor: string | null;
+  targetEyeStyle?: EyeStyle;
   votes: number;
   isTop: boolean;
 };
 
 type Meeting = {
+  endsAt?: number;
+  votingOpensAt?: number;
   reason: string;
   reporter: string;
+  bodyReporterId?: string | null;
+  localVote?: VoteReceipt;
+  votePending?: boolean;
+  voteError?: string;
   candidates: Player[];
   tally?: VoteTally[];
   ejectedId?: string | null;
@@ -130,44 +255,27 @@ type Meeting = {
   accusations: Record<string, string | null>;
 };
 
-type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; color: string };
-type RootBarrier = { x: number; y: number; w: number; h: number };
-type RootCell = { x: number; y: number; w: number; h: number; column: number; row: number; index: number };
-
-const W = 1280;
-const H = 760;
-const ROOM = { left: 76, top: 72, right: 1204, bottom: 690 };
-const ROOT_BARRIERS: RootBarrier[] = [
-  { x: 432, y: ROOM.top, w: 36, h: ROOM.bottom - ROOM.top },
-  { x: 812, y: ROOM.top, w: 36, h: ROOM.bottom - ROOM.top },
-  { x: ROOM.left, y: 362, w: ROOM.right - ROOM.left, h: 36 },
-];
-const PHANTOM_SEEDS = [
-  { x: 235, y: 230, rx: 112, ry: 74, speed: 0.84, phase: 0.2 },
-  { x: 485, y: 520, rx: 148, ry: 82, speed: 0.68, phase: 1.7 },
-  { x: 670, y: 245, rx: 132, ry: 96, speed: 0.76, phase: 3.1 },
-  { x: 965, y: 500, rx: 124, ry: 88, speed: 0.72, phase: 4.4 },
-  { x: 1040, y: 220, rx: 92, ry: 105, speed: 0.9, phase: 5.6 },
-];
+type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; color: string; sourceX: number; sourceY: number };
+const W = WORLD_WIDTH;
+const H = WORLD_HEIGHT;
 const NAMES = ["Bubbles", "Mochi", "Gloop", "Pebble", "Nori", "Fizz", "Wobble", "Pip"];
 const WARDEN_ALIBIS = ["Cute hat. Very convincing alibi.", "My alibi? Excellent moon-gazing.", "I swear the fog followed me here."];
-const HATS: Hat[] = ["antlers", "hood", "moth", "mooncap"];
-const ITEM_LABELS: Record<ItemKind, string> = { FLASHLIGHT: "Flashlight", FLARE: "Signal Flare", SONAR: "Sonar" };
+const HATS: Hat[] = ["moonbell", "leafband", "starlock", "mothbow", "antlers", "hood", "moth", "mooncap"];
+const ITEM_LABELS: Record<ItemKind, string> = { FLASHLIGHT: "Glowing Mushroom", FLARE: "Moonblossom", SONAR: "Echo Bell" };
 const HAZARD_LABELS: Record<Hazard, string> = {
   BLACKOUT: "TOTAL BLACKOUT",
   FOG: "THICK SEA FOG",
   MOONGLARE: "MOON GLARE",
   ROOTWAKE: "ROOTWAKE",
   PHANTOMS: "PHANTOM PROCESSION",
+  MIRROR_POOL: "MIRROR POOL",
 };
 const ITEM_DESCRIPTIONS: Record<ItemKind, string> = {
-  FLASHLIGHT: "Cuts a focused path through total darkness",
-  FLARE: "Creates a shared circle of light for five seconds",
-  SONAR: "Reveals movement and exposes Phantom Procession decoys",
+  FLASHLIGHT: "Aim its moonlit spores to light the path for seven seconds",
+  FLARE: "Plant a shared circle of soft light for five seconds",
+  SONAR: "Ring for six seconds of movement echoes and phantom detection",
 };
 const KILL_COOLDOWN_SECONDS = 1.6;
-const MOON_SIGHT_SECONDS = 3.2;
-const TASK_PROGRESS_REWARD = 17;
 
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -175,66 +283,13 @@ const choose = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length
 
 function rootwakeStrength(phase: Phase, hazard: Hazard, phaseTime: number) {
   if (phase !== "ORDEAL" || hazard !== "ROOTWAKE") return 0;
-  const risen = clamp((10 - phaseTime) / 0.75, 0, 1);
-  const receding = clamp(phaseTime / 0.55, 0, 1);
-  return Math.min(risen, receding);
-}
-
-function resolveRootPosition(x: number, y: number, radius = 30) {
-  let resolvedX = x;
-  let resolvedY = y;
-  for (const barrier of ROOT_BARRIERS) {
-    const left = barrier.x - radius;
-    const right = barrier.x + barrier.w + radius;
-    const top = barrier.y - radius;
-    const bottom = barrier.y + barrier.h + radius;
-    if (resolvedX <= left || resolvedX >= right || resolvedY <= top || resolvedY >= bottom) continue;
-    const exits = [
-      { distance: resolvedX - left, axis: "x" as const, value: left },
-      { distance: right - resolvedX, axis: "x" as const, value: right },
-      { distance: resolvedY - top, axis: "y" as const, value: top },
-      { distance: bottom - resolvedY, axis: "y" as const, value: bottom },
-    ].sort((a, b) => a.distance - b.distance);
-    if (exits[0].axis === "x") resolvedX = exits[0].value;
-    else resolvedY = exits[0].value;
-  }
-  return { x: resolvedX, y: resolvedY };
-}
-
-function getRootCell(x: number, y: number): RootCell {
-  const [leftRoot, rightRoot, middleRoot] = ROOT_BARRIERS;
-  const column = x < leftRoot.x + leftRoot.w / 2 ? 0 : x < rightRoot.x + rightRoot.w / 2 ? 1 : 2;
-  const row = y < middleRoot.y + middleRoot.h / 2 ? 0 : 1;
-  const columnBounds = [
-    [ROOM.left, leftRoot.x],
-    [leftRoot.x + leftRoot.w, rightRoot.x],
-    [rightRoot.x + rightRoot.w, ROOM.right],
-  ];
-  const rowBounds = [
-    [ROOM.top, middleRoot.y],
-    [middleRoot.y + middleRoot.h, ROOM.bottom],
-  ];
-  const [cellLeft, cellRight] = columnBounds[column];
-  const [cellTop, cellBottom] = rowBounds[row];
-  return {
-    x: cellLeft,
-    y: cellTop,
-    w: cellRight - cellLeft,
-    h: cellBottom - cellTop,
-    column,
-    row,
-    index: row * 3 + column,
-  };
-}
-
-function sharesRootCell(a: { x: number; y: number }, b: { x: number; y: number }) {
-  return getRootCell(a.x, a.y).index === getRootCell(b.x, b.y).index;
+  return rootwakeEnvelope(phaseTime);
 }
 
 function initialSnapshot(role: Role = "CREWMATE"): Snapshot {
   return {
     phase: "CALM",
-    time: 15,
+    time: CALM_SECONDS,
     hazard: "BLACKOUT",
     taskProgress: 0,
     selectedItem: "FLASHLIGHT",
@@ -245,16 +300,27 @@ function initialSnapshot(role: Role = "CREWMATE"): Snapshot {
     canKill: false,
     killCooldown: 0,
     killSpent: false,
+    stealthCooldown: 0,
+    stealthOrdealsLeft: 0,
+    taskFailure: "",
     canUseMoonSight: false,
     moonSightActive: false,
+    soundCaption: "",
     canReport: false,
+    reportLabel: "Locked",
+    reportHint: "The emergency bell unlocks after the first Ordeal ends. Nearby fallen cats can always be reported.",
     taskPrompt: false,
     taskMode: null,
+    taskHoldProgress: 0,
+    taskHolding: false,
     stationStatus: null,
     rewardNotice: null,
+    navigation: { x: CENTER.x, y: CENTER.y, personalCompleted: [], teamRestored: [], destinationId: null },
     humanAlive: true,
     message: "",
     localPlayerId: "you",
+    pairRitual: null,
+    locationName: "WARDEN COURTYARD",
   };
 }
 
@@ -279,6 +345,7 @@ function muteHexColor(hex: string): string {
 
 function snapshotsEqual(a: Snapshot, b: Snapshot): boolean {
   return (
+    a.utility?.kind === b.utility?.kind && a.utility?.charge === b.utility?.charge && a.utility?.cooldown === b.utility?.cooldown &&
     a.phase === b.phase
     && a.time === b.time
     && a.hazard === b.hazard
@@ -293,29 +360,67 @@ function snapshotsEqual(a: Snapshot, b: Snapshot): boolean {
     && a.canKill === b.canKill
     && a.killCooldown === b.killCooldown
     && a.killSpent === b.killSpent
+    && a.stealthCooldown === b.stealthCooldown && a.stealthOrdealsLeft === b.stealthOrdealsLeft && a.taskFailure === b.taskFailure
     && a.canUseMoonSight === b.canUseMoonSight
     && a.moonSightActive === b.moonSightActive
+    && a.soundCaption === b.soundCaption
     && a.canReport === b.canReport
+    && a.reportLabel === b.reportLabel && a.reportHint === b.reportHint
     && a.taskPrompt === b.taskPrompt
     && a.taskMode === b.taskMode
+    && a.taskHoldProgress === b.taskHoldProgress && a.taskHolding === b.taskHolding
     && a.humanAlive === b.humanAlive
     && a.message === b.message
     && a.localPlayerId === b.localPlayerId
+    && a.locationName === b.locationName
+    && a.pairRitual?.stationId === b.pairRitual?.stationId
+    && a.pairRitual?.progress === b.pairRitual?.progress
+    && a.pairRitual?.participants === b.pairRitual?.participants
+    && a.pairRitual?.beats === b.pairRitual?.beats
+    && a.pairRitual?.nextPlayerId === b.pairRitual?.nextPlayerId
+    && a.overgrownStation === b.overgrownStation
     && a.stationStatus?.label === b.stationStatus?.label
     && a.stationStatus?.completed === b.stationStatus?.completed
     && a.stationStatus?.reward === b.stationStatus?.reward
+    && a.stationStatus?.teamRestored === b.stationStatus?.teamRestored
+    && a.stationStatus?.pending === b.stationStatus?.pending
     && a.rewardNotice?.item === b.rewardNotice?.item
     && a.rewardNotice?.station === b.rewardNotice?.station
+    && a.rewardNotice?.progress === b.rewardNotice?.progress
+    && a.navigation.x === b.navigation.x && a.navigation.y === b.navigation.y
+    && a.navigation.destinationId === b.navigation.destinationId
+    && a.navigation.personalCompleted.join() === b.navigation.personalCompleted.join()
+    && a.navigation.teamRestored.join() === b.navigation.teamRestored.join()
   );
 }
 
 class OrdealEngine {
+  layoutSeed = 0;
+  obstacles = [...SANCTUARY_OBSTACLES];
+  private hollowIds = new Set<string>();
+  private initialHollows = 1;
+  private initialWardens = 0;
+  private pendingWardDelta = 0;
+  private restorationLedger = new RestorationLedger();
+  private wardSettleTimer = 0;
+  private stealthUntil = 0;
+  private stealthAvailableOrdeal = 0;
+  private ordealNumber = 0;
+  private emergency = initialEmergencyState();
+  private botStrikeSpent = new Set<string>();
+  private pendingBodies: { body: Body; at: number }[] = [];
+  private pendingKillStealth = false;
+  private taskFailure = "";
+  private taskFailureUntil = 0;
+  private lastQuestions = new Map<string, string>();
+  private wardClaims = new Set<string>();
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
   mask: HTMLCanvasElement;
   maskCtx: CanvasRenderingContext2D;
   bgCanvas: HTMLCanvasElement;
   bgCtx: CanvasRenderingContext2D;
+  private forestAtmosphere = new ForestAtmosphere();
   players: Player[] = [];
   stations: Station[] = [];
   stationRound = 1;
@@ -323,26 +428,78 @@ class OrdealEngine {
   bodies: Body[] = [];
   flares: Flare[] = [];
   particles: Particle[] = [];
+  devourEvents: DevourEvent[] = [];
+  devourShakeUntil = 0;
+  devourShakePower = 0;
   suspicion = new Map<string, Map<string, number>>();
   keys = new Set<string>();
   touchKeys = new Set<string>();
+  moveVector: MoveVector = { vx: 0, vy: 0 };
+  private joystickAim: { x: number; y: number } | null = null;
+  chaosMoonsway = false;
+  pairRitual: PairRitualState | null = null;
+  private pairedRituals = new PairedRituals();
+  private pairStationId: string | null = null;
+  private pairHeartbeatAt = 0;
+  notebookOpen = false;
   mouse = { x: W * 0.72, y: H * 0.45 };
   phase: Phase = "CALM";
-  phaseTime = 15;
+  phaseTime = CALM_SECONDS;
   hazard: Hazard = "BLACKOUT";
   taskProgress = 0;
   selectedItem: ItemKind = "FLASHLIGHT";
   charges: Record<ItemKind, number> = { FLASHLIGHT: 0, FLARE: 0, SONAR: 0 };
   itemActiveUntil = 0;
   taskHold = 0;
+  private taskHoldStation: string | null = null;
   killCooldownUntil = 0;
   killUsedThisOrdeal = false;
+  private pendingDevourVictimId: string | null = null;
   moonSightUntil = 0;
   moonSightUsedThisOrdeal = false;
-  rewardNotice: { item: ItemKind; station: string } | null = null;
+  private abilityPending = false;
+  private ordealSeed = 1;
+  private phantomRoutes = phantomPaths(1);
+  private echoes: { x: number; y: number; angle: number; until: number; nextAt: number }[] = [];
+  private heardCueIds = new Set<string>();
+  private rootRipples: { x: number; y: number; until: number }[] = [];
+  private footsteps = new Map<string, { x: number; y: number; at: number }>();
+  private caption = "";
+  private captionUntil = 0;
+  private lastCaptionAt = -1;
+  private localStep = { x: 0, y: 0, at: -1 };
+  private restorationSeen = 0;
+  utilities = new ForestUtilities();
+  private ritualDifficulty: RitualDifficulty = "STANDARD";
+  private meetingSeconds = 75;
+  private ritualAttempts = new Map<string, number>();
+  private ritualOpenPending: string | null = null;
+  private utilityPending = false;
+  private utilityTrails: { from: { x: number; y: number }; to: { x: number; y: number }; until: number }[] = [];
+  private restorationAmbienceAt = 0;
+  audio = new ForestAudio();
+  lowGlare = false;
+  private slimeAnimator = new SlimeAnimator();
+  private motionPreference: MediaQueryList | null = null;
+  public reducedMotion = false;
+  private onMotionPreferenceChange = (event: MediaQueryListEvent) => { this.reducedMotion = event.matches; };
+  rewardNotice: { item: ItemKind; station: string; progress?: number } | null = null;
   rewardNoticeUntil = 0;
+  viewWidth = VIEW_WIDTH;
+  viewHeight = VIEW_HEIGHT;
+  camera = { x: 0, y: 0 };
+  private pointerViewport = { x: VIEW_WIDTH * 0.72, y: VIEW_HEIGHT * 0.45 };
+  navigationOpen = false;
+  orientationBlocked = false;
+  private destinationId: string | null = null;
+  private botRites = new Map<string, Set<string>>();
+  private botWork = new Map<string, { station: string; duration: number }>();
+  private botRoutes = new Map<string, { targetX: number; targetY: number; root: boolean; points: { x: number; y: number }[] }>();
 
   burst(x: number, y: number, color: string, count = 20) {
+    // Never create a hidden event's particles for a later-arriving observer.
+    const sight = this.visibilityFor({ x, y }, this.human, false);
+    if (sight.kind === "HIDDEN") return;
     for (let i = 0; i < count; i += 1) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 40 + Math.random() * 120;
@@ -354,8 +511,61 @@ class OrdealEngine {
         life: 0.6 + Math.random() * 0.5,
         max: 1.1,
         size: 2 + Math.random() * 3.5,
-        color,
+        color: sight.kind === "SHAPE" ? "#b5c1c4" : color,
+        sourceX: x,
+        sourceY: y,
       });
+    }
+  }
+
+  startDevour(bodyId: string, x: number, y: number, victimColor: string, killerId?: string, killerColor = "#ff4265") {
+    const existing = this.devourEvents.find((event) => event.id === bodyId);
+    if (existing) {
+      // The victim's private reveal may arrive after the anonymous body packet.
+      if (killerId) {
+        const killer = this.players.find((player) => player.id === killerId);
+        existing.killerId = killerId;
+        existing.killerColor = killerColor;
+        existing.startX = killer?.x ?? existing.startX;
+        existing.startY = killer?.y ?? existing.startY;
+        if (killerId === this.localPlayerId || bodyId === this.localPlayerId || bodyId === `body-${this.localPlayerId}`) existing.witnessed = "IDENTIFIED";
+      }
+      return;
+    }
+    const isVictim = bodyId === this.localPlayerId || bodyId === `body-${this.localPlayerId}`;
+    const isKiller = killerId === this.localPlayerId || Boolean(this.pendingDevourVictimId && bodyId === `body-${this.pendingDevourVictimId}`);
+    if (isKiller) this.pendingDevourVictimId = null;
+    const isDirect = isVictim || isKiller;
+    // Do not guess another player's role from proximity or move their collider.
+    const resolvedKillerId = killerId ?? (isKiller ? this.localPlayerId : undefined);
+    const resolvedKiller = resolvedKillerId ? this.players.find((p) => p.id === resolvedKillerId) : undefined;
+    const sight = this.visibilityFor({ x, y }, this.human, false);
+    const killerSight = resolvedKiller ? this.visibilityFor(resolvedKiller, this.human, false) : sight;
+    const witnessed: SightKind = isDirect ? "IDENTIFIED" : sight.kind === "HIDDEN" || killerSight.kind === "HIDDEN" ? "HIDDEN" : sight.kind === "SHAPE" || killerSight.kind === "SHAPE" ? "SHAPE" : "IDENTIFIED";
+    this.devourEvents.push({
+      witnessed,
+      id: bodyId,
+      x,
+      y,
+      victimColor,
+      killerId: resolvedKillerId,
+      killerColor: resolvedKiller?.color || "#637a7b",
+      startX: resolvedKiller?.x ?? x - 34,
+      startY: resolvedKiller?.y ?? y,
+      startedAt: this.elapsed,
+      duration: DEVOUR_SECONDS,
+      lastChomp: 0,
+    });
+    if (!this.reducedMotion && witnessed !== "HIDDEN") this.burst(x, y + 4, "#d9edc4", 8);
+    if (!this.reducedMotion && (isDirect || witnessed !== "HIDDEN")) {
+      this.devourShakeUntil = this.elapsed + 0.32;
+      this.devourShakePower = isDirect ? 3 : 1.2;
+    }
+    const sameChamber = this.phase !== "ORDEAL" || this.hazard !== "ROOTWAKE" || sharesRootCell(this.human, { x, y });
+    if (isDirect || sameChamber) this.audio.devour(this.human, { x, y }, isDirect);
+    if (!isDirect && sameChamber && this.human.alive && dist(this.human, { x, y }) <= HEARING_RANGE) {
+      this.caption = "A strange gulp nearby";
+      this.captionUntil = this.elapsed + 1.8;
     }
   }
   frame = 0;
@@ -368,8 +578,9 @@ class OrdealEngine {
   gameOver = false;
   activeMeeting: Meeting | null = null;
   activePuzzle: TaskPuzzle | null = null;
-  message = "Approach a moon shrine. Press or hold E to restore its ward.";
-  messageUntil = 4;
+  // The contextual objective supplies role-correct first steps without a second toast.
+  message = "";
+  messageUntil = 0;
   onSnapshot: (snapshot: Snapshot) => void;
   onMeeting: (meeting: Meeting | null) => void;
   onPuzzle: (puzzle: TaskPuzzle | null) => void;
@@ -385,7 +596,7 @@ class OrdealEngine {
   private lastInputHeartbeat = 0;
   private canvasRect: DOMRect | null = null;
   private lastSnapshot: Snapshot | null = null;
-  private lastSentInput = { x: -1, y: -1, vx: 0, vy: 0, angle: 0, flashlight: false };
+  private lastSentInput = { x: -1, y: -1, vx: 0, vy: 0, angle: 0, flashlight: false, working: false };
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -400,14 +611,20 @@ class OrdealEngine {
     multiplayerClient?: MultiplayerClient | null,
     initialPlayers?: NetPlayer[],
     assignedRole?: Role,
+    soloProfile?: SoloProfile,
+    matchOptions?: { layoutSeed?: number; hollowCount?: number; hollowAllies?: string[]; chaosMoonsway?: boolean },
   ) {
     this.canvas = canvas;
+    this.resetInput = this.resetInput.bind(this);
+    this.motionPreference = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
+    this.reducedMotion = this.motionPreference?.matches ?? false;
+    this.motionPreference?.addEventListener("change", this.onMotionPreferenceChange);
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Canvas is not supported in this browser.");
     this.ctx = context;
     this.mask = document.createElement("canvas");
-    this.mask.width = W;
-    this.mask.height = H;
+    this.mask.width = VIEW_WIDTH;
+    this.mask.height = VIEW_HEIGHT;
     const maskContext = this.mask.getContext("2d");
     if (!maskContext) throw new Error("Offscreen canvas is not supported.");
     this.maskCtx = maskContext;
@@ -424,20 +641,35 @@ class OrdealEngine {
     this.onKill = onKill;
     this.onDeath = onDeath;
     this.onEnd = onEnd;
-    this.makeStations();
+    this.audio.enabled = true;
+    this.layoutSeed = matchOptions?.layoutSeed ?? Math.floor(Math.random() * 4294967296);
+    const layout = createMatchLayout(this.layoutSeed);
+    this.obstacles = layout.obstacles;
+    this.makeStations(layout.stations);
+    this.renderStaticBackground();
+    this.hollowIds = new Set(matchOptions?.hollowAllies ?? []);
+    this.chaosMoonsway = matchOptions?.chaosMoonsway === true;
+    this.initialHollows = clampHollowCount(matchOptions?.hollowCount, count);
+    this.initialWardens = count - this.initialHollows;
     this.multiplayerClient = multiplayerClient || null;
     if (this.multiplayerClient && initialPlayers && initialPlayers.length > 0) {
       this.localPlayerId = this.multiplayerClient.playerId;
       this.initMultiplayerPlayers(initialPlayers, assignedRole);
       this.unsubscribeNet = this.multiplayerClient.onMessage((msg) => this.handleNetworkMessage(msg));
     } else {
-      this.makePlayers(count, roleChoice);
+      this.makePlayers(count, roleChoice, soloProfile, this.initialHollows);
+      this.hazard = nextHazard(this.hazard);
     }
+    this.utilities.select(this.localPlayerId, multiplayerClient?.utility ?? soloProfile?.utility);
+    this.ritualDifficulty = multiplayerClient?.puzzleDifficulty ?? soloProfile?.difficulty ?? "STANDARD";
+    this.meetingSeconds = multiplayerClient?.meetingSeconds ?? soloProfile?.meetingSeconds ?? 75;
     this.resize();
     window.addEventListener("resize", this.resize);
     window.addEventListener("scroll", this.updateRect, { passive: true });
     window.addEventListener("keydown", this.keyDown);
     window.addEventListener("keyup", this.keyUp);
+    window.addEventListener("blur", this.resetInput);
+    document.addEventListener("visibilitychange", this.visibilityChanged);
     canvas.addEventListener("pointermove", this.pointerMove);
     canvas.addEventListener("pointerdown", this.pointerMove);
     canvas.addEventListener("contextmenu", this.contextMenu);
@@ -449,20 +681,24 @@ class OrdealEngine {
     return this.players.find((p) => p.id === this.localPlayerId) || this.players[0];
   }
 
+  private mirrorBumpCooldowns = new Map<string, number>();
+
   initMultiplayerPlayers(initialPlayers: NetPlayer[], assignedRole?: Role) {
     this.players = initialPlayers.map((p) => {
       const isLocal = p.id === this.localPlayerId;
       return {
         id: p.id,
         name: isLocal ? `${p.name} (YOU)` : p.name,
-        role: isLocal ? (assignedRole || p.role || "CREWMATE") : "CREWMATE",
+        role: isLocal ? (assignedRole || p.role || "CREWMATE") : this.hollowIds.has(p.id) ? "IMPOSTOR" : "CREWMATE",
         x: p.x,
         y: p.y,
         vx: p.vx,
         vy: p.vy,
         angle: p.angle,
         color: p.color,
+        trueColor: p.color,
         hat: p.hat,
+        eyeStyle: normalizeEyeStyle(p.eyeStyle),
         alive: p.alive,
         ai: !!p.isAi,
         targetX: p.x,
@@ -478,23 +714,111 @@ class OrdealEngine {
 
   handleNetworkMessage(msg: S2CMessage) {
     switch (msg.type) {
+      case "RITUAL_CHALLENGE": {
+        if (msg.stationId !== this.ritualOpenPending) break;
+        this.ritualOpenPending = null;
+        const index = this.stations.findIndex(station => station.label === msg.stationId);
+        if (!msg.challenge || msg.roundId !== this.stationRound || index < 0 || !this.human.alive || this.paused || dist(this.stations[index], this.human) > 84) {
+          this.multiplayerClient?.cancelRitual();
+          if (msg.error) this.flashMessage(msg.error);
+          break;
+        }
+        this.showForestRitual(index, msg.challenge);
+        break;
+      }
+      case "RITUAL_FAILED":
+        if (msg.roundId === this.stationRound && this.activePuzzle?.stationLabel === msg.stationId) this.failRitual();
+        break;
+      case "UTILITY_STATE":
+        this.utilityPending = false;
+        this.utilities.select(this.localPlayerId, msg.kind);
+        this.utilities.charges.set(this.localPlayerId, msg.charge);
+        this.utilities.cooldowns.set(this.localPlayerId, Date.now() + msg.cooldownMs);
+        if (msg.destination) {
+          this.pendingInputs.clear();
+          this.human.x = msg.destination.x; this.human.y = msg.destination.y;
+          this.human.vx = 0; this.human.vy = 0;
+          this.lastSentInput.x = -1;
+        }
+        if (msg.accepted === false) this.flashMessage("Utility unavailable: earn a charge, wait for an Ordeal, and aim at clear ground.");
+        this.emit(true);
+        break;
+      case "UTILITY_TRAIL":
+        this.utilityTrails.push({ ...msg, until: this.elapsed + .65 });
+        break;
+      case "PAIR_RITUAL_STATE":
+        if (msg.ritual.roundId !== this.stationRound) break;
+        this.pairRitual = msg.ritual.participants ? msg.ritual : null;
+        this.emit(true);
+        break;
+      case "ABILITY_STATE":
+        if (msg.roundId !== this.stationRound) break;
+        this.abilityPending = false;
+        this.moonSightUsedThisOrdeal = msg.used;
+        this.moonSightUntil = msg.sightRemainingMs > 0 ? this.elapsed + msg.sightRemainingMs / 1000 : 0;
+        if (!msg.accepted) this.flashMessage("Your special action is unavailable. Choose Sight OR Echo once per Ordeal.");
+        this.emit(true);
+        break;
+      case "SOUND_CUE":
+        if ((this.phase !== "ORDEAL" && msg.cue.kind !== "RITUAL") || Date.now() > msg.cue.expiresAt || this.heardCueIds.has(msg.cue.id)) break;
+        if (this.heardCueIds.size > 100) this.heardCueIds.clear();
+        this.heardCueIds.add(msg.cue.id);
+        if (msg.cue.kind === "WATCHROOT") { this.audio.cue("task-open"); this.caption = "A Watchroot chimed nearby — someone crossed it."; this.captionUntil = this.elapsed + 3; }
+        else if (msg.cue.kind === "ROOT_RIPPLE") this.hearRootRipple(msg.cue);
+        else if (msg.cue.kind === "RITUAL") this.hearRitual(msg.cue);
+        else this.hearRustle(msg.cue);
+        break;
       case "KILL_RESULT":
         this.killUsedThisOrdeal = msg.spent;
+        this.stealthUntil = this.elapsed + (msg.stealthRemainingMs ?? 0) / 1000;
+        this.stealthAvailableOrdeal = this.ordealNumber + (msg.stealthOrdealsLeft ?? 0);
+        if (msg.accepted && this.pendingKillStealth && this.pendingDevourVictimId) {
+          const victim = this.players.find(p => p.id === this.pendingDevourVictimId);
+          if (victim) this.startDevour(`body-${victim.id}`, victim.x, victim.y, victim.color, this.human.id, this.human.color);
+        }
+        if (!msg.accepted) this.pendingDevourVictimId = null;
         if (!msg.accepted) this.flashMessage(msg.spent ? "Your single strike is already spent for this Ordeal." : "Strike missed — the target moved out of reach. Your strike is still available.");
         this.emit(true);
+        break;
+      case "STRIKE_STATE":
+        this.killUsedThisOrdeal = msg.spent;
+        this.stealthUntil = this.elapsed + msg.stealthRemainingMs / 1000;
+        this.stealthAvailableOrdeal = this.ordealNumber + msg.stealthOrdealsLeft;
         break;
       case "GEAR_SYNC": {
         if (msg.roundId !== undefined && msg.roundId < this.stationRound) break;
         if (msg.roundId !== undefined && msg.roundId > this.stationRound) this.resetStations(msg.roundId);
         this.charges = { ...msg.charges };
+        if (msg.completedStations) {
+          const personal = new Set(msg.completedStations);
+          for (const station of this.stations) station.completed = personal.has(station.label);
+        }
         if (msg.stationId) {
+          if (this.activePuzzle?.stationLabel === msg.stationId && this.activePuzzle.challenge) {
+            if (msg.accepted) this.cancelPuzzle(""); else this.failRitual();
+          }
           const station = this.stations.find((s) => s.label === msg.stationId);
-          if (station) station.completed = Boolean(msg.stationCompleted);
+          if (station) {
+            station.pending = false;
+            station.completed = Boolean(msg.stationCompleted);
+            if (msg.accepted) {
+              if (this.message === "Attuning your ritual — waiting for the sanctuary.") { this.message = ""; this.messageUntil = 0; }
+              this.selectedItem = station.reward;
+              this.rewardNotice = { item: station.reward, station: station.label, progress: msg.wardProgressGain ?? 0 };
+              this.rewardNoticeUntil = this.elapsed + 5.5;
+              station.completedAt = this.elapsed;
+            }
+          }
         }
         if (!msg.accepted) {
           if (msg.item === this.selectedItem) this.itemActiveUntil = 0;
           this.rewardNotice = null;
-          this.flashMessage(msg.stationId ? "That shrine was already sealed or the trial ended. No item was awarded." : "That gear charge is no longer available.");
+          this.flashMessage(msg.stationId ? "Your rite is already complete, out of reach, or the round ended. No item was awarded." : "That gear charge is no longer available.");
+          this.audio.cue("task-error");
+        } else if (msg.stationId) {
+          this.audio.cue("task-complete");
+        } else if (msg.item) {
+          this.audio.cue("item-use");
         }
         this.emit(true);
         break;
@@ -517,6 +841,13 @@ class OrdealEngine {
             if (!p.alive && this.human.alive) {
               this.human.alive = false;
             }
+            if (this.human.color !== p.color) {
+              this.human.color = p.color;
+              this.burst(this.human.x, this.human.y, "#8be9fd", 22);
+              if (this.phase === "ORDEAL" && this.hazard === "MIRROR_POOL") {
+                this.flashMessage("MIRROR RIPPLE — your reflection swapped colors on impact!");
+              }
+            }
             continue;
           }
           let existing = this.players.find((x) => x.id === p.id);
@@ -531,7 +862,9 @@ class OrdealEngine {
               vy: p.vy,
               angle: p.angle,
               color: p.color,
+              trueColor: p.color,
               hat: p.hat,
+              eyeStyle: normalizeEyeStyle(p.eyeStyle),
               alive: p.alive,
               ai: !!p.isAi,
               targetX: p.x,
@@ -544,8 +877,12 @@ class OrdealEngine {
             };
             this.players.push(existing);
           } else {
+            if (existing.color !== p.color) {
+              this.burst(existing.x, existing.y, "#8be9fd", 18);
+            }
             existing.color = p.color;
             existing.hat = p.hat;
+            existing.eyeStyle = normalizeEyeStyle(p.eyeStyle);
             if (Math.hypot(p.x - existing.x, p.y - existing.y) > 190) {
               existing.x = p.x;
               existing.y = p.y;
@@ -557,6 +894,7 @@ class OrdealEngine {
             existing.angle = p.angle;
             existing.alive = p.alive;
             existing.flashlight = p.flashlight;
+            existing.working = Boolean(p.working);
           }
         }
         this.applyMovement(msg.players);
@@ -571,7 +909,9 @@ class OrdealEngine {
 
       case "SYNC_WORLD": {
         if (msg.roundId !== undefined && msg.roundId < this.stationRound) break;
+        if (msg.emergency) this.emergency = { ...msg.emergency };
         const previousPhase = this.phase;
+        const previousHazard = this.hazard;
         const stationResetNow = msg.roundId !== undefined
           ? msg.roundId > this.stationRound
           : previousPhase !== "CALM" && msg.phase === "CALM";
@@ -583,22 +923,23 @@ class OrdealEngine {
           this.phaseTime += (msg.time - this.phaseTime) * 0.35;
         }
         this.hazard = msg.hazard;
+        if (msg.ordealSeed !== undefined && msg.ordealSeed !== this.ordealSeed) {
+          this.ordealSeed = msg.ordealSeed;
+          this.phantomRoutes = phantomPaths(msg.ordealSeed);
+        }
         this.taskProgress = msg.taskProgress;
+        this.utilities.roots = msg.watchroots ?? [];
         this.bodies = msg.bodies.map((b) => ({ id: b.id, x: b.x, y: b.y, color: b.color, name: b.name, age: b.age }));
         this.flares = msg.flares.map((f) => ({ x: f.x, y: f.y, life: f.life, owner: f.owner }));
         let stationSealedNow = false;
         if (msg.completedStations) {
           const sealedSet = new Set(msg.completedStations);
           for (const station of this.stations) {
-            if (sealedSet.has(station.label) && !station.completed) {
-              station.completed = true;
-              station.cooldown = 0;
+            if (sealedSet.has(station.label) && !station.teamRestored) {
+              station.teamRestored = true;
               stationSealedNow = true;
               // A fallback for a client that missed the completion event.
               station.completedAt ??= this.elapsed;
-              if (this.activePuzzle && this.stations[this.activePuzzle.stationIndex]?.label === station.label) {
-                this.cancelPuzzle(`${station.label} was just sealed by another Warden!`);
-              }
             }
           }
         }
@@ -608,15 +949,18 @@ class OrdealEngine {
           if (!this.gameOver) this.paused = false;
         }
         if (this.phase === "ORDEAL" && previousPhase !== "ORDEAL") {
+          this.ordealNumber += 1;
+          this.audio.cue("ordeal-start");
           this.killUsedThisOrdeal = false;
+          this.pendingDevourVictimId = null;
           this.moonSightUsedThisOrdeal = false;
           this.moonSightUntil = 0;
+          this.abilityPending = false;
+          this.heardCueIds.clear();
         }
+        if (this.phase === "CALM" && previousPhase !== "CALM") this.audio.cue("calm");
         if (this.phase !== "ORDEAL") this.moonSightUntil = 0;
-        if (this.phase === "ORDEAL" && this.activePuzzle) {
-          this.cancelPuzzle("An Ordeal began! Shrines are locked.");
-        }
-        this.emit(stationSealedNow || stationResetNow);
+        this.emit(stationSealedNow || stationResetNow || previousPhase !== this.phase || previousHazard !== this.hazard);
         break;
       }
 
@@ -624,7 +968,7 @@ class OrdealEngine {
         const b = msg.body;
         if (!this.bodies.some((x) => x.id === b.id)) {
           this.bodies.push({ id: b.id, x: b.x, y: b.y, color: b.color, name: b.name, age: b.age });
-          this.burst(b.x, b.y + 20, b.color, 34);
+          if (!b.delayed) this.startDevour(b.id, b.x, b.y, b.color);
           this.onKill({ key: `${b.id}-${performance.now()}` });
         }
         break;
@@ -636,15 +980,20 @@ class OrdealEngine {
       }
 
       case "MEETING_CALLED": {
+        this.resetInput();
+        this.taskFailure = "";
         this.movementBuffer.clear();
         this.pendingInputs.clear();
-        for (const player of this.players) { player.vx = 0; player.vy = 0; }
+        for (const player of this.players) { player.vx = 0; player.vy = 0; player.working = false; }
         this.cancelPuzzle("");
         this.paused = true;
         this.phase = "DISCUSSION";
         this.activeMeeting = {
+          votingOpensAt: Date.now() + (msg.discussionMs ?? MEETING_DISCUSSION_MS),
+          endsAt: Date.now() + (msg.durationMs ?? 75_000),
           reason: msg.reason,
           reporter: msg.reporter,
+          bodyReporterId: msg.bodyReporterId ?? null,
           candidates: msg.candidates.map((c) => ({
             id: c.id,
             name: c.id === this.localPlayerId ? `${c.name} (YOU)` : c.name,
@@ -655,6 +1004,7 @@ class OrdealEngine {
             vy: 0,
             color: c.color,
             hat: c.hat,
+            eyeStyle: normalizeEyeStyle(c.eyeStyle),
             alive: c.alive,
             ai: !!c.isAi,
             targetX: c.x,
@@ -667,8 +1017,23 @@ class OrdealEngine {
           })),
           accusations: {},
         };
+        this.audio.meetingAlert(msg.reason.includes("PUDDLE") || msg.reason.includes("BODY"));
         this.onMeeting(this.activeMeeting);
         this.emit(true);
+        break;
+      }
+
+      case "VOTE_RECEIPT": {
+        if (this.activeMeeting && !this.activeMeeting.tally) {
+          this.activeMeeting = {
+            ...this.activeMeeting,
+            votePending: false,
+            localVote: msg.accepted ? { targetId: msg.targetId, shifted: msg.shifted } : undefined,
+            voteError: msg.accepted ? "" : "That player is no longer available. Choose another vote.",
+          };
+          this.onMeeting(this.activeMeeting);
+          this.emit(true);
+        }
         break;
       }
 
@@ -688,17 +1053,25 @@ class OrdealEngine {
       }
 
       case "DEATH_EVENT": {
+        this.resetInput();
         this.human.alive = false;
         this.human.vx = 0;
         this.human.vy = 0;
+        this.human.working = false;
         this.cancelPuzzle("");
+        const privateKiller = this.players.find((player) => player.name === msg.killerName);
+        this.startDevour(`body-${this.localPlayerId}`, this.human.x, this.human.y, this.human.color, privateKiller?.id, msg.killerColor);
         this.paused = true;
-        this.onDeath({ killerName: msg.killerName, killerColor: msg.killerColor });
-        this.flashMessage(`You were splattered by ${msg.killerName}. Spectating the remaining crew.`);
+        this.onDeath({ killerName: msg.killerName, killerColor: msg.killerColor, victimColor: this.human.color });
+        this.flashMessage(`You were devoured by ${msg.killerName}. Spectating the remaining crew.`);
         break;
       }
 
       case "MATCH_RESULT": {
+        if (this.gameOver) break;
+        this.resetInput();
+        this.cancelPuzzle("");
+        this.playResultSound(msg.result);
         this.gameOver = true;
         this.paused = true;
         this.onEnd(msg.result);
@@ -715,9 +1088,10 @@ class OrdealEngine {
       player.alive = next.alive;
       if (player.id !== this.localPlayerId) {
         player.flashlight = next.flashlight;
+        player.working = Boolean(next.working);
         continue;
       }
-      if (!next.alive) { player.vx = 0; player.vy = 0; }
+      if (!next.alive) { player.vx = 0; player.vy = 0; player.working = false; }
       if (next.inputSeq === undefined) continue;
       const sent = this.pendingInputs.get(next.inputSeq);
       if (sent) {
@@ -736,48 +1110,58 @@ class OrdealEngine {
     }
   }
 
-  makeStations() {
-    this.stations = [
-      { x: 250, y: 104, side: "top", label: "FROST FONT", pulse: 0, cooldown: 0, completed: false, reward: "FLASHLIGHT", puzzle: "MATH" },
-      { x: 640, y: 104, side: "top", label: "STAR ALTAR", pulse: 1.2, cooldown: 0, completed: false, reward: "SONAR", puzzle: "LINK" },
-      { x: 1038, y: 104, side: "top", label: "OWL TOTEM", pulse: 2.4, cooldown: 0, completed: false, reward: "FLARE", puzzle: "LINK" },
-      { x: 1164, y: 390, side: "right", label: "EAST WARD", pulse: 3.1, cooldown: 0, completed: false, reward: "FLASHLIGHT", puzzle: "MATH" },
-      { x: 844, y: 658, side: "bottom", label: "MOONWELL", pulse: 4.2, cooldown: 0, completed: false, reward: "FLARE" },
-      { x: 116, y: 402, side: "left", label: "ROOT SEAL", pulse: 5.1, cooldown: 0, completed: false, reward: "SONAR", puzzle: "LINK" },
-    ];
+  makeStations(stations: readonly Omit<Station, "cooldown" | "completed">[] = STATIONS) {
+    this.stations = stations.map(station => ({ ...station, cooldown: 0, completed: false, teamRestored: false, pending: false }));
   }
 
   resetStations(roundId = this.stationRound + 1) {
+    this.setPairRitual(false); this.pairedRituals?.clear();
+    this.wardClaims.clear();
+    this.restorationLedger.reset();
     this.stationRound = roundId;
     this.cancelPuzzle("");
-    this.taskHold = 0;
+    this.clearTaskHold();
+    this.botRites?.clear();
+    this.botWork?.clear();
+    this.botRoutes?.clear();
     for (const station of this.stations) {
       station.completed = false;
       station.completedAt = undefined;
       station.cooldown = 0;
+      station.teamRestored = false;
+      station.pending = false;
     }
   }
 
-  makePlayers(count: number, roleChoice: RoleChoice) {
+  makePlayers(count: number, roleChoice: RoleChoice, profile?: SoloProfile, hollowCount = 1) {
+    const colors = profile ? [profile.color, ...COLORS.filter(color => color !== profile.color)] : COLORS;
+    const occupiedNames: string[] = [];
     let impostorIndex = Math.floor(Math.random() * count);
     if (roleChoice === "IMPOSTOR") impostorIndex = 0;
     if (roleChoice === "CREWMATE") impostorIndex = 1 + Math.floor(Math.random() * (count - 1));
+    const hollowIndexes = new Set([impostorIndex]);
+    const candidates = Array.from({ length: count }, (_, i) => i).filter(i => i !== impostorIndex && !(roleChoice === "CREWMATE" && i === 0));
+    while (hollowIndexes.size < clampHollowCount(hollowCount, count) && candidates.length) hollowIndexes.add(candidates.splice(Math.floor(Math.random() * candidates.length), 1)[0]);
     for (let i = 0; i < count; i += 1) {
       const angle = (i / count) * Math.PI * 2;
+      const callsign = availablePlayerName(i === 0 ? (profile?.name || "") : NAMES[i - 1], occupiedNames);
+      occupiedNames.push(callsign);
       this.players.push({
         id: i === 0 ? "you" : `bot-${i}`,
-        name: i === 0 ? "YOU" : NAMES[i - 1],
-        role: i === impostorIndex ? "IMPOSTOR" : "CREWMATE",
-        x: 640 + Math.cos(angle) * 170,
-        y: 384 + Math.sin(angle) * 116,
+        name: i === 0 ? `${callsign} (YOU)` : callsign,
+        role: hollowIndexes.has(i) ? "IMPOSTOR" : "CREWMATE",
+        x: CENTER.x + Math.cos(angle) * 170,
+        y: CENTER.y + Math.sin(angle) * 116,
         vx: 0,
         vy: 0,
-        color: COLORS[i % COLORS.length],
-        hat: HATS[i % HATS.length],
+        color: colors[i % colors.length],
+        trueColor: colors[i % colors.length],
+        hat: i === 0 && profile ? profile.hat : HATS[i % HATS.length],
+        eyeStyle: i === 0 && profile ? profile.eyeStyle : EYE_STYLES[i % EYE_STYLES.length],
         alive: true,
         ai: i !== 0,
-        targetX: 640,
-        targetY: 380,
+        targetX: CENTER.x,
+        targetY: CENTER.y,
         thinkAt: 0,
         atStation: i % this.stations.length,
         flashlight: false,
@@ -788,14 +1172,22 @@ class OrdealEngine {
   }
 
   updateRect = () => {
-    this.canvasRect = this.canvas.getBoundingClientRect();
+    const bounds = fittedCanvasBounds(this.canvas.getBoundingClientRect(), this.viewWidth, this.viewHeight);
+    this.canvasRect = new DOMRect(bounds.left, bounds.top, bounds.width, bounds.height);
   };
 
   resize = () => {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.canvas.width = Math.round(W * dpr);
-    this.canvas.height = Math.round(H * dpr);
-    this.canvasRect = this.canvas.getBoundingClientRect();
+    const viewport = cameraViewport(this.canvas.clientWidth, this.canvas.clientHeight);
+    this.viewWidth = viewport.width;
+    this.viewHeight = viewport.height;
+    // Zoom changes world units, not render resolution or pointer coordinates.
+    this.canvas.width = Math.max(1, Math.round(this.canvas.clientWidth * dpr));
+    this.canvas.height = Math.max(1, Math.round(this.canvas.clientHeight * dpr));
+    this.mask.width = Math.ceil(this.viewWidth);
+    this.mask.height = Math.ceil(this.viewHeight);
+    this.camera = cameraTarget(this.human, viewport);
+    this.updateRect();
   };
 
   keyDown = (event: KeyboardEvent) => {
@@ -803,9 +1195,13 @@ class OrdealEngine {
     const tag = target?.tagName;
     // Never steal keystrokes from text entry (e.g. the meeting chat).
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return;
-    // Let focused buttons keep their native Space/Enter activation.
-    if (tag === "BUTTON" && (event.code === "Space" || event.code === "Enter" || event.code === "NumpadEnter")) return;
-    if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyE", "KeyF", "KeyR", "KeyQ", "KeyV", "Space", "Escape"].includes(event.code)) {
+    // Focused controls keep native activation; opening a disclosure must not bite.
+    if ((tag === "BUTTON" || tag === "SUMMARY") && (event.code === "Space" || event.code === "Enter" || event.code === "NumpadEnter")) return;
+    // Native dialogs own their keyboard events, including Escape to dismiss.
+    // Input has already been cleared when the map, notebook or settings opened.
+    if (this.navigationOpen || this.notebookOpen) return;
+    void this.audio.unlock();
+    if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyE", "KeyF", "KeyR", "KeyQ", "KeyV", "KeyC", "Space", "Escape"].includes(event.code)) {
       event.preventDefault();
     }
     this.keys.add(event.code);
@@ -814,12 +1210,18 @@ class OrdealEngine {
       if (!event.repeat && event.code === "Escape") this.cancelPuzzle();
       return;
     }
-    if (event.repeat || this.paused || this.roleRevealActive) return;
+    if (event.repeat || this.paused || this.roleRevealActive || this.navigationOpen || this.notebookOpen) return;
+    if (event.code === "KeyH") this.setPairRitual(!this.pairStationId);
+    if (event.code === "KeyJ") this.pulsePairRune(0);
+    if (event.code === "KeyK") this.pulsePairRune(1);
     if (event.code === "KeyE") this.tryOpenPuzzle();
     if (event.code === "KeyF") this.useItem();
     if (event.code === "KeyR") this.report();
     if (event.code === "KeyQ" || event.code === "Space") this.kill();
+    if (event.code === "KeyX") this.kill(true);
     if (event.code === "KeyV") this.useMoonSight();
+    if (event.code === "KeyC") this.useEchoLure();
+    if (event.code === "KeyG" && !event.repeat) this.useUtility();
     if (event.code === "Digit1") this.selectItem("FLASHLIGHT");
     if (event.code === "Digit2") this.selectItem("FLARE");
     if (event.code === "Digit3") this.selectItem("SONAR");
@@ -830,13 +1232,33 @@ class OrdealEngine {
   };
 
   pointerMove = (event: PointerEvent) => {
-    const rect = (this.canvasRect && this.canvasRect.width > 0)
-      ? this.canvasRect
-      : (this.canvasRect = this.canvas.getBoundingClientRect());
+    if (event.type === "pointerdown") void this.audio.unlock();
+    if (event.pointerType === "touch") return;
+    this.joystickAim = null;
+    if (!this.canvasRect || this.canvasRect.width <= 0) this.updateRect();
+    const rect = this.canvasRect;
+    if (!rect) return;
     if (rect.width <= 0 || rect.height <= 0) return;
-    this.mouse.x = ((event.clientX - rect.left) / rect.width) * W;
-    this.mouse.y = ((event.clientY - rect.top) / rect.height) * H;
+    this.pointerViewport = { x: clamp(((event.clientX - rect.left) / rect.width) * this.viewWidth, 0, this.viewWidth), y: clamp(((event.clientY - rect.top) / rect.height) * this.viewHeight, 0, this.viewHeight) };
+    this.mouse = viewportToWorld(this.pointerViewport, this.camera, { width: this.viewWidth, height: this.viewHeight });
   };
+
+  setNavigationDestination(id: string) {
+    if (!this.stations.some(station => station.label === id && !station.completed)) return;
+    this.destinationId = id;
+    this.emit(true);
+  }
+
+  setNavigationOpen(open: boolean) {
+    this.navigationOpen = open;
+    this.resetInput();
+    if (this.human) { this.human.vx = 0; this.human.vy = 0; this.human.working = false; }
+  }
+
+  setOrientationBlocked(blocked: boolean) {
+    this.orientationBlocked = blocked;
+    this.resetInput();
+  }
 
   contextMenu = (event: MouseEvent) => {
     event.preventDefault();
@@ -844,6 +1266,11 @@ class OrdealEngine {
   };
 
   destroy() {
+    this.resetInput();
+    this.audio.destroy();
+    this.slimeAnimator.clear();
+    this.forestAtmosphere.clear();
+    this.motionPreference?.removeEventListener("change", this.onMotionPreferenceChange);
     this.running = false;
     cancelAnimationFrame(this.frame);
     if (this.unsubscribeNet) {
@@ -854,33 +1281,112 @@ class OrdealEngine {
     window.removeEventListener("scroll", this.updateRect);
     window.removeEventListener("keydown", this.keyDown);
     window.removeEventListener("keyup", this.keyUp);
+    window.removeEventListener("blur", this.resetInput);
+    document.removeEventListener("visibilitychange", this.visibilityChanged);
     this.canvas.removeEventListener("pointermove", this.pointerMove);
     this.canvas.removeEventListener("pointerdown", this.pointerMove);
     this.canvas.removeEventListener("contextmenu", this.contextMenu);
   }
 
   setTouch(code: string, down: boolean) {
-    if (down) this.touchKeys.add(code);
+    if (down) { void this.audio.unlock(); this.touchKeys.add(code); }
     else this.touchKeys.delete(code);
   }
 
+  setMoveVector(vector: MoveVector) {
+    this.moveVector = movementVector(0, 0, vector);
+    if (Math.hypot(this.moveVector.vx, this.moveVector.vy) > .02) {
+      this.joystickAim = { x: this.moveVector.vx, y: this.moveVector.vy };
+    }
+  }
+
+  resetInput() {
+    this.clearTaskHold();
+    this.keys.clear(); this.touchKeys.clear();
+    this.moveVector = { vx: 0, vy: 0 };
+    this.setPairRitual(false);
+    if (this.human) { this.human.vx = 0; this.human.vy = 0; this.human.working = false; }
+  }
+  visibilityChanged = () => { if (document.hidden) this.resetInput(); };
+
+  clearTaskHold() { this.taskHold = 0; this.taskHoldStation = null; }
+
+  setNotebookOpen(open: boolean) { this.notebookOpen = open; this.resetInput(); }
+
+  setPairRitual(active: boolean) {
+    if (!active) {
+      if (this.pairStationId && this.multiplayerClient?.connected) this.multiplayerClient.pairRitual(this.pairStationId, false, this.stationRound);
+      this.pairedRituals?.release(this.localPlayerId);
+      this.pairStationId = null; this.pairRitual = null;
+      return;
+    }
+    if (this.paused || this.activePuzzle || this.navigationOpen || this.notebookOpen || this.roleRevealActive || !this.human.alive) return;
+    const station = this.stations.find(station => !station.completed && !station.pending && station.cooldown <= 0 && dist(station, this.human) <= 84);
+    if (!station) return;
+    this.pairStationId = station.label; this.pairHeartbeatAt = -1;
+    this.human.vx = 0; this.human.vy = 0;
+    void this.audio.unlock();
+  }
+
+  hearRitual(point: { x: number; y: number }) {
+    if (!this.human.alive || dist(this.human, point) > HEARING_RANGE || (this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && !sharesRootCell(this.human, point))) return;
+    this.audio.ritualHum(this.human, point);
+    this.caption = "A shrine is humming nearby";
+    this.captionUntil = this.elapsed + 1.2;
+  }
+
+  hearRootRipple(point: { x: number; y: number }) {
+    if (!this.human.alive || dist(this.human, point) > HEARING_RANGE || !sharesRootCell(this.human, point)) return;
+    this.audio.rustle(this.human, point); this.caption = "Roots stirred nearby — something crossed a boundary."; this.captionUntil = this.elapsed + 2;
+    if (this.visibilityFor(point, this.human, false).kind !== "HIDDEN") this.rootRipples.push({ ...point, until: this.elapsed + .7 });
+  }
+
+  pulsePairRune(rune: number) {
+    if (!this.pairStationId || !this.human.alive || this.paused || this.roleRevealActive) return;
+    if (this.multiplayerClient) this.multiplayerClient.pairRune(this.pairStationId, rune, this.stationRound);
+    else this.pairedRituals.pulse(this.human.id, this.pairStationId, rune, this.stationRound, this.elapsed * 1000);
+  }
+
+  overgrownShrine() { return this.stations[overgrownStationIndex(this.stationRound, this.layoutSeed, this.stations.length)]; }
+
   selectItem(item: ItemKind) {
+    if (this.selectedItem !== item) this.audio.cue("ui");
     this.selectedItem = item;
     this.emit(true);
   }
 
   tryOpenPuzzle() {
-    if (this.phase !== "CALM" || !this.human.alive || this.paused || this.activePuzzle) return;
-    const stationIndex = this.stations.findIndex((station) => dist(station, this.human) < 84 && !station.completed && station.cooldown <= 0 && station.puzzle);
+    if (this.phase === "DISCUSSION" || !this.human.alive || this.paused || this.activePuzzle || this.ritualOpenPending) return;
+    const stationIndex = this.stations.findIndex((station) => dist(station, this.human) < 84 && !station.completed && !station.pending && station.cooldown <= 0 && station.puzzle);
     if (stationIndex < 0) return;
     const station = this.stations[stationIndex];
-    const puzzle = station.puzzle === "MATH" ? this.createMathPuzzle(station, stationIndex) : this.createLinkPuzzle(station, stationIndex);
+    this.setPairRitual(false);
+    this.taskFailure = "";
+    if (station.puzzle === "ROOT" || station.puzzle === "MOON" || station.puzzle === "FIREFLY") {
+      if (this.multiplayerClient) {
+        this.ritualOpenPending = station.label;
+        this.multiplayerClient.openRitual(station.label, this.stationRound);
+      } else {
+        const attempt = (this.ritualAttempts.get(station.label) ?? 0) + 1;
+        this.ritualAttempts.set(station.label, attempt);
+        const challenge = createRitual(station.puzzle, this.ritualDifficulty, this.layoutSeed + stationIndex, attempt);
+        if (this.phase === "ORDEAL" && this.overgrownShrine() === station) { challenge.minimumMs = 3000; this.hearRitual(station); }
+        this.showForestRitual(stationIndex, challenge);
+      }
+      return;
+    }
+    let puzzle = station.puzzle === "MATH" ? this.createMathPuzzle(station, stationIndex) : this.createLinkPuzzle(station, stationIndex);
+    const signature = (question: TaskPuzzle) => `${question.prompt}:${question.sequence?.join() ?? ""}`;
+    for (let retry = 0; retry < 16 && signature(puzzle) === this.lastQuestions.get(station.label); retry++) puzzle = station.puzzle === "MATH" ? this.createMathPuzzle(station, stationIndex) : this.createLinkPuzzle(station, stationIndex);
+    this.lastQuestions.set(station.label, signature(puzzle));
     // The world keeps running while a puzzle is open: the phase timer and bots
     // continue, and the human simply stands still at the shrine.
     this.activePuzzle = puzzle;
-    this.taskHold = 0;
+    this.audio.cue("task-open");
+    this.clearTaskHold();
     this.human.vx = 0;
     this.human.vy = 0;
+    this.human.working = true;
     this.onPuzzle(puzzle);
     this.emit(true);
   }
@@ -890,11 +1396,12 @@ class OrdealEngine {
     let a = 2 + Math.floor(Math.random() * 9);
     let b = 2 + Math.floor(Math.random() * 8);
     if (operator === "−" && b > a) [a, b] = [b, a];
+    if (this.lastQuestions.get(station.label)?.startsWith(`${a} ${operator} ${b} = ?:`)) a += 1;
     const answer = operator === "+" ? a + b : operator === "−" ? a - b : a * b;
     const choices = new Set<number>([answer]);
-    while (choices.size < 3) {
-      const offset = choose([-5, -3, -2, -1, 1, 2, 3, 5]);
+    for (const offset of [-5, -3, -2, -1, 1, 2, 3, 5].sort(() => Math.random() - .5)) {
       choices.add(Math.max(0, answer + offset));
+      if (choices.size === 3) break;
     }
     const options = [...choices].sort(() => Math.random() - 0.5).map(String);
     return {
@@ -915,7 +1422,8 @@ class OrdealEngine {
       { sequence: ["◇", "○", "□", "◇", "○"], answer: "□", decoys: ["◇", "○"] },
       { sequence: ["I", "II", "III", "I", "II"], answer: "III", decoys: ["I", "IV"] },
     ];
-    const pattern = choose(patterns);
+    const previous = this.lastQuestions.get(station.label);
+    const pattern = choose(patterns.filter(pattern => !previous?.endsWith(`:${pattern.sequence.join()}`)));
     const options = [pattern.answer, ...pattern.decoys].sort(() => Math.random() - 0.5);
     return {
       stationIndex,
@@ -930,47 +1438,141 @@ class OrdealEngine {
   }
 
   submitPuzzle(optionIndex: number) {
-    if (!this.activePuzzle) return;
+    if (!this.activePuzzle || this.activePuzzle.challenge) return;
     if (optionIndex !== this.activePuzzle.answerIndex) {
-      this.activePuzzle = { ...this.activePuzzle, error: this.activePuzzle.kind === "MATH" ? "That calculation is off. Try another answer." : "That link breaks the circuit. Try another node." };
-      this.onPuzzle(this.activePuzzle);
+      this.audio.cue("task-error");
+      this.stations[this.activePuzzle.stationIndex].cooldown = 1.5;
+      this.taskFailure = "Incorrect answer. No item earned — try the shrine again.";
+      this.taskFailureUntil = this.elapsed + 3.5;
+      this.cancelPuzzle("");
+      this.emit(true);
       return;
     }
     const station = this.stations[this.activePuzzle.stationIndex];
     const wasFake = this.human.role === "IMPOSTOR";
     this.completeStation(station, wasFake);
     this.activePuzzle = null;
+    this.human.working = false;
     this.onPuzzle(null);
     this.keys.delete("KeyE");
     this.emit(true);
   }
 
   completeStation(station: Station, wasFake: boolean) {
-    if (station.completed) return;
-    station.completed = true;
+    if (station.completed || station.pending) return;
     station.cooldown = 0;
+    this.human.working = false;
     const reward = station.reward;
+    const wardens = this.players.filter(p => p.alive && p.role === "CREWMATE").length;
+    if (this.multiplayerClient) {
+      station.pending = true;
+      this.multiplayerClient.sendTask(station.label, reward, this.stationRound);
+      this.flashMessage("Attuning your ritual — waiting for the sanctuary.");
+      return;
+    }
+    station.completed = true;
+    this.utilities?.earn(this.human.id);
     this.charges[reward] = Math.min(3, this.charges[reward] + 1);
     this.selectedItem = reward;
-    this.rewardNotice = { item: reward, station: station.label };
-    this.rewardNoticeUntil = this.elapsed + 5.5;
-    if (this.multiplayerClient) {
-      this.multiplayerClient.sendTask(station.label, reward, this.stationRound);
-    } else if (!wasFake) {
-      this.taskProgress = Math.min(100, this.taskProgress + TASK_PROGRESS_REWARD);
+    const earnedProgress = this.restorationLedger.claim(station.label, wardens, this.phase === "ORDEAL", wasFake, this.initialHollows, this.overgrownShrine() === station);
+    if (earnedProgress) {
+      if (!wasFake) this.wardClaims.add(station.label);
+      station.teamRestored = true;
+      this.pendingWardDelta += earnedProgress;
     }
-    const prefix = wasFake ? "Counterfeit rite accepted" : `${station.label} sealed`;
-    this.flashMessage(`${prefix}. ${ITEM_LABELS[reward]} acquired for the next Ordeal.`);
-    if (!this.multiplayerClient) station.completedAt = this.elapsed;
-    if (!wasFake && !this.multiplayerClient) this.checkWin();
+    this.rewardNotice = { item: reward, station: station.label, progress: earnedProgress };
+    this.rewardNoticeUntil = this.elapsed + 5.5;
+    station.completedAt = this.elapsed;
+    this.audio.cue("task-complete");
+    if (!wasFake) this.checkWin();
   }
 
-  cancelPuzzle(message = "Shrine trial paused. Return when the sanctuary is calm.") {
+  dismissTaskFailure() { this.taskFailure = ""; this.taskFailureUntil = 0; this.emit(true); }
+
+  cancelPuzzle(message = "Shrine trial paused. Return when ready.") {
+    this.ritualOpenPending = null;
+    this.multiplayerClient?.cancelRitual();
     if (!this.activePuzzle) return;
     this.activePuzzle = null;
+    this.human.working = false;
     this.onPuzzle(null);
     this.keys.delete("KeyE");
     if (message) this.flashMessage(message);
+  }
+
+  showForestRitual(index: number, challenge: RitualChallenge) {
+    const station = this.stations[index];
+    const puzzle: TaskPuzzle = { challenge, stationIndex: index, stationLabel: station.label, reward: station.reward, kind: challenge.kind, prompt: RITUAL_LABELS[challenge.kind], options: [], answerIndex: -1 };
+    this.activePuzzle = puzzle;
+    this.clearTaskHold(); this.human.vx = 0; this.human.vy = 0; this.human.working = true;
+    this.audio.cue("task-open"); this.onPuzzle(puzzle); this.emit(true);
+  }
+
+  failRitual() {
+    if (!this.activePuzzle) return;
+    this.stations[this.activePuzzle.stationIndex].cooldown = 1.5;
+    this.taskFailure = "Incorrect answer. No item earned — reopen the shrine for a new ritual.";
+    this.taskFailureUntil = this.elapsed + 3.5;
+    this.audio.cue("task-error"); this.cancelPuzzle(""); this.emit(true);
+  }
+
+  submitForestRitual(answer: number[]) {
+    const puzzle = this.activePuzzle;
+    if (!puzzle?.challenge) return;
+    if (this.multiplayerClient) { this.multiplayerClient.answerRitual(puzzle.challenge.id, answer, this.stationRound); return; }
+    if (!ritualAnswerIsCorrect(puzzle.challenge, answer)) { this.failRitual(); return; }
+    this.completeStation(this.stations[puzzle.stationIndex], this.human.role === "IMPOSTOR");
+    this.cancelPuzzle(""); this.emit(true);
+  }
+
+  useUtility() {
+    if (!this.human.alive || this.phase !== "ORDEAL" || this.paused || this.roleRevealActive || this.activePuzzle || this.ritualOpenPending || this.utilityPending) return;
+    const angle = this.human.angle ?? 0;
+    if (this.multiplayerClient) {
+      this.utilityPending = true;
+      this.multiplayerClient.useUtility(angle, this.stationRound);
+      return;
+    }
+    const from = { x: this.human.x, y: this.human.y };
+    const effect = this.utilities.use(this.human.id, from, angle, Date.now(), this.obstacles, rootwakeStrength(this.phase, this.hazard, this.phaseTime) > .72, this.phaseTime);
+    if (!effect) { this.flashMessage("Earn a shrine charge, then aim toward clear ground. Utility cooldown: 18s."); return; }
+    if (effect.kind === "WISP_STEP") {
+      this.human.x = effect.destination.x; this.human.y = effect.destination.y;
+      this.utilityTrails.push({ from, to: effect.destination, until: this.elapsed + .65 });
+    }
+    this.audio.cue("task-open"); this.emit(true);
+  }
+
+  drawUtilities(ctx: CanvasRenderingContext2D) {
+    if (this.phase !== "ORDEAL") return;
+    ctx.save(); ctx.strokeStyle = "#b6e4ed"; ctx.lineWidth = 3;
+    for (const root of this.utilities.roots) {
+      const sight = this.visibilityFor(root, this.human, false);
+      if (sight.kind === "HIDDEN") continue;
+      ctx.globalAlpha = sight.alpha * .65;
+      ctx.beginPath();
+      // Sample each segment so roots cannot expose hidden space through cover.
+      for (let i = -58; i < 58; i += 4) {
+        const point = { x: root.x - Math.sin(root.angle) * i, y: root.y + Math.cos(root.angle) * i };
+        if (this.visibilityFor(point, this.human, false).kind === "HIDDEN") continue;
+        ctx.moveTo(point.x, point.y); ctx.lineTo(point.x - Math.sin(root.angle) * 4, point.y + Math.cos(root.angle) * 4);
+      }
+      ctx.stroke();
+    }
+    for (const trail of this.utilityTrails) {
+      const life = Math.max(0, (trail.until - this.elapsed) / .65);
+      ctx.globalAlpha = life * .7;
+      for (let i = 0; i <= 16; i++) {
+        const t = i / 16;
+        const point = { x: trail.from.x + (trail.to.x - trail.from.x) * t, y: trail.from.y + (trail.to.y - trail.from.y) * t };
+        if (this.visibilityFor(point, this.human, false).kind === "HIDDEN") continue;
+        // Skill 2: Shadow Sprint smoky dark-purple trail puffs behind the 4-legged dash.
+        ctx.fillStyle = i % 2 ? "rgba(68,36,112,.42)" : "rgba(128,84,196,.32)";
+        ctx.beginPath(); ctx.arc(point.x, point.y + 8, 5 + t * 9, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(point.x, point.y, 3, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 
   useItem() {
@@ -979,107 +1581,144 @@ class OrdealEngine {
       return;
     }
     if (this.charges[this.selectedItem] <= 0) {
+      this.audio.cue("task-error");
       this.flashMessage(`No ${ITEM_LABELS[this.selectedItem]} charge. Complete its marked moon shrine first.`);
       return;
     }
     this.charges[this.selectedItem] -= 1;
+    if (!this.multiplayerClient) this.audio.cue("item-use");
     this.multiplayerClient?.useItem(this.selectedItem, this.human.x, this.human.y);
     if (this.selectedItem === "FLARE") {
       if (!this.multiplayerClient) {
         this.flares.push({ x: this.human.x, y: this.human.y, life: 5, owner: "you" });
       }
-      this.flashMessage("Signal flare deployed — shared light holds for 5 seconds.");
+      this.flashMessage("Moonblossom planted — shared light holds for 5 seconds.");
     } else {
       this.itemActiveUntil = this.elapsed + (this.selectedItem === "FLASHLIGHT" ? 7 : 6);
-      this.flashMessage(this.selectedItem === "FLASHLIGHT" ? "Flashlight online. Aim with your cursor." : "Proximity sonar sweeping nearby movement.");
+      this.flashMessage(this.selectedItem === "FLASHLIGHT" ? "Glowing Mushroom awakened. Aim its light with your cursor." : "Echo Bell ringing — listen for nearby movement.");
     }
     this.emit(true);
   }
 
   useMoonSight() {
-    if (this.human.role !== "IMPOSTOR" || this.phase !== "ORDEAL" || !this.human.alive || this.paused) return;
+    this.useSpecial("MOON_SIGHT");
+  }
+
+  useEchoLure() { this.useSpecial("ECHO_LURE"); }
+
+  useSpecial(ability: "MOON_SIGHT" | "ECHO_LURE") {
+    if (this.human.role !== "IMPOSTOR" || this.phase !== "ORDEAL" || !this.human.alive || this.paused || this.abilityPending) return;
     if (this.moonSightUsedThisOrdeal) {
-      this.flashMessage("Moon Sight is already spent for this Ordeal.");
+      this.flashMessage("Special action spent. Choose Moon Sight OR Echo Lure once each Ordeal.");
       return;
     }
-    this.moonSightUsedThisOrdeal = true;
-    this.moonSightUntil = this.elapsed + MOON_SIGHT_SECONDS;
-    this.flashMessage("MOON SIGHT AWAKENED — every living aura is exposed for a moment.");
+    if (this.multiplayerClient) {
+      this.abilityPending = true;
+      this.multiplayerClient.useAbility(ability, this.mouse.x, this.mouse.y, this.stationRound);
+    } else {
+      this.moonSightUsedThisOrdeal = true;
+      if (ability === "MOON_SIGHT") this.moonSightUntil = this.elapsed + Math.min(MOON_SIGHT_SECONDS, this.phaseTime);
+      else {
+        const scale = Math.min(1, ECHO_RANGE / Math.max(1, dist(this.mouse, this.human)));
+        let point = clampWorldPoint(this.human.x + (this.mouse.x - this.human.x) * scale, this.human.y + (this.mouse.y - this.human.y) * scale);
+        if (this.hazard === "ROOTWAKE") {
+          const cell = getRootCell(this.human.x, this.human.y);
+          point = { x: clamp(point.x, cell.x + 30, cell.x + cell.w - 30), y: clamp(point.y, cell.y + 30, cell.y + cell.h - 30) };
+        }
+        this.echoes.push({ ...point, angle: Math.atan2(this.mouse.y - this.human.y, this.mouse.x - this.human.x), until: this.elapsed + 2, nextAt: 0 });
+      }
+    }
+    this.flashMessage(ability === "MOON_SIGHT" ? "MOON SIGHT AWAKENED — all Warden positions and colors revealed!" : "ECHO LURE — a false rustle follows your aim. Special action spent.");
     this.emit(true);
+  }
+
+  hearRustle(point: { x: number; y: number }) {
+    if (!this.human.alive || dist(this.human, point) > HEARING_RANGE || (this.hazard === "ROOTWAKE" && this.human.role !== "IMPOSTOR" && !sharesRootCell(this.human, point))) return;
+    this.audio.rustle(this.human, point);
+    if (this.elapsed - this.lastCaptionAt < 0.7) return;
+    this.lastCaptionAt = this.elapsed;
+    this.caption = soundDirection(this.human, point);
+    this.captionUntil = this.elapsed + 1.2;
   }
 
   report() {
     if (!this.human.alive || this.paused) return;
-    const nearby = this.bodies.find((body) => dist(this.human, body) < 96);
-    const atEmergency = dist(this.human, { x: 640, y: 382 }) < 92 && this.phase === "CALM";
+    const nearby = this.bodies.find((body) => dist(this.human, body) < 96 && this.visibilityFor(body, this.human, false).kind !== "HIDDEN");
+    const availability = reportAvailability({ emergency: this.emergency, phase: this.phase, alive: this.human.alive, nearbyBody: !!nearby, nearBell: dist(this.human, CENTER) < 92 });
+    if (!availability.allowed) { this.flashMessage(availability.hint); return; }
     if (this.multiplayerClient) {
-      if (nearby || atEmergency) {
-        this.multiplayerClient.sendReport(nearby?.id);
-      } else {
-        this.flashMessage("No body nearby. Emergency button is available during Calm.");
-      }
+      this.multiplayerClient.sendReport(nearby?.id);
       return;
     }
-    if (nearby) this.startMeeting(`${nearby.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, "YOU");
-    else if (atEmergency) this.startMeeting("EMERGENCY MEETING", "YOU");
-    else this.flashMessage("No body nearby. Emergency button is available during Calm.");
+    if (nearby) this.startMeeting(`${nearby.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, "YOU", this.localPlayerId);
+    else this.startMeeting("EMERGENCY MEETING", "YOU");
   }
 
-  kill() {
+  kill(stealth = false) {
+    void this.audio.unlock();
     if (this.human.role !== "IMPOSTOR" || this.phase !== "ORDEAL" || !this.human.alive || this.paused) return;
     if (this.killUsedThisOrdeal) {
       this.flashMessage("Your single strike is already spent for this Ordeal.");
       return;
     }
     if (this.elapsed < this.killCooldownUntil) return;
+    if (stealth && (this.elapsed < this.stealthUntil || this.ordealNumber < this.stealthAvailableOrdeal)) { this.flashMessage("Veiled Bite is recovering. Use your normal strike instead."); return; }
     if (this.multiplayerClient) {
       const victims = this.players.filter((player) =>
         player.alive
         && player.id !== this.human.id
+        && player.role !== "IMPOSTOR"
         && dist(player, this.human) < 84
-        && (this.hazard !== "ROOTWAKE" || sharesRootCell(player, this.human))
+        && this.visibilityFor(player).kind !== "HIDDEN"
       );
       const victim = victims.sort((a, b) => dist(a, this.human) - dist(b, this.human))[0];
       if (!victim) {
-        this.flashMessage("No crewmate in melee range.");
+        this.flashMessage("No Warden in melee range.");
         return;
       }
-      this.multiplayerClient.sendKill(victim.id);
+      this.pendingDevourVictimId = victim.id;
+      this.pendingKillStealth = stealth;
+      this.multiplayerClient.sendKill(victim.id, stealth ? "STEALTH" : "NORMAL");
       this.killUsedThisOrdeal = true;
       this.killCooldownUntil = this.elapsed + KILL_COOLDOWN_SECONDS;
-      this.flashMessage("Strike sent — awaiting the sanctuary's verdict.");
+      this.flashMessage("Devouring target — awaiting the sanctuary's verdict.");
       return;
     }
     const victims = this.players.filter((player) =>
       player.alive
       && player.role === "CREWMATE"
       && dist(player, this.human) < 84
-      && (this.hazard !== "ROOTWAKE" || sharesRootCell(player, this.human))
+      && this.visibilityFor(player).kind !== "HIDDEN"
     );
     const victim = victims.sort((a, b) => dist(a, this.human) - dist(b, this.human))[0];
     if (!victim) {
-      this.flashMessage("No crewmate in melee range.");
+      this.flashMessage("No Warden in melee range.");
       return;
     }
-    this.eliminate(victim, this.human);
+    this.eliminate(victim, this.human, stealth);
     this.killCooldownUntil = this.elapsed + KILL_COOLDOWN_SECONDS;
-    this.flashMessage("Strike complete. Your claws are spent until the next Ordeal.");
+    this.flashMessage("Prey devoured. Your jaws are spent until the next Ordeal.");
   }
 
-  eliminate(victim: Player, killer: Player) {
+  eliminate(victim: Player, killer: Player, stealth = false) {
     victim.alive = false;
+    victim.working = false;
     victim.vx = 0;
     victim.vy = 0;
-    this.killUsedThisOrdeal = true;
-    this.bodies.push({ id: victim.id, x: victim.x, y: victim.y, color: victim.color, name: victim.name, age: 0 });
-    this.burst(victim.x, victim.y + 20, victim.color, 34);
-    this.onKill({ key: `${victim.id}-${performance.now()}` });
+    if (killer.id === this.human.id) this.killUsedThisOrdeal = true;
+    this.botStrikeSpent.add(killer.id);
+    if (stealth) { this.stealthUntil = this.elapsed + STEALTH_COOLDOWN_SECONDS; this.stealthAvailableOrdeal = this.ordealNumber + STEALTH_ORDEAL_LOCKOUT; }
+    const body = { id: victim.id, x: victim.x, y: victim.y, color: victim.color, name: victim.name, age: 0 };
+    if (stealth) this.pendingBodies.push({ body, at: this.elapsed + STEALTH_BODY_DELAY_SECONDS });
+    else this.bodies.push(body);
+    this.startDevour(victim.id, victim.x, victim.y, victim.color, killer.id, killer.color);
+    if (!stealth) this.onKill({ key: `${victim.id}-${performance.now()}` });
     this.recordWitnesses(victim, killer);
     if (victim.id === "you") {
       this.cancelPuzzle("");
       this.paused = true;
-      this.onDeath({ killerName: killer.name, killerColor: killer.color });
-      this.flashMessage(`You were splattered by ${killer.name}. Spectating the remaining crew.`);
+      this.onDeath({ killerName: killer.name, killerColor: killer.color, victimColor: victim.color });
+      this.flashMessage(`You were devoured by ${killer.name}. Spectating the remaining crew.`);
     }
     killer.targetX = ROOM.left + 130 + Math.random() * (ROOM.right - ROOM.left - 260);
     killer.targetY = ROOM.top + 120 + Math.random() * (ROOM.bottom - ROOM.top - 240);
@@ -1096,32 +1735,40 @@ class OrdealEngine {
     ledger.set(suspectId, (ledger.get(suspectId) || 0) + amount);
   }
 
-  /** Can `observer` make out `target` right now, given the hazard and light sources? */
+  /** One sight rule drives actors, puddles, witnesses and event effects. */
+  visibilityFor(point: SightPoint, observer: Player = this.human, allowMoonSight = true): Sight {
+    const local = observer.id === this.localPlayerId;
+    const beamOn = observer.flashlight || (local && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil);
+    const beamAngle = beamOn ? local && this.mouse
+      ? Math.atan2(this.mouse.y - observer.y, this.mouse.x - observer.x)
+      : observer.angle ?? Math.atan2(observer.vy, observer.vx) : undefined;
+    const ambientLit = this.phase === "ORDEAL" && this.hazard === "BLACKOUT" && this.obstacles.some(obs =>
+      obs.kind === "CRYSTAL_SPIRE" && this.getCrystalBlink(obs.x) > .25 && dist(point, obs) < 118 * this.getCrystalBlink(obs.x));
+    return sightAt(point, {
+      observer, phase: this.phase, hazard: this.hazard, obstacles: this.obstacles, flares: this.flares ?? [], beamAngle, ambientLit,
+      moonSight: allowMoonSight && local && observer.role === "IMPOSTOR" && this.elapsed < this.moonSightUntil,
+    });
+  }
+
+  /** A shape or sound is not enough evidence to identify a killer. */
   canSee(observer: Player, target: Player) {
-    const d = dist(observer, target);
-    if (this.phase !== "ORDEAL") return d < 420;
-    if (this.hazard === "ROOTWAKE") return sharesRootCell(observer, target) && d < 420;
-    if (this.hazard === "PHANTOMS") return d < 58;
-    if (this.flares.some((flare) => dist(flare, target) < 146)) return d < 420;
-    if (observer.flashlight) {
-      const aim = Math.atan2(observer.vy, observer.vx);
-      const toward = Math.atan2(target.y - observer.y, target.x - observer.x);
-      const delta = Math.atan2(Math.sin(toward - aim), Math.cos(toward - aim));
-      if (Math.abs(delta) < Math.PI / 8 && d < 330) return true;
-    }
-    return d < (this.hazard === "BLACKOUT" ? 104 : this.hazard === "MOONGLARE" ? 72 : 140);
+    return this.visibilityFor(target, observer, false).kind === "IDENTIFIED";
+  }
+
+  canRenderDevour(event: DevourEvent) {
+    return (event.witnessed === "IDENTIFIED" || event.witnessed === "SHAPE") && this.visibilityFor(event, this.human, false).kind !== "HIDDEN";
   }
 
   recordWitnesses(victim: Player, killer: Player) {
     for (const observer of this.players) {
       if (!observer.ai || !observer.alive || observer.id === killer.id) continue;
-      if (this.canSee(observer, killer)) this.suspect(observer, killer.id, 4);
+      if (this.canSee(observer, killer) && this.canSee(observer, victim)) this.suspect(observer, killer.id, 4);
       // Anyone else lingering near the body is mildly suspicious too.
       for (const other of this.players) {
         if (!other.alive || other.id === observer.id || other.id === killer.id) continue;
-        if (dist(other, victim) < 170) this.suspect(observer, other.id, 0.8);
+        if (dist(other, victim) < 170 && this.canSee(observer, other) && this.canSee(observer, victim)) this.suspect(observer, other.id, 0.8);
       }
-      if (dist(killer, victim) < 170) this.suspect(observer, killer.id, 0.8);
+      if (dist(killer, victim) < 170 && this.canSee(observer, killer) && this.canSee(observer, victim)) this.suspect(observer, killer.id, 0.8);
     }
   }
 
@@ -1145,34 +1792,78 @@ class OrdealEngine {
     if (!this.gameOver && !this.activeMeeting) this.paused = false;
   }
 
-  startMeeting(reason: string, reporter: string) {
+  restoreTrueColors() {
+    for (const player of this.players) {
+      if (player.trueColor && player.color !== player.trueColor) {
+        player.color = player.trueColor;
+      }
+    }
+    this.mirrorBumpCooldowns.clear();
+  }
+
+  checkMirrorPoolBumps() {
+    if (this.phase !== "ORDEAL" || this.hazard !== "MIRROR_POOL") return;
+    const living = this.players.filter((p) => p.alive);
+    for (let i = 0; i < living.length; i += 1) {
+      for (let j = i + 1; j < living.length; j += 1) {
+        const a = living[i];
+        const b = living[j];
+        if (dist(a, b) > MIRROR_BUMP_DISTANCE) continue;
+        const pairKey = a.id < b.id ? `${a.id}:${b.id}` : `${b.id}:${a.id}`;
+        if (this.elapsed < (this.mirrorBumpCooldowns.get(pairKey) ?? 0)) continue;
+        this.mirrorBumpCooldowns.set(pairKey, this.elapsed + MIRROR_BUMP_COOLDOWN_MS / 1000);
+        const temp = a.color;
+        a.color = b.color;
+        b.color = temp;
+        this.burst((a.x + b.x) / 2, (a.y + b.y) / 2, "#8be9fd", 22);
+        if (a.id === this.localPlayerId || b.id === this.localPlayerId) {
+          this.flashMessage("MIRROR RIPPLE — your reflection swapped colors on impact!");
+        }
+      }
+    }
+  }
+
+  startMeeting(reason: string, reporter: string, bodyReporterId: string | null = null) {
     if (this.paused) return;
+    if (this.phase === "ORDEAL") this.emergency = finishFirstOrdeal(this.emergency);
+    this.resetInput(); this.pairedRituals?.clear();
+    this.taskFailure = "";
+    this.restoreTrueColors();
     this.cancelPuzzle("");
+    for (const player of this.players) player.working = false;
     this.paused = true;
     this.phase = "DISCUSSION";
     const accusations: Record<string, string | null> = {};
     for (const player of this.players) {
       if (player.ai && player.alive) accusations[player.id] = this.primeSuspect(player);
     }
-    this.activeMeeting = { reason, reporter, candidates: this.players.map((player) => ({ ...player })), accusations };
+    this.activeMeeting = { reason, reporter, bodyReporterId, votingOpensAt: Date.now() + MEETING_DISCUSSION_MS, endsAt: Date.now() + this.meetingSeconds * 1000, candidates: this.players.map((player) => ({ ...player })), accusations };
+    this.audio.meetingAlert(reason.includes("PUDDLE") || reason.includes("BODY"));
     this.onMeeting(this.activeMeeting);
     this.emit(true);
   }
 
   vote(targetId: string | null) {
-    if (!this.paused || !this.activeMeeting || this.activeMeeting.tally) return;
+    if (!this.paused || !this.activeMeeting || this.activeMeeting.tally || this.activeMeeting.votePending || this.activeMeeting.localVote) return;
+    if (Date.now() < (this.activeMeeting.votingOpensAt ?? 0)) return;
+    if (targetId !== null && !this.players.some(player => player.id === targetId && player.alive)) return;
+    this.audio.cue("vote");
     if (this.multiplayerClient) {
+      if (!this.human.alive) return;
+      this.activeMeeting = { ...this.activeMeeting, votePending: true, voteError: "" };
+      this.onMeeting(this.activeMeeting);
       this.multiplayerClient.sendVote(targetId);
-      this.flashMessage(targetId ? "Vote submitted." : "Skip vote submitted.");
       return;
     }
     const tally = new Map<string, number>();
-    const cast = (accusedId: string | null) => {
-      const tallyId = accusedId || "SKIP";
+    const living = this.players.filter((player) => player.alive);
+    const cast = (voter: Player, accusedId: string | null) => {
+      const receipt = resolveReporterVote(voter.id, accusedId, living.map(player => player.id), this.activeMeeting?.bodyReporterId, Math.random, this.chaosMoonsway);
+      if (voter.id === this.localPlayerId) this.activeMeeting = { ...this.activeMeeting!, localVote: receipt };
+      const tallyId = receipt.targetId || "SKIP";
       tally.set(tallyId, (tally.get(tallyId) || 0) + 1);
     };
-    if (this.human.alive) cast(targetId);
-    const living = this.players.filter((player) => player.alive);
+    if (this.human.alive) cast(this.human, targetId);
     // Combined table suspicion, used by the impostor bot to bandwagon convincingly.
     const tableSuspicion = new Map<string, number>();
     for (const ledger of this.suspicion.values()) {
@@ -1185,7 +1876,7 @@ class OrdealEngine {
         const crew = options.filter((player) => player.role !== "IMPOSTOR");
         const scapegoat = [...crew].sort((a, b) => (tableSuspicion.get(b.id) || 0) - (tableSuspicion.get(a.id) || 0))[0];
         if (Math.random() < 0.15) {
-          cast(null);
+          cast(voter, null);
           continue;
         }
         pick = scapegoat && (tableSuspicion.get(scapegoat.id) || 0) > 0 ? scapegoat : choose(crew);
@@ -1198,11 +1889,11 @@ class OrdealEngine {
         } else if (!primeId && Math.random() < 0.4) {
           pick = choose(options);
         } else {
-          cast(null);
+          cast(voter, null);
           continue;
         }
       }
-      if (pick) cast(pick.id);
+      if (pick) cast(voter, pick.id);
     }
     const ranked = [...tally.entries()].sort((a, b) => b[1] - a[1]);
     const tied = ranked.length > 1 && ranked[0][1] === ranked[1][1];
@@ -1213,6 +1904,7 @@ class OrdealEngine {
         targetId: player.id,
         targetName: player.name,
         targetColor: player.color,
+        targetEyeStyle: player.eyeStyle,
         votes: tally.get(player.id) || 0,
         isTop: (tally.get(player.id) || 0) === maxVotes,
       })),
@@ -1233,7 +1925,7 @@ class OrdealEngine {
           tally: voteTally,
           ejectedId,
           tied: false,
-          verdict: `${ejected.name} was ejected — ${ejected.role === "IMPOSTOR" ? "THE IMPOSTOR" : "CREWMATE"}`,
+          verdict: ejectionVerdict(ejected.name, ejected.role),
         };
       }
     } else {
@@ -1250,6 +1942,7 @@ class OrdealEngine {
   }
 
   resolveMeeting() {
+    this.pendingBodies = [];
     if (!this.activeMeeting?.tally) return;
     if (this.multiplayerClient) {
       this.multiplayerClient.resolveMeeting();
@@ -1267,8 +1960,10 @@ class OrdealEngine {
     this.onMeeting(null);
     this.paused = false;
     if (!this.checkWin()) {
+      this.emergency = afterMeeting(this.emergency);
       this.phase = "CALM";
-      this.phaseTime = 15;
+      this.phaseTime = CALM_SECONDS;
+      this.hazard = nextHazard(this.hazard);
       this.resetStations();
       this.killCooldownUntil = 0;
       this.moonSightUntil = 0;
@@ -1279,17 +1974,17 @@ class OrdealEngine {
   checkWin() {
     if (this.multiplayerClient) return false;
     if (this.gameOver) return true;
-    const impostor = this.players.find((player) => player.role === "IMPOSTOR");
+    const hollows = this.players.filter((player) => player.role === "IMPOSTOR" && player.alive);
     const crewLiving = this.players.filter((player) => player.role === "CREWMATE" && player.alive).length;
-    if (!impostor?.alive) {
-      this.end("CREW VICTORY — THE IMPOSTOR WAS EJECTED");
+    if (!hollows.length) {
+      this.end("CREW VICTORY — ALL HOLLOWS WERE EXPOSED");
       return true;
     }
     if (this.taskProgress >= 100) {
       this.end("CREW VICTORY — ALL MOON WARDS RESTORED");
       return true;
     }
-    if (crewLiving <= 1) {
+    if (hollowVictory(crewLiving, hollows.length, this.initialWardens, this.initialHollows)) {
       this.end("IMPOSTOR VICTORY — THE CREW IS AT PARITY");
       return true;
     }
@@ -1298,10 +1993,18 @@ class OrdealEngine {
 
   end(result: string) {
     if (this.gameOver) return;
+    this.resetInput();
+    this.playResultSound(result);
     this.gameOver = true;
     this.paused = true;
     this.cancelPuzzle("");
     this.onEnd(result);
+  }
+
+  private playResultSound(result: string) {
+    const crewWon = result.startsWith("CREW VICTORY");
+    const won = crewWon === (this.human.role === "CREWMATE");
+    this.audio.cue(won ? "victory" : "defeat");
   }
 
   flashMessage(message: string) {
@@ -1311,8 +2014,9 @@ class OrdealEngine {
   }
 
   snapshot(): Snapshot {
-    const nearbyBody = this.bodies.some((body) => dist(body, this.human) < 96);
-    const nearButton = this.phase === "CALM" && dist(this.human, { x: 640, y: 382 }) < 92;
+    const nearbyBody = this.bodies.some((body) => dist(body, this.human) < 96 && this.visibilityFor(body, this.human, false).kind !== "HIDDEN");
+    const nearButton = this.phase === "CALM" && dist(this.human, CENTER) < 92;
+    const report = reportAvailability({ emergency: this.emergency, phase: this.phase, alive: this.human.alive, nearbyBody, nearBell: nearButton, blocked: this.paused });
     const nearestStation = this.stations.find((station) => dist(station, this.human) < 84);
     const victimNear = this.players.some(
       (player) =>
@@ -1320,7 +2024,7 @@ class OrdealEngine {
         && player.id !== this.human.id
         && player.role === "CREWMATE"
         && dist(player, this.human) < 84
-        && (this.hazard !== "ROOTWAKE" || sharesRootCell(player, this.human)),
+        && this.visibilityFor(player).kind !== "HIDDEN",
     );
     const rawKillCooldown = Math.max(0, this.killCooldownUntil - this.elapsed);
     const killCooldown = Math.round(rawKillCooldown * 10) / 10;
@@ -1338,16 +2042,37 @@ class OrdealEngine {
       canKill: this.human.role === "IMPOSTOR" && this.phase === "ORDEAL" && !this.killUsedThisOrdeal && rawKillCooldown <= 0 && victimNear,
       killCooldown,
       killSpent: this.killUsedThisOrdeal,
-      canUseMoonSight: this.human.role === "IMPOSTOR" && this.phase === "ORDEAL" && !this.moonSightUsedThisOrdeal,
+      stealthCooldown: Math.ceil(Math.max(0, this.stealthUntil - this.elapsed)),
+      stealthOrdealsLeft: Math.max(0, this.stealthAvailableOrdeal - this.ordealNumber),
+      taskFailure: this.elapsed < this.taskFailureUntil ? this.taskFailure : "",
+      canUseMoonSight: this.human.alive && this.human.role === "IMPOSTOR" && this.phase === "ORDEAL" && !this.moonSightUsedThisOrdeal && !this.abilityPending,
       moonSightActive,
-      canReport: this.human.alive && (nearbyBody || nearButton),
-      taskPrompt: Boolean(nearestStation && !nearestStation.completed && nearestStation.cooldown <= 0) && this.phase === "CALM" && this.human.alive,
+      soundCaption: this.elapsed < this.captionUntil ? this.caption : "",
+      canReport: report.allowed,
+      reportLabel: report.label,
+      reportHint: report.hint,
+      taskPrompt: Boolean(nearestStation && !nearestStation.completed && !nearestStation.pending && nearestStation.cooldown <= 0) && this.phase !== "DISCUSSION" && this.human.alive,
       taskMode: nearestStation && !nearestStation.completed ? (nearestStation.puzzle ? "PUZZLE" : "HOLD") : null,
-      stationStatus: nearestStation ? { label: nearestStation.label, completed: nearestStation.completed, reward: nearestStation.reward } : null,
+      taskHoldProgress: nearestStation && nearestStation.label === this.taskHoldStation && !nearestStation.completed && !nearestStation.pending ? holdTaskProgress(this.taskHold) : 0,
+      taskHolding: this.taskHold > 0 && (this.keys.has("KeyE") || this.touchKeys.has("KeyE")),
+      stationStatus: nearestStation ? { label: nearestStation.label, completed: nearestStation.completed, reward: nearestStation.reward, teamRestored: nearestStation.teamRestored, pending: nearestStation.pending, overgrown: nearestStation === this.overgrownShrine() } : null,
+      overgrownStation: this.overgrownShrine()?.label,
       rewardNotice: this.rewardNotice && this.elapsed < this.rewardNoticeUntil ? this.rewardNotice : null,
       humanAlive: this.human.alive,
       message: this.elapsed < this.messageUntil ? this.message : "",
       localPlayerId: this.human.id,
+      pairRitual: this.pairRitual ?? null,
+      locationName: sanctuaryZoneName(this.human.x, this.human.y),
+      utility: this.utilities ? { ...this.utilities.state(this.localPlayerId, Date.now()), cooldown: Math.ceil(this.utilities.state(this.localPlayerId, Date.now()).cooldownMs / 1000) } : undefined,
+      navigation: {
+        x: Math.round(this.human.x / 12) * 12,
+        y: Math.round(this.human.y / 12) * 12,
+        personalCompleted: this.stations.filter(station => station.completed).map(station => station.label),
+        teamRestored: this.stations.filter(station => station.teamRestored).map(station => station.label),
+        destinationId: this.destinationId && this.stations.some(station => station.label === this.destinationId && !station.completed)
+          ? this.destinationId
+          : preparationStation(this.hazard, this.human, this.stations.filter(station => station.completed).map(station => station.label), this.stations.map(station => ({ ...station, id: station.label }))),
+      },
     };
   }
 
@@ -1364,16 +2089,68 @@ class OrdealEngine {
     if (!this.running) return;
     const dt = this.last ? Math.min((now - this.last) / 1000, 0.035) : 0;
     this.last = now;
-    this.elapsed += dt;
-    if (!this.paused && (!this.roleRevealActive || this.multiplayerClient)) {
-      this.update(dt);
+    const rotationPaused = this.orientationBlocked && !this.multiplayerClient;
+    if (!rotationPaused) {
+      this.elapsed += dt;
+      this.updateDevourEffects(dt);
     }
+    if (!rotationPaused && !this.paused && (!this.roleRevealActive || this.multiplayerClient)) {
+      this.update(dt);
+    } else if (dt > 0) {
+      for (const p of this.particles) {
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vx *= Math.pow(0.1, dt);
+        p.vy *= Math.pow(0.1, dt);
+        p.life -= dt;
+      }
+      this.particles = this.particles.filter((p) => p.life > 0);
+    }
+    const viewport = { width: this.viewWidth, height: this.viewHeight };
+    this.camera = followCamera(this.camera, this.human, viewport, dt, this.reducedMotion);
+    this.mouse = viewportToWorld(this.pointerViewport, this.camera, viewport);
+    if (this.joystickAim) this.mouse = { x: this.human.x + this.joystickAim.x * 200, y: this.human.y + this.joystickAim.y * 200 };
     this.draw();
     this.emit();
     this.frame = requestAnimationFrame(this.loop);
   };
 
+  updateDevourEffects(dt: number) {
+    if (this.devourEvents.length === 0) return;
+    for (const event of this.devourEvents) {
+      const progress = (this.elapsed - event.startedAt) / event.duration;
+      if (!this.reducedMotion && progress >= 0.65 && event.lastChomp < 1) {
+        event.lastChomp = 1;
+        if (this.canRenderDevour(event)) this.burst(event.x, event.y + 8, "#e7f1d3", 10);
+      }
+    }
+    this.devourEvents = this.devourEvents.filter((event) => this.elapsed - event.startedAt < event.duration);
+    void dt;
+  }
+
   update(dt: number) {
+    this.rootRipples = this.rootRipples.filter(ripple => ripple.until > this.elapsed);
+    this.utilityTrails = this.utilityTrails.filter(trail => trail.until > this.elapsed);
+    if (!this.multiplayerClient) {
+      if (this.phase !== "ORDEAL") this.utilities.roots = [];
+      for (const root of this.utilities.tick(this.players, Date.now())) {
+        if (dist(root, this.human) <= HEARING_RANGE && (this.hazard !== "ROOTWAKE" || sharesRootCell(root, this.human))) {
+          this.audio.cue("task-open"); this.caption = "A Watchroot chimed nearby — someone crossed it."; this.captionUntil = this.elapsed + 3;
+        }
+      }
+    }
+    this.emergency = advanceEmergency(this.emergency, dt, this.phase);
+    if (!this.multiplayerClient) {
+      this.wardSettleTimer += dt;
+      if (this.wardSettleTimer >= WARD_SETTLE_SECONDS) {
+        this.wardSettleTimer %= WARD_SETTLE_SECONDS;
+        this.taskProgress = clamp(Math.round((this.taskProgress + this.pendingWardDelta) * 10) / 10, 0, 100);
+        this.pendingWardDelta = 0;
+        if (this.checkWin()) return;
+      }
+      for (const entry of this.pendingBodies.filter(entry => entry.at <= this.elapsed)) { this.bodies.push(entry.body); this.onKill({ key: `${entry.body.id}-delayed` }); }
+      this.pendingBodies = this.pendingBodies.filter(entry => entry.at > this.elapsed);
+    }
     if (this.multiplayerClient) {
       this.phaseTime = Math.max(0, this.phaseTime - dt);
     } else {
@@ -1382,14 +2159,16 @@ class OrdealEngine {
         if (this.phase === "CALM") {
           this.phase = "COUNTDOWN";
           this.phaseTime = 3;
-          this.cancelPuzzle("");
-          this.flashMessage("ORDEAL INCOMING — remember who is nearby.");
+          this.phantomRoutes = phantomPaths(Math.floor(Math.random() * 4294967296));
+          this.flashMessage(`${HAZARD_LABELS[this.hazard]} INCOMING — prepare your gear and position.`);
         } else if (this.phase === "COUNTDOWN") {
+          this.audio.cue("ordeal-start");
+          this.restoreTrueColors();
           this.phase = "ORDEAL";
-          this.phaseTime = 10;
-          this.hazard = choose<Hazard>(["BLACKOUT", "FOG", "MOONGLARE", "ROOTWAKE", "PHANTOMS"]);
+          this.phaseTime = ordealDuration(this.hazard);
           this.killCooldownUntil = 0;
           this.killUsedThisOrdeal = false;
+          this.botStrikeSpent.clear(); this.ordealNumber += 1;
           this.moonSightUntil = 0;
           this.moonSightUsedThisOrdeal = false;
           for (const player of this.players) player.flareDropped = false;
@@ -1402,11 +2181,17 @@ class OrdealEngine {
                   ? "MOON GLARE — searing moonlight has bleached every identity into shadow."
                   : this.hazard === "ROOTWAKE"
                     ? "ROOTWAKE — six moon cells have sealed. Only your chamber remains visible."
-                    : "PHANTOM PROCESSION — false wardens now walk among the living.",
+                    : this.hazard === "MIRROR_POOL"
+                      ? "MIRROR POOL — bumps swap colors, not controls. True colors return at Calm."
+                      : "PHANTOM PROCESSION — false wardens now walk among the living.",
           );
         } else if (this.phase === "ORDEAL") {
+          this.restoreTrueColors();
+          this.emergency = finishFirstOrdeal(this.emergency);
+          this.audio.cue("calm");
           this.phase = "CALM";
-          this.phaseTime = 15;
+          this.phaseTime = CALM_SECONDS;
+          this.hazard = nextHazard(this.hazard);
           this.resetStations();
           this.itemActiveUntil = 0;
           this.moonSightUntil = 0;
@@ -1415,11 +2200,26 @@ class OrdealEngine {
       }
     }
 
+    this.updateRestorationSound();
     for (const station of this.stations) {
       station.cooldown = Math.max(0, station.cooldown - dt);
-      const targetClosure = this.phase === "CALM" ? 0 : 1;
+      const targetClosure = this.phase === "DISCUSSION" ? 1 : 0;
       station.rootClosure = (station.rootClosure ?? targetClosure) + (targetClosure - (station.rootClosure ?? targetClosure)) * Math.min(1, dt * 8);
     }
+    if (!this.multiplayerClient && this.phase === "ORDEAL") {
+      for (const player of this.players) {
+        if (!player.alive) continue;
+        const previous = this.footsteps.get(player.id);
+        if (!previous || (this.elapsed - previous.at >= 0.5 && dist(previous, player) >= 34)) {
+          this.footsteps.set(player.id, { x: player.x, y: player.y, at: this.elapsed });
+          if (previous) this.hearRustle(player);
+        }
+      }
+      this.echoes = this.echoes.filter(echo => echo.until > this.elapsed);
+      for (const echo of this.echoes) if (this.elapsed >= echo.nextAt) {
+        this.hearRustle(lurePoint(echo, echo.angle, 1 - (echo.until - this.elapsed) / 2, this.hazard === "ROOTWAKE")); echo.nextAt = this.elapsed + 0.36;
+      }
+    } else if (this.phase !== "ORDEAL") this.echoes = [];
     for (const body of this.bodies) body.age += dt;
     this.flares = this.flares.filter((flare) => (flare.life -= dt) > 0);
     for (const p of this.particles) {
@@ -1433,18 +2233,28 @@ class OrdealEngine {
     if (!this.roleRevealActive) {
       this.updateHuman(dt);
     }
+    this.updatePairedRituals(dt);
+    // Only the local slime gets a soft movement texture. Remote sounds remain
+    // the server's range-limited anonymous cues, never a second location feed.
+    const stepDistance = Math.hypot(this.human.x - this.localStep.x, this.human.y - this.localStep.y);
+    if (this.localStep.at < 0 || stepDistance > 80) {
+      this.localStep = { x: this.human.x, y: this.human.y, at: this.elapsed };
+    } else if (this.human.alive && this.elapsed - this.localStep.at > .28 && stepDistance > 26) {
+      this.audio.cue("step");
+      this.localStep = { x: this.human.x, y: this.human.y, at: this.elapsed };
+    }
 
     if (this.multiplayerClient) {
-      const rootLocked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72;
       for (const p of this.players) {
         if (p.id === this.localPlayerId) continue;
         const sample = this.movementBuffer.sample(p.id, performance.now());
         if (sample) {
           const predX = clamp(sample.x, ROOM.left + 36, ROOM.right - 36);
           const predY = clamp(sample.y, ROOM.top + 48, ROOM.bottom - 32);
-          const resolved = rootLocked ? resolveRootPosition(predX, predY) : { x: predX, y: predY };
-          p.targetX = resolved.x;
-          p.targetY = resolved.y;
+          // Remote roles stay private. Render the authoritative movement rather
+          // than incorrectly applying Warden walls to an allowed Rootwalk.
+          p.targetX = predX;
+          p.targetY = predY;
           p.x = p.targetX;
           p.y = p.targetY;
           p.vx = sample.vx;
@@ -1453,7 +2263,7 @@ class OrdealEngine {
         }
       }
       this.inputSendTimer = (this.inputSendTimer || 0) + dt;
-      if (this.inputSendTimer >= 0.05) {
+      if (this.inputSendTimer >= 0.05 && !this.utilityPending) {
         this.inputSendTimer = 0;
         const aim = Number(Math.atan2(this.mouse.y - this.human.y, this.mouse.x - this.human.x).toFixed(2));
         const rx = Math.round(this.human.x);
@@ -1461,6 +2271,7 @@ class OrdealEngine {
         const rvx = Math.round(this.human.vx);
         const rvy = Math.round(this.human.vy);
         const fl = this.human.flashlight;
+        const wk = Boolean(this.human.working);
         const prev = this.lastSentInput;
         if (
           rx !== prev.x
@@ -1469,84 +2280,155 @@ class OrdealEngine {
           || rvy !== prev.vy
           || Math.abs(aim - prev.angle) > 0.04
           || fl !== prev.flashlight
+          || wk !== prev.working
           || this.elapsed - this.lastInputHeartbeat >= 0.5
         ) {
           this.lastInputHeartbeat = this.elapsed;
-          this.lastSentInput = { x: rx, y: ry, vx: rvx, vy: rvy, angle: aim, flashlight: fl };
-          const seq = this.multiplayerClient.sendInput(rx, ry, rvx, rvy, aim, fl);
+          this.lastSentInput = { x: rx, y: ry, vx: rvx, vy: rvy, angle: aim, flashlight: fl, working: wk };
+          const seq = this.multiplayerClient.sendInput(rx, ry, rvx, rvy, aim, fl, wk);
           this.pendingInputs.set(seq, { x: rx, y: ry });
           if (this.pendingInputs.size > 180) this.pendingInputs.delete(this.pendingInputs.keys().next().value!);
         }
       }
     } else {
       this.updateBots(dt);
+      this.checkMirrorPoolBumps();
     }
+  }
+
+  updatePairedRituals(dt: number) {
+    if (!this.pairedRituals) return;
+    if (!this.human.alive || this.phase === "DISCUSSION" || this.roleRevealActive || this.navigationOpen || this.notebookOpen || this.activePuzzle || this.paused) {
+      this.setPairRitual(false); this.pairedRituals.clear(); return;
+    }
+    const station = this.stations.find(station => station.label === this.pairStationId && !station.completed && !station.pending);
+    if (this.pairStationId && (!station || dist(station, this.human) > 84)) this.setPairRitual(false);
+    if (station && this.pairStationId && this.elapsed >= this.pairHeartbeatAt) {
+      this.pairHeartbeatAt = this.elapsed + .25;
+      if (this.multiplayerClient) this.multiplayerClient.pairRitual(station.label, true, this.stationRound);
+      else this.pairedRituals.hold(this.human.id, station.label, this.stationRound, this.elapsed * 1000);
+    }
+    if (this.multiplayerClient) return;
+    const result = this.pairedRituals.tick(this.players, this.stations.map(station => ({ ...station, id: station.label })), (id, label) => id === this.human.id ? this.stations.some(station => station.label === label && station.completed) : this.botRites.get(id)?.has(label) ?? false, this.stationRound, this.elapsed * 1000, dt);
+    for (const [id, intent] of this.pairedRituals.intents) if (this.players.find(p => p.id === id)?.ai)
+      this.pairedRituals.autoPulse(id, intent.stationId, this.stationRound, this.elapsed * 1000);
+    for (const { playerId, ...ritual } of result.updates) if (playerId === this.human.id) this.pairRitual = ritual.participants ? ritual : null;
+    for (const { nextPlayerId, stationId, rune } of result.updates) if (nextPlayerId && nextPlayerId !== this.human.id && this.players.find(p => p.id === nextPlayerId)?.ai)
+      this.pairedRituals.pulse(nextPlayerId, stationId, rune ?? 0, this.stationRound, this.elapsed * 1000);
+    for (const point of result.sounds) this.hearRitual(point);
+    for (const completion of result.completions) {
+      const actor = this.players.find(player => player.id === completion.playerId), shrine = this.stations.find(station => station.label === completion.stationId);
+      if (!actor || !shrine) continue;
+      if (actor.id === this.human.id) { this.completeStation(shrine, actor.role === "IMPOSTOR"); this.setPairRitual(false); }
+      else this.completeBotRitual(actor, shrine);
+    }
+  }
+
+  private completeBotRitual(player: Player, station: Station) {
+    let rites = this.botRites.get(player.id);
+    if (!rites) { rites = new Set(); this.botRites.set(player.id, rites); }
+    if (rites.has(station.label)) return;
+    rites.add(station.label); this.botWork.delete(player.id);
+    player.working = false;
+    player.gearCharges[station.reward] = Math.min(3, player.gearCharges[station.reward] + 1);
+    station.completedAt = this.elapsed;
+    if (player.role === "CREWMATE") this.wardClaims.add(station.label);
+    station.teamRestored = true;
+    this.pendingWardDelta += this.restorationLedger.claim(station.label, this.players.filter(p => p.alive && p.role === "CREWMATE").length, this.phase === "ORDEAL", player.role === "IMPOSTOR", this.initialHollows, this.overgrownShrine() === station);
+    player.atStation = (player.atStation + 1) % this.stations.length;
+    player.thinkAt = 0;
   }
 
   updateHuman(dt: number) {
     const player = this.human;
-    if (!player.alive) return;
-    if (this.multiplayerClient && !this.multiplayerClient.connected) { player.vx = 0; player.vy = 0; return; }
+    if (this.utilityPending) { player.vx = 0; player.vy = 0; return; }
+    if (!player.alive) {
+      this.clearTaskHold();
+      player.working = false;
+      return;
+    }
+    if (this.multiplayerClient && !this.multiplayerClient.connected) { this.clearTaskHold(); player.vx = 0; player.vy = 0; player.working = false; return; }
+    if (this.navigationOpen || this.notebookOpen) { this.clearTaskHold(); player.vx = 0; player.vy = 0; player.working = false; return; }
     player.flashlight = this.phase === "ORDEAL" && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil;
     if (this.activePuzzle) {
+      this.clearTaskHold();
       player.vx = 0;
       player.vy = 0;
+      player.working = true;
       return;
     }
     const pressed = (code: string) => this.keys.has(code) || this.touchKeys.has(code);
-    let dx = Number(pressed("KeyD") || pressed("ArrowRight")) - Number(pressed("KeyA") || pressed("ArrowLeft"));
-    let dy = Number(pressed("KeyS") || pressed("ArrowDown")) - Number(pressed("KeyW") || pressed("ArrowUp"));
-    const length = Math.hypot(dx, dy) || 1;
-    dx /= length;
-    dy /= length;
+    const invert = false;
+    const input = movementVector(Number(pressed("KeyD") || pressed("ArrowRight")) - Number(pressed("KeyA") || pressed("ArrowLeft")), Number(pressed("KeyS") || pressed("ArrowDown")) - Number(pressed("KeyW") || pressed("ArrowUp")), this.moveVector, invert);
+    const dx = input.vx, dy = input.vy;
+    if (this.pairStationId && !dx && !dy) { this.clearTaskHold(); player.vx = 0; player.vy = 0; player.working = true; return; }
+    if (this.pairStationId && (dx || dy)) this.setPairRitual(false);
     const speed = 184;
     player.vx += (dx * speed - player.vx) * Math.min(1, dt * 12);
     player.vy += (dy * speed - player.vy) * Math.min(1, dt * 12);
     if (!dx) player.vx *= Math.pow(0.004, dt);
     if (!dy) player.vy *= Math.pow(0.004, dt);
-    const nextX = clamp(player.x + player.vx * dt, ROOM.left + 36, ROOM.right - 36);
-    const nextY = clamp(player.y + player.vy * dt, ROOM.top + 48, ROOM.bottom - 32);
-    const next = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72
-      ? resolveRootPosition(nextX, nextY)
+    const intendedX = player.x + player.vx * dt;
+    const intendedY = player.y + player.vy * dt;
+    const nextX = clamp(intendedX, PLAYER_BOUNDS.left, PLAYER_BOUNDS.right);
+    const nextY = clamp(intendedY, PLAYER_BOUNDS.top, PLAYER_BOUNDS.bottom);
+    const impostorPhasing = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && player.role === "IMPOSTOR";
+    const rootChecked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && !impostorPhasing
+      ? rootwakeMove(player, { x: nextX, y: nextY }, this.phaseTime)
       : { x: nextX, y: nextY };
-    if (next.x !== nextX) player.vx *= 0.08;
-    if (next.y !== nextY) player.vy *= 0.08;
+    const vx = rootChecked.x !== intendedX ? 0 : player.vx;
+    const vy = rootChecked.y !== intendedY ? 0 : player.vy;
+    const next = resolveObstacleMovement(rootChecked.x, rootChecked.y, vx, vy, 22, this.obstacles);
+    if (!this.multiplayerClient && impostorPhasing && !sharesRootCell(player, next)) this.hearRootRipple(next);
+    player.vx = next.vx;
+    player.vy = next.vy;
     player.x = next.x;
     player.y = next.y;
 
-    const station = this.stations.find((entry) => dist(entry, player) < 84 && !entry.completed && entry.cooldown <= 0);
-    if (station && !station.puzzle && pressed("KeyE") && this.phase === "CALM") {
+    const station = this.stations.find((entry) => dist(entry, player) < 84 && !entry.completed && !entry.pending && entry.cooldown <= 0);
+    if (station && !station.puzzle && pressed("KeyE") && this.phase !== "DISCUSSION") {
+      if (this.taskHoldStation !== station.label) this.clearTaskHold();
+      this.taskHoldStation = station.label;
       this.taskHold += dt;
-      if (this.taskHold >= 1.8) {
-        this.taskHold = 0;
+      if (this.taskHold >= TASK_HOLD_SECONDS) {
+        this.clearTaskHold();
+        player.working = false;
         this.completeStation(station, player.role === "IMPOSTOR");
+      } else {
+        player.working = true;
       }
     } else {
-      this.taskHold = Math.max(0, this.taskHold - dt * 1.4);
+      this.clearTaskHold();
+      player.working = false;
     }
   }
 
   updateBots(dt: number) {
     for (const player of this.players) {
       if (!player.ai || !player.alive) continue;
-      const discoveredBody = this.bodies.find((body) => dist(player, body) < 72);
+      let personalRites = this.botRites.get(player.id);
+      if (!personalRites) { personalRites = new Set(); this.botRites.set(player.id, personalRites); }
+      const discoveredBody = this.bodies.find((body) => dist(player, body) < 72 && this.visibilityFor(body, player, false).kind !== "HIDDEN");
       if (discoveredBody && Math.random() < dt * (player.role === "IMPOSTOR" ? 0.18 : 0.7)) {
-        this.startMeeting(`${discoveredBody.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, player.name.toUpperCase());
+        this.startMeeting(`${discoveredBody.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, player.name.toUpperCase(), player.id);
         return;
       }
       if (this.elapsed > player.thinkAt || dist(player, { x: player.targetX, y: player.targetY }) < 22) {
         player.thinkAt = this.elapsed + 1.2 + Math.random() * 2.2;
-        if (this.phase === "CALM" || this.phase === "COUNTDOWN") {
+        if (this.phase === "CALM" || this.phase === "COUNTDOWN" || (this.phase === "ORDEAL" && player.role === "CREWMATE" && Math.random() < 0.65)) {
+          if (personalRites.has(this.stations[player.atStation % this.stations.length].label)) {
+            const nextAvailable = this.stations.findIndex(station => !personalRites!.has(station.label));
+            if (nextAvailable >= 0) player.atStation = nextAvailable;
+          }
           const station = this.stations[player.atStation % this.stations.length];
-          player.targetX = station.x + (Math.random() - 0.5) * 28;
-          player.targetY = station.y + (station.side === "top" ? 66 : station.side === "bottom" ? -62 : 0) + (Math.random() - 0.5) * 24;
-          if (station.side === "left") player.targetX += 66;
-          if (station.side === "right") player.targetX -= 66;
-        } else if (player.role === "IMPOSTOR" && !this.killUsedThisOrdeal && this.elapsed >= this.killCooldownUntil) {
+          player.targetX = station.x;
+          player.targetY = station.y + (station.side === "top" ? 48 : station.side === "bottom" ? -48 : 0);
+          if (station.side === "left") player.targetX += 48;
+          if (station.side === "right") player.targetX -= 48;
+        } else if (player.role === "IMPOSTOR" && !this.botStrikeSpent.has(player.id)) {
           const victims = this.players.filter((entry) =>
             entry.alive
             && entry.role === "CREWMATE"
-            && (this.hazard !== "ROOTWAKE" || sharesRootCell(entry, player))
           );
           const victim = victims.sort((a, b) => dist(a, player) - dist(b, player))[0];
           if (victim) {
@@ -1559,33 +2441,61 @@ class OrdealEngine {
         }
       }
 
-      const dx = player.targetX - player.x;
-      const dy = player.targetY - player.y;
+      const rootLocked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && player.role !== "IMPOSTOR";
+      let route = this.botRoutes.get(player.id);
+      if (!route || route.targetX !== player.targetX || route.targetY !== player.targetY || route.root !== rootLocked) {
+        route = { targetX: player.targetX, targetY: player.targetY, root: rootLocked, points: planRoute(player, { x: player.targetX, y: player.targetY }, rootLocked, this.obstacles) };
+        this.botRoutes.set(player.id, route);
+      }
+      while (route.points.length > 1 && dist(player, route.points[0]) < 20) route.points.shift();
+      const waypoint = route.points[0] ?? player;
+      const dx = waypoint.x - player.x;
+      const dy = waypoint.y - player.y;
       const length = Math.hypot(dx, dy) || 1;
       const speed = player.role === "IMPOSTOR" && this.phase === "ORDEAL" ? 148 : 122;
-      player.vx += ((dx / length) * speed - player.vx) * Math.min(1, dt * 5);
-      player.vy += ((dy / length) * speed - player.vy) * Math.min(1, dt * 5);
+      const riteStation = this.stations[player.atStation % this.stations.length];
+      const holdingRite = this.phase !== "DISCUSSION"
+        && !personalRites.has(riteStation.label) && dist(player, riteStation) < 84;
+      if (holdingRite) {
+        player.vx = 0;
+        player.vy = 0;
+      } else {
+        player.vx += ((dx / length) * speed - player.vx) * Math.min(1, dt * 5);
+        player.vy += ((dy / length) * speed - player.vy) * Math.min(1, dt * 5);
+      }
       const nextX = clamp(player.x + player.vx * dt, ROOM.left + 36, ROOM.right - 36);
       const nextY = clamp(player.y + player.vy * dt, ROOM.top + 48, ROOM.bottom - 32);
-      const next = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72
-        ? resolveRootPosition(nextX, nextY)
+      const impostorPhasing = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && player.role === "IMPOSTOR";
+      const rootChecked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && !impostorPhasing
+        ? rootwakeMove(player, { x: nextX, y: nextY }, this.phaseTime)
         : { x: nextX, y: nextY };
+      const next = resolveObstaclePosition(rootChecked.x, rootChecked.y, 22, this.obstacles);
+      if (impostorPhasing && !sharesRootCell(player, next)) this.hearRootRipple(next);
       if (next.x !== nextX) player.vx *= -0.18;
       if (next.y !== nextY) player.vy *= -0.18;
       player.x = next.x;
       player.y = next.y;
 
-      if (this.phase === "CALM" && player.role === "CREWMATE") {
+      player.working = false;
+      if (this.phase !== "DISCUSSION") {
         const station = this.stations[player.atStation % this.stations.length];
-        if (station.completed) {
+        if (personalRites.has(station.label)) {
           player.atStation = (player.atStation + 1) % this.stations.length;
-        } else if (dist(player, station) < 78 && station.cooldown <= 0) {
-          this.taskProgress = Math.min(100, this.taskProgress + dt * 0.34);
-          if (Math.random() < dt * 0.2) {
-            station.cooldown = 3;
-            player.gearCharges[station.reward] = Math.min(3, player.gearCharges[station.reward] + 1);
-            player.atStation = (player.atStation + 1 + Math.floor(Math.random() * 3)) % this.stations.length;
+          this.botWork.delete(player.id);
+        } else if (dist(player, station) < 84) {
+          player.working = true;
+          if (this.pairedRituals?.intents.get(this.human.id)?.stationId === station.label) {
+            this.pairedRituals.hold(player.id, station.label, this.stationRound, this.elapsed * 1000);
+            continue;
           }
+          const work = this.botWork.get(player.id);
+          const duration = work?.station === station.label ? work.duration + dt : dt;
+          this.botWork.set(player.id, { station: station.label, duration });
+          if (duration >= 2.6) {
+            this.completeBotRitual(player, station);
+          }
+        } else {
+          this.botWork.delete(player.id);
         }
       }
 
@@ -1599,15 +2509,14 @@ class OrdealEngine {
           player.flareDropped = true;
           player.gearCharges.FLARE -= 1;
         }
-        if (player.role === "IMPOSTOR" && !this.killUsedThisOrdeal && this.elapsed >= this.killCooldownUntil && this.phaseTime < 8.4) {
+        if (player.role === "IMPOSTOR" && !this.botStrikeSpent.has(player.id) && this.phaseTime < ordealDuration(this.hazard) - 1.6) {
           const victim = this.players
             .filter((entry) =>
               entry.alive
               && entry.role === "CREWMATE"
-              && (this.hazard !== "ROOTWAKE" || sharesRootCell(entry, player))
             )
             .sort((a, b) => dist(a, player) - dist(b, player))[0];
-          if (victim && dist(victim, player) < 66) {
+          if (victim && dist(victim, player) < 66 && this.visibilityFor(victim, player, false).kind !== "HIDDEN") {
             this.eliminate(victim, player);
             this.killCooldownUntil = this.elapsed + KILL_COOLDOWN_SECONDS;
           }
@@ -1621,7 +2530,7 @@ class OrdealEngine {
 
   getPhantoms() {
     const time = 10 - clamp(this.phaseTime, 0, 10);
-    return PHANTOM_SEEDS.map((seed, index): Player => {
+    return this.phantomRoutes.map((seed, index): Player => {
       const theta = time * seed.speed + seed.phase;
       const verticalTheta = time * seed.speed * 0.82 + seed.phase * 1.35;
       return {
@@ -1634,6 +2543,7 @@ class OrdealEngine {
         vy: -Math.sin(verticalTheta) * seed.ry * seed.speed * 0.82,
         color: "#77828c",
         hat: "mooncap",
+        eyeStyle: "FIERCE",
         alive: true,
         ai: true,
         targetX: seed.x,
@@ -1648,77 +2558,217 @@ class OrdealEngine {
   }
 
   draw() {
-    const dpr = this.canvas.width / W;
+    const dpr = this.canvas.width / this.viewWidth;
     const ctx = this.ctx;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, W, H);
+    ctx.clearRect(0, 0, this.viewWidth, this.viewHeight);
+    ctx.save();
+    ctx.translate(-this.camera.x, -this.camera.y);
+    if (!this.reducedMotion && this.elapsed < this.devourShakeUntil) {
+      const decay = clamp((this.devourShakeUntil - this.elapsed) / 0.88, 0, 1);
+      const shakeX = Math.sin(this.elapsed * 68) * this.devourShakePower * decay;
+      const shakeY = Math.cos(this.elapsed * 54) * this.devourShakePower * 0.78 * decay;
+      ctx.translate(shakeX, shakeY);
+    }
     this.drawRoom(ctx);
+    this.forestAtmosphere?.drawGround(ctx, this.obstacles);
     this.drawBeams(ctx);
+    this.drawUtilities(ctx);
+    for (const ripple of this.rootRipples) if (this.visibilityFor(ripple, this.human, false).kind !== "HIDDEN") {
+      const t = 1 - (ripple.until - this.elapsed) / .7;
+      ctx.save(); ctx.globalAlpha = 1 - t; ctx.strokeStyle = "#c1e7dc"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(ripple.x, ripple.y + 8, 14 + t * 35, 8 + t * 18, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+    }
     for (const body of this.bodies) this.drawBody(ctx, body);
     const moonGlareActive = this.phase === "ORDEAL" && this.hazard === "MOONGLARE";
     const phantomProcessionActive = this.phase === "ORDEAL" && this.hazard === "PHANTOMS";
     const rootwakeActive = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE";
-    if (moonGlareActive) this.drawLighting(ctx);
-    const ordered = [
-      ...this.players.filter((player) => player.alive).map((player) => ({ player, phantom: false })),
-      ...(phantomProcessionActive ? this.getPhantoms().map((player) => ({ player, phantom: true })) : []),
-    ].sort((a, b) => a.player.y - b.player.y);
     const moonSightActive = this.human.role === "IMPOSTOR" && this.elapsed < this.moonSightUntil;
+    if (moonGlareActive && !moonSightActive) this.drawLighting(ctx);
+    if (moonGlareActive) {
+      ctx.save();
+      for (const pocket of SHADE_POCKETS) {
+        ctx.fillStyle = "rgba(27,46,89,.62)"; ctx.strokeStyle = "#b4d7fa"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(pocket.x, pocket.y, SHADE_RADIUS, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = "#e1edff"; ctx.font = "700 10px sans-serif"; ctx.textAlign = "center"; ctx.fillText("MOON SHADE", pocket.x, pocket.y + 66);
+      }
+      ctx.restore();
+    }
+    type RenderItem =
+      | { kind: "PLAYER"; y: number; player: Player; phantom: boolean }
+      | { kind: "OBSTACLE"; y: number; obstacle: SanctuaryObstacle };
+    const ordered: RenderItem[] = [
+      ...this.players.filter((player) => player.alive).map((player): RenderItem => ({ kind: "PLAYER", y: player.y, player, phantom: false })),
+      ...(phantomProcessionActive ? this.getPhantoms().map((player): RenderItem => ({ kind: "PLAYER", y: player.y, player, phantom: true })) : []),
+      ...this.obstacles.map((obstacle): RenderItem => ({ kind: "OBSTACLE", y: obstacle.y, obstacle })),
+    ].sort((a, b) => a.y - b.y);
     const sonarActive = this.selectedItem === "SONAR" && this.elapsed < this.itemActiveUntil;
     for (const entry of ordered) {
+      const point = entry.kind === "PLAYER" ? entry.player : entry.obstacle;
+      // Leave enough margin for crowns, labels, canopies, and bounce. This is
+      // rendering-only: all offscreen physics and visibility still simulate.
+      if (point.x < this.camera.x - 160 || point.x > this.camera.x + this.viewWidth + 160 || point.y < this.camera.y - 160 || point.y > this.camera.y + this.viewHeight + 160) continue;
+      if (entry.kind === "OBSTACLE") {
+        this.drawObstacle(ctx, entry.obstacle);
+        continue;
+      }
       const { player } = entry;
+      const sight = this.visibilityFor(player);
+      if (sight.kind === "HIDDEN") continue;
       if (entry.phantom) {
-        this.drawSlime(ctx, player, true, false, false, 0.78);
-        if (sonarActive) this.drawPhantomMarker(ctx, player);
+        this.drawSlime(ctx, player, true, false, false, sight.alpha * (moonSightActive ? .25 : .65));
+        if (moonSightActive || (sonarActive && dist(this.human, player) <= HEARING_RANGE)) this.drawPhantomMarker(ctx, player);
         continue;
       }
       const isLocal = player.id === this.localPlayerId;
-      const revealed = isLocal || moonSightActive || this.isRevealed(player);
-      if (this.phase === "ORDEAL" && this.hazard === "BLACKOUT" && !revealed) continue;
-      const silhouette = moonGlareActive || phantomProcessionActive || (this.phase === "ORDEAL" && this.hazard === "FOG" && !revealed);
-      const colorMuted = this.phase === "ORDEAL" && !silhouette && (this.hazard === "BLACKOUT" || this.hazard === "FOG");
-      const visibilityAlpha = this.phase !== "ORDEAL"
-        ? 1
-        : this.hazard === "BLACKOUT"
-          ? 0.56
-          : this.hazard === "FOG"
-            ? silhouette ? 0.48 : 0.7
-            : this.hazard === "PHANTOMS"
-              ? 0.78
-            : 1;
-      this.drawSlime(ctx, player, silhouette, moonSightActive && !isLocal, colorMuted, visibilityAlpha);
+      const silhouette = sight.kind === "SHAPE";
+      const colorMuted = !moonSightActive && this.phase === "ORDEAL" && !silhouette && (this.hazard === "BLACKOUT" || this.hazard === "FOG" || this.hazard === "MIRROR_POOL");
+      const materialAlpha = colorMuted ? this.hazard === "BLACKOUT" ? .56 : .78 : silhouette && this.hazard === "FOG" ? .48 : 1;
+      const identityFade = isLocal || moonSightActive ? 1 : clamp((sight.alpha - .2) / .7, 0, 1);
+      this.drawSlime(ctx, player, silhouette, moonSightActive && !isLocal, colorMuted, sight.alpha * materialAlpha, identityFade * identityFade * (3 - 2 * identityFade));
     }
-    if (!moonGlareActive) this.drawLighting(ctx);
+    for (const event of this.devourEvents) {
+      // A late arrival must find a puddle, not a replay of a kill they missed.
+      if (event.killerId || !this.canRenderDevour(event)) continue;
+      const sight = this.visibilityFor(event, this.human, false);
+      this.drawDevourEffect(ctx, event, event.witnessed !== "IDENTIFIED" || sight.kind === "SHAPE", undefined, false, sight.alpha);
+    }
+    // Draw state badges above actors, but beneath visibility masks so a sealed
+    // shrine stays readable without exposing other Rootwake chambers.
+    for (const station of this.stations) {
+      if (!this.showHarmonizeInvitation(station)) drawSanctumStatus(ctx, station, this.elapsed, this.phase === "DISCUSSION", dist(station, this.human) < 128);
+    }
     this.drawParticles(ctx);
+    const atmosphereView = {
+      observer: this.human, camera: this.camera, width: this.viewWidth, height: this.viewHeight,
+      phase: this.phase, hazard: this.hazard, elapsed: this.elapsed, reducedMotion: this.reducedMotion,
+      moonSight: moonSightActive, flares: this.flares, stations: this.stations, obstacles: this.obstacles,
+      beamAngle: this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil
+        ? Math.atan2(this.mouse.y - this.human.y, this.mouse.x - this.human.x) : undefined,
+    };
+    this.forestAtmosphere?.drawVeil(ctx, atmosphereView);
+    if (!moonGlareActive) this.drawLighting(ctx);
+    this.forestAtmosphere?.drawMist(ctx, atmosphereView);
+    this.drawSonarEchoes(ctx);
     if (rootwakeActive) {
       this.drawRootwakeOcclusion(ctx);
       this.drawRootwake(ctx);
     }
+    if (moonSightActive) {
+      this.drawMoonSightOverlay(ctx);
+    }
+    if (this.phase === "COUNTDOWN" && this.hazard === "ROOTWAKE") {
+      ctx.save(); ctx.strokeStyle = "#d8edb6b0"; ctx.lineWidth = 3; ctx.setLineDash([10, 9]);
+      for (const wall of ROOT_BARRIERS) ctx.strokeRect(wall.x, wall.y, wall.w, wall.h);
+      ctx.restore();
+    }
+    if ((this.phase === "COUNTDOWN" || rootwakeActive) && this.hazard === "ROOTWAKE") {
+      const open = this.phase === "ORDEAL" && rootGatesOpen(this.phaseTime);
+      ctx.save(); ctx.strokeStyle = open ? "#dfefb7" : "#a1b8ee"; ctx.lineWidth = 4; ctx.textAlign = "center"; ctx.font = "800 10px sans-serif";
+      for (const x of ROOT_GATES) {
+        ctx.strokeRect(x - 64, ROOT_GATE_Y - 28, 128, 56);
+        ctx.fillStyle = open ? "#dfefb7" : "#bacff8";
+        ctx.fillText(open ? "DOOR OPEN" : "OPENS HALFWAY", x, ROOT_GATE_Y - 38);
+      }
+      ctx.restore();
+    }
+    ctx.restore();
     this.drawCanvasLabels(ctx);
+  }
+
+  drawSonarEchoes(ctx: CanvasRenderingContext2D) {
+    if (this.phase !== "ORDEAL" || !this.human.alive || this.selectedItem !== "SONAR" || this.elapsed >= this.itemActiveUntil) return;
+    const sweep = (this.elapsed * 1.4) % 1;
+    // Brief neutral movement contacts, never another player's identity or a
+    // body. The navigation map deliberately never receives these contacts.
+    if (sweep > 0.65) return;
+    const contacts = this.hazard === "PHANTOMS" ? [...this.players, ...this.getPhantoms()] : this.players;
+    ctx.save();
+    ctx.strokeStyle = "#d9ecff";
+    ctx.fillStyle = "#d9ecff";
+    ctx.globalAlpha = (1 - sweep / 0.65) * 0.8;
+    ctx.lineWidth = 2;
+    for (const contact of contacts) {
+      if (!contact.alive || contact.id === this.localPlayerId || Math.hypot(contact.vx, contact.vy) < 8 || dist(this.human, contact) > HEARING_RANGE) continue;
+      if (this.hazard === "ROOTWAKE" && !sharesRootCell(this.human, contact)) continue;
+      ctx.beginPath();
+      ctx.arc(contact.x, contact.y + 5, 15 + sweep * 18, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(contact.x, contact.y + 5, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  drawMoonSightOverlay(ctx: CanvasRenderingContext2D) {
+    const pulse = 0.5 + Math.sin(this.elapsed * 9) * 0.5;
+    ctx.save();
+    for (const player of this.players) {
+      if (!player.alive) continue;
+      const isLocal = player.id === this.localPlayerId;
+      if (!isLocal) {
+        // Directional tracking tether in the crewmate's exact slime color
+        ctx.save();
+        ctx.strokeStyle = player.color;
+        ctx.globalAlpha = 0.45 + pulse * 0.25;
+        ctx.lineWidth = 2.2;
+        ctx.setLineDash([7, 7]);
+        ctx.beginPath();
+        ctx.moveTo(this.human.x, this.human.y);
+        ctx.lineTo(player.x, player.y);
+        ctx.stroke();
+        ctx.restore();
+
+        // Color-coded target ring around the crewmate
+        ctx.save();
+        ctx.strokeStyle = player.color;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = 0.85;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y + 4, 42 + pulse * 5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+      // Re-draw living slimes in 100% vibrant color above darkness/fog/glare/roots
+      this.drawSlime(ctx, player, false, !isLocal, false, 1);
+    }
+    ctx.restore();
   }
 
   drawRootwakeOcclusion(ctx: CanvasRenderingContext2D) {
     const strength = rootwakeStrength(this.phase, this.hazard, this.phaseTime);
     if (strength <= 0) return;
     const cell = getRootCell(this.human.x, this.human.y);
-    ctx.save();
-    ctx.fillStyle = `rgba(1,4,10,${0.985 * strength})`;
-    ctx.beginPath();
-    ctx.rect(0, 0, W, H);
-    ctx.rect(cell.x, cell.y, cell.w, cell.h);
-    ctx.fill("evenodd");
-
     const pulse = 0.5 + Math.sin(this.elapsed * 4.8) * 0.5;
-    ctx.strokeStyle = `rgba(108,255,181,${strength * (0.14 + pulse * 0.12)})`;
-    ctx.lineWidth = 9;
-    ctx.strokeRect(cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6);
-    ctx.strokeStyle = `rgba(139,247,181,${strength * (0.5 + pulse * 0.22)})`;
-    ctx.lineWidth = 2.5;
-    ctx.strokeRect(cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6);
-    ctx.fillStyle = `rgba(205,255,222,${strength * 0.82})`;
-    ctx.font = "900 11px ui-monospace, monospace";
-    ctx.textAlign = "left";
-    ctx.fillText(`CELL ${cell.index + 1}  •  LOCAL WARD`, cell.x + 16, cell.y + 24);
+    ctx.save();
+    if (this.human.role !== "IMPOSTOR") {
+      ctx.fillStyle = `rgba(1,4,10,${0.985 * strength})`;
+      ctx.beginPath();
+      ctx.rect(0, 0, W, H);
+      ctx.rect(cell.x, cell.y, cell.w, cell.h);
+      ctx.fill("evenodd");
+
+      ctx.strokeStyle = `rgba(108,255,181,${strength * (0.14 + pulse * 0.12)})`;
+      ctx.lineWidth = 9;
+      ctx.strokeRect(cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6);
+      ctx.strokeStyle = `rgba(139,247,181,${strength * (0.5 + pulse * 0.22)})`;
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6);
+      ctx.fillStyle = `rgba(205,255,222,${strength * 0.82})`;
+      ctx.font = "900 11px ui-monospace, monospace";
+      ctx.textAlign = "left";
+      ctx.fillText(`CELL ${cell.index + 1}  •  LOCAL WARD`, cell.x + 16, cell.y + 24);
+    } else {
+      // Impostor sees the entire map during Root Cage and phases through root barriers
+      ctx.strokeStyle = `rgba(108,255,181,${strength * (0.28 + pulse * 0.18)})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6);
+      ctx.fillStyle = `rgba(205,255,222,${strength * 0.9})`;
+      ctx.font = "900 11px ui-monospace, monospace";
+      ctx.textAlign = "left";
+      ctx.fillText(`CELL ${cell.index + 1}  •  THE HOLLOW ROOTWALK (FULL MAP VISION • PASS THROUGH ROOTS)`, ROOM.left + 16, ROOM.top + 24);
+    }
     ctx.restore();
   }
 
@@ -1726,6 +2776,9 @@ class OrdealEngine {
     const strength = rootwakeStrength(this.phase, this.hazard, this.phaseTime);
     if (strength <= 0) return;
     ctx.save();
+    if (this.human.role === "IMPOSTOR") {
+      ctx.globalAlpha = 0.55;
+    }
     for (const [barrierIndex, barrier] of ROOT_BARRIERS.entries()) {
       const horizontal = barrier.w > barrier.h;
       const rootWidth = horizontal ? barrier.h : barrier.w;
@@ -1734,6 +2787,11 @@ class OrdealEngine {
       const centerY = barrier.y + barrier.h / 2;
       const pulse = 0.5 + Math.sin(this.elapsed * 6 + barrierIndex) * 0.5;
       ctx.save();
+      if (horizontal && rootGatesOpen(this.phaseTime)) {
+        ctx.beginPath(); ctx.rect(0, 0, W, H);
+        for (const x of ROOT_GATES) ctx.rect(x - 64, ROOT_GATE_Y - 60, 128, 120);
+        ctx.clip("evenodd");
+      }
       ctx.translate(centerX, centerY);
       if (horizontal) ctx.rotate(Math.PI / 2);
       ctx.scale(0.75 + strength * 0.25, 0.08 + strength * 0.92);
@@ -1819,191 +2877,40 @@ class OrdealEngine {
   }
 
   renderStaticBackground() {
-    const ctx = this.bgCtx;
-    ctx.clearRect(0, 0, W, H);
-
-    const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, "#29365b");
-    bg.addColorStop(0.52, "#223b4c");
-    bg.addColorStop(1, "#132c32");
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    const moonGlow = ctx.createRadialGradient(1030, 74, 10, 1030, 74, 118);
-    moonGlow.addColorStop(0, "rgba(244,247,225,.95)");
-    moonGlow.addColorStop(0.27, "rgba(213,224,231,.48)");
-    moonGlow.addColorStop(1, "rgba(160,181,229,0)");
-    ctx.fillStyle = moonGlow;
-    ctx.beginPath();
-    ctx.arc(1030, 74, 118, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#e9ecd9";
-    ctx.beginPath();
-    ctx.arc(1030, 74, 52, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "rgba(157,166,172,.18)";
-    ctx.beginPath();
-    ctx.arc(1012, 58, 12, 0, Math.PI * 2);
-    ctx.arc(1048, 87, 8, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Layered peaks make the sanctuary feel suspended over a mountain range.
-    ctx.fillStyle = "#354760";
-    ctx.beginPath();
-    ctx.moveTo(0, 244);
-    ctx.lineTo(160, 82);
-    ctx.lineTo(286, 215);
-    ctx.lineTo(432, 61);
-    ctx.lineTo(610, 226);
-    ctx.lineTo(760, 92);
-    ctx.lineTo(925, 222);
-    ctx.lineTo(1110, 74);
-    ctx.lineTo(W, 210);
-    ctx.lineTo(W, 310);
-    ctx.lineTo(0, 310);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = "rgba(202,218,239,.36)";
-    ctx.beginPath();
-    ctx.moveTo(128, 116);
-    ctx.lineTo(160, 82);
-    ctx.lineTo(197, 121);
-    ctx.lineTo(178, 112);
-    ctx.lineTo(161, 129);
-    ctx.lineTo(145, 109);
-    ctx.closePath();
-    ctx.moveTo(388, 108);
-    ctx.lineTo(432, 61);
-    ctx.lineTo(478, 105);
-    ctx.lineTo(451, 94);
-    ctx.lineTo(432, 118);
-    ctx.lineTo(414, 93);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.save();
-    ctx.shadowColor = "rgba(5,16,27,.55)";
-    ctx.shadowBlur = 38;
-    const outerStone = ctx.createLinearGradient(0, ROOM.top, 0, ROOM.bottom);
-    outerStone.addColorStop(0, "#93a9b1");
-    outerStone.addColorStop(0.4, "#607d83");
-    outerStone.addColorStop(1, "#3e5a5b");
-    ctx.fillStyle = outerStone;
-    ctx.strokeStyle = "#233a43";
-    ctx.lineWidth = 18;
-    ctx.beginPath();
-    ctx.roundRect(ROOM.left, ROOM.top, ROOM.right - ROOM.left, ROOM.bottom - ROOM.top, 64);
-    ctx.fill();
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(194,211,228,.46)";
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.restore();
-
-    const sanctuaryFloor = ctx.createRadialGradient(640, 360, 50, 640, 380, 680);
-    // Lift the moonlit stone itself, not the final frame: Ordeal masks stay intact.
-    sanctuaryFloor.addColorStop(0, "#476960");
-    sanctuaryFloor.addColorStop(0.46, "#35584f");
-    sanctuaryFloor.addColorStop(1, "#203e3c");
-    ctx.fillStyle = sanctuaryFloor;
-    ctx.beginPath();
-    ctx.roundRect(ROOM.left + 22, ROOM.top + 22, ROOM.right - ROOM.left - 44, ROOM.bottom - ROOM.top - 44, 46);
-    ctx.fill();
-
-    // Open stone arches look out over the moonlit peaks.
-    this.drawMountainVista(ctx, 290, 104, 282, 78, 0);
-    this.drawMountainVista(ctx, 708, 104, 282, 78, 1);
-
-    // Ancient slate rings and radial runes define the playable sanctuary.
-    ctx.save();
-    ctx.strokeStyle = "rgba(177,203,210,.12)";
-    ctx.lineWidth = 2;
-    for (let radius = 108; radius < 590; radius += 76) {
-      ctx.beginPath();
-      ctx.ellipse(W / 2, 386, radius * 1.45, radius * 0.63, 0, 0, Math.PI * 2);
-      ctx.stroke();
+    void loadFallenCat();
+    drawMoonGlade(this.bgCtx);
+    // An open outer loop contrasts with the narrow direct shrine approaches.
+    // Route every segment around actual bases; this is paint, never new collision.
+    const loop = [{ x: 240, y: 260 }, { x: 1670, y: 260 }, { x: 1670, y: 920 }, { x: 240, y: 920 }, { x: 240, y: 260 }];
+    this.bgCtx.save(); this.bgCtx.strokeStyle = "rgba(167,159,139,.18)"; this.bgCtx.lineWidth = 70; this.bgCtx.lineCap = "round"; this.bgCtx.lineJoin = "round";
+    for (let i = 1; i < loop.length; i++) {
+      const route = planRoute(loop[i - 1], loop[i], false, this.obstacles);
+      this.bgCtx.beginPath(); this.bgCtx.moveTo(loop[i - 1].x, loop[i - 1].y);
+      for (const p of route) this.bgCtx.lineTo(p.x, p.y);
+      this.bgCtx.stroke();
     }
-    ctx.strokeStyle = "rgba(180,197,242,.17)";
-    for (let i = 0; i < 18; i += 1) {
-      const angle = (i / 18) * Math.PI * 2;
-      const innerX = 640 + Math.cos(angle) * 92;
-      const innerY = 382 + Math.sin(angle) * 58;
-      ctx.beginPath();
-      ctx.moveTo(innerX, innerY);
-      ctx.lineTo(640 + Math.cos(angle) * 525, 382 + Math.sin(angle) * 250);
-      ctx.stroke();
+    this.bgCtx.fillStyle = "#a5b4b2"; this.bgCtx.font = "700 11px sans-serif"; this.bgCtx.textAlign = "center";
+    this.bgCtx.fillText("OPEN FOREST LOOP", 700, 253); this.bgCtx.restore();
+    this.bgCtx.save(); this.bgCtx.strokeStyle = "rgba(183,165,133,.14)"; this.bgCtx.lineWidth = 40; this.bgCtx.lineCap = "round";
+    for (const station of this.stations) {
+      const path = planRoute(CENTER, station, false, this.obstacles);
+      this.bgCtx.beginPath(); this.bgCtx.moveTo(CENTER.x, CENTER.y);
+      for (const point of path) this.bgCtx.lineTo(point.x, point.y);
+      this.bgCtx.stroke();
     }
-    ctx.restore();
-
-    // A crescent medallion replaces the mechanical centerpiece.
-    ctx.save();
-    ctx.translate(640, 382);
-    const medallion = ctx.createRadialGradient(0, 0, 18, 0, 0, 105);
-    medallion.addColorStop(0, "rgba(177,206,220,.4)");
-    medallion.addColorStop(1, "rgba(44,79,76,.18)");
-    ctx.fillStyle = medallion;
-    ctx.strokeStyle = "rgba(200,216,236,.42)";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 112, 78, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "rgba(205,221,235,.16)";
-    ctx.beginPath();
-    ctx.arc(-9, -4, 50, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#42675c";
-    ctx.beginPath();
-    ctx.arc(12, -15, 48, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(199,219,243,.3)";
-    ctx.lineWidth = 2;
-    for (let i = 0; i < 8; i += 1) {
-      const angle = (i / 8) * Math.PI * 2;
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(angle) * 65, Math.sin(angle) * 43);
-      ctx.lineTo(Math.cos(angle) * 82, Math.sin(angle) * 53);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    this.drawRuneBorder(ctx, ROOM.left + 42, ROOM.top + 31, ROOM.right - ROOM.left - 84);
-    this.drawRuneBorder(ctx, ROOM.left + 42, ROOM.bottom - 35, ROOM.right - ROOM.left - 84);
-
-    this.drawPineGrove(ctx, 145, 628, 1);
-    this.drawPineGrove(ctx, 1137, 628, -1);
-
-    // Moonstone pillars and climbing roots frame the glade.
-    for (const side of [-1, 1]) {
-      const x = side < 0 ? 116 : 1164;
-      ctx.strokeStyle = "rgba(130,166,126,.78)";
-      ctx.lineWidth = 8;
-      ctx.beginPath();
-      ctx.moveTo(x, 188);
-      ctx.bezierCurveTo(x + side * 28, 270, x - side * 24, 492, x + side * 18, 580);
-      ctx.stroke();
-      for (let y = 205; y < 590; y += 58) {
-        ctx.fillStyle = y % 116 ? "#718b8d" : "#8aa0a1";
-        ctx.strokeStyle = "#30494e";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.roundRect(x - 15, y, 30, 43, 9);
-        ctx.fill();
-        ctx.stroke();
-      }
-    }
-
-    ctx.font = "800 12px Georgia, serif";
-    ctx.letterSpacing = "2px";
-    ctx.fillStyle = "rgba(202,216,232,.65)";
-    ctx.textAlign = "center";
-    ctx.fillText("MOONWARDEN SANCTUARY  •  SILVERPINE SUMMIT", W / 2, ROOM.bottom - 56);
-    ctx.letterSpacing = "0px";
+    this.bgCtx.restore();
   }
 
+
+  forestFloorPainted = false;
   drawRoom(ctx: CanvasRenderingContext2D) {
+    if (!this.forestFloorPainted && forestSpritesReady()) {
+      this.forestFloorPainted = true;
+      this.renderStaticBackground();
+    }
     // 1. Blit the pre-rendered static mountain sanctuary in 0.05ms
     ctx.drawImage(this.bgCanvas, 0, 0);
+    this.drawRestoration(ctx);
 
     // 2. Dynamic twinkling stars (batched into 3 alpha buckets for 24x fewer draw calls)
     for (let bucket = 0; bucket < 3; bucket += 1) {
@@ -2020,205 +2927,103 @@ class OrdealEngine {
       ctx.fill();
     }
 
-    // Living moon-tech lines give the old sanctuary a cleaner, modern pulse.
+    // Soft drifting spores replace the old radar rings; no gameplay occlusion.
     ctx.save();
-    ctx.globalCompositeOperation = "lighter";
-    const circuitPulse = 0.08 + (Math.sin(this.elapsed * 1.7) + 1) * 0.035;
-    ctx.strokeStyle = `rgba(77,231,218,${circuitPulse})`;
-    ctx.lineWidth = 2;
-    for (let i = 0; i < 3; i += 1) {
-      ctx.beginPath();
-      ctx.ellipse(640, 382, 168 + i * 102, 92 + i * 55, 0, 0, Math.PI * 2);
-      ctx.stroke();
+    ctx.fillStyle = "rgba(229,240,190,.45)";
+    for (let i = 0; i < 16; i++) {
+      const x = 130 + ((i * 173 + this.elapsed * 5) % 1020);
+      const y = 150 + (i * 97 % 450) + Math.sin(this.elapsed + i) * 6;
+      ctx.beginPath(); ctx.arc(x, y, 1.1, 0, Math.PI * 2); ctx.fill();
     }
-    const sweepAngle = this.elapsed * 0.22;
-    const sweep = ctx.createLinearGradient(640, 382, 640 + Math.cos(sweepAngle) * 500, 382 + Math.sin(sweepAngle) * 260);
-    sweep.addColorStop(0, "rgba(104,246,221,.3)");
-    sweep.addColorStop(1, "rgba(130,94,224,0)");
-    ctx.strokeStyle = sweep;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(640, 382);
-    ctx.lineTo(640 + Math.cos(sweepAngle) * 520, 382 + Math.sin(sweepAngle) * 270);
-    ctx.stroke();
     ctx.restore();
+
 
     // 3. Dynamic stations and emergency bell
     for (const station of this.stations) this.drawStation(ctx, station);
     this.drawEmergency(ctx);
   }
 
-  drawMountainVista(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, seed: number) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.roundRect(x, y, width, height, 28);
-    ctx.clip();
-    const sky = ctx.createLinearGradient(0, y, 0, y + height);
-    sky.addColorStop(0, "#485d88");
-    sky.addColorStop(1, "#a3b8c9");
-    ctx.fillStyle = sky;
-    ctx.fillRect(x, y, width, height);
-    for (let i = 0; i < 12; i += 1) {
-      ctx.fillStyle = "rgba(229,238,255,.55)";
-      ctx.beginPath();
-      ctx.arc(x + ((i * 47 + seed * 31) % width), y + 9 + ((i * 17) % 37), i % 4 === 0 ? 1.4 : .7, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    if (seed === 1) {
-      ctx.fillStyle = "rgba(237,239,219,.86)";
-      ctx.beginPath();
-      ctx.arc(x + width - 48, y + 25, 17, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.fillStyle = "#5f7c91";
-    ctx.beginPath();
-    ctx.moveTo(x - 8, y + height);
-    ctx.lineTo(x + 65, y + 22 + seed * 7);
-    ctx.lineTo(x + 129, y + height);
-    ctx.lineTo(x + 196, y + 31 - seed * 5);
-    ctx.lineTo(x + width + 8, y + height);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = "#355c50";
-    for (let i = 0; i < 11; i += 1) {
-      const pineX = x + 7 + i * (width / 10);
-      const pineHeight = 17 + ((i * 7 + seed * 9) % 24);
-      ctx.beginPath();
-      ctx.moveTo(pineX, y + height - pineHeight);
-      ctx.lineTo(pineX - 10, y + height);
-      ctx.lineTo(pineX + 10, y + height);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.restore();
-    ctx.save();
-    ctx.strokeStyle = "#a1b6bb";
-    ctx.lineWidth = 9;
-    ctx.beginPath();
-    ctx.roundRect(x, y, width, height, 28);
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(215,228,240,.42)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.restore();
-  }
 
-  drawRuneBorder(ctx: CanvasRenderingContext2D, x: number, y: number, width: number) {
-    ctx.save();
-    ctx.strokeStyle = "rgba(190,210,229,.44)";
-    ctx.lineWidth = 2;
-    for (let cursor = 0; cursor < width; cursor += 37) {
-      ctx.beginPath();
-      ctx.moveTo(x + cursor, y + 6);
-      ctx.lineTo(x + cursor + 9, y - 3);
-      ctx.lineTo(x + cursor + 18, y + 6);
-      ctx.lineTo(x + cursor + 27, y - 3);
-      ctx.lineTo(x + cursor + 36, y + 6);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  drawPineGrove(ctx: CanvasRenderingContext2D, x: number, y: number, direction: number) {
-    ctx.save();
-    ctx.translate(x, y);
-    for (let i = 0; i < 5; i += 1) {
-      const treeX = direction * (-34 + i * 18);
-      const treeHeight = 42 + ((i * 13) % 39);
-      ctx.fillStyle = "#315c47";
-      ctx.strokeStyle = "#203c33";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(treeX, -treeHeight);
-      ctx.lineTo(treeX - 23, 5);
-      ctx.lineTo(treeX + 23, 5);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = "rgba(178,217,176,.4)";
-      ctx.beginPath();
-      ctx.moveTo(treeX, -treeHeight + 7);
-      ctx.lineTo(treeX - 7, -treeHeight + 28);
-      ctx.lineTo(treeX + 2, -treeHeight + 21);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.fillStyle = "#49694e";
-    ctx.beginPath();
-    ctx.ellipse(0, 9, 61, 18, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+  showHarmonizeInvitation(station: Station) {
+    return this.human.alive && this.phase !== "DISCUSSION" && !this.paused && !this.roleRevealActive
+      && !this.activePuzzle && !this.navigationOpen && !this.notebookOpen
+      && !station.completed && !station.pending && station.cooldown <= 0
+      && dist(station, this.human) < 84 && this.visibilityFor(station, this.human, false).kind !== "HIDDEN";
   }
 
   drawStation(ctx: CanvasRenderingContext2D, station: Station) {
-    drawForestSanctum(ctx, station, this.elapsed, this.phase !== "CALM", dist(station, this.human) < 128);
+    drawForestSanctum(ctx, station, this.elapsed, this.phase === "DISCUSSION", dist(station, this.human) < 128);
+    const invitation = this.showHarmonizeInvitation(station);
+    if (this.overgrownShrine() === station && !station.completed && this.phase !== "DISCUSSION" && !invitation) {
+      ctx.save(); ctx.strokeStyle = this.phase === "ORDEAL" ? "#ffe0a2" : "#aebeff"; ctx.lineWidth = 2;
+      ctx.setLineDash([7, 5]); ctx.beginPath(); ctx.ellipse(station.x, station.y + 20, 76, 40, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]); ctx.fillStyle = "#fff0c7"; ctx.font = "800 10px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(this.phase === "ORDEAL" ? "OVERGROWN · RISK A BLOOM" : "OVERGROWN · ORDEAL BONUS", station.x, station.y + 76); ctx.restore();
+    }
+    if (invitation) {
+      const duet = this.pairRitual?.stationId === station.label ? this.pairRitual : null;
+      drawHarmonizeInvitation(ctx, station, {
+        participating: this.pairStationId === station.label,
+        participants: duet?.participants, yourTurn: duet?.nextPlayerId === this.localPlayerId,
+        rune: duet?.rune, beats: duet?.beats,
+      }, this.elapsed, this.reducedMotion);
+    }
+  }
+
+  updateRestorationSound() {
+    if (this.phase !== "CALM" || this.gameOver) return;
+    const tier = restorationTier(this.taskProgress);
+    if (tier > (this.restorationSeen ?? 0)) {
+      this.restorationSeen = tier;
+      this.audio.restoration(tier, true);
+      this.flashMessage(RESTORATION_MESSAGES[tier]);
+      this.restorationAmbienceAt = this.elapsed + 12;
+    } else if (tier > 0 && this.elapsed >= (this.restorationAmbienceAt ?? 0)) {
+      this.audio.restoration(tier);
+      this.restorationAmbienceAt = this.elapsed + 16 - tier * 2;
+    }
+  }
+
+  drawRestoration(ctx: CanvasRenderingContext2D) {
+    drawRestorationGarden(ctx, this.stations, this.taskProgress, this.elapsed, this.reducedMotion);
+    const milestone = Math.min(4, Math.floor(this.taskProgress / 25));
+    ctx.save();
+    for (let i = 0; i < 4; i++) {
+      const angle = Math.PI / 4 + i * Math.PI / 2;
+      const x = CENTER.x + Math.cos(angle) * 115, y = CENTER.y + Math.sin(angle) * 78;
+      const lit = i < milestone;
+      ctx.fillStyle = lit ? "#cfe9b7" : "#4f6766";
+      ctx.strokeStyle = lit ? "#e8e1ae" : "#82988a";
+      ctx.lineWidth = lit ? 3 : 1;
+      ctx.beginPath(); ctx.ellipse(x, y, 12, 8, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      if (lit) {
+        ctx.fillStyle = "#c3e9ac24";
+        ctx.beginPath(); ctx.ellipse(x, y, 35, 24, 0, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.restore();
   }
 
   drawEmergency(ctx: CanvasRenderingContext2D) {
-    ctx.save();
-    ctx.translate(640, 382);
-    ctx.fillStyle = "rgba(1,8,12,.58)";
-    ctx.beginPath();
-    ctx.ellipse(0, 39, 91, 42, 0, 0, Math.PI * 2);
-    ctx.fill();
-    const base = ctx.createRadialGradient(-18, -18, 5, 0, 0, 70);
-    base.addColorStop(0, "#bccfca");
-    base.addColorStop(0.5, "#7f9a94");
-    base.addColorStop(1, "#47635e");
-    ctx.fillStyle = base;
-    ctx.strokeStyle = "#11191c";
-    ctx.lineWidth = 7;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 70, 58, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(216,230,242,.52)";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(0, 0, 48, Math.PI * 0.1, Math.PI * 1.9);
-    ctx.stroke();
-    for (let i = 0; i < 7; i += 1) {
-      const angle = -Math.PI * 0.84 + i * 0.28;
-      ctx.strokeStyle = i % 2 ? "#839599" : "#b7c7ca";
-      ctx.lineWidth = 5;
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(angle) * 20, Math.sin(angle) * 20 - 5);
-      ctx.quadraticCurveTo(Math.cos(angle) * 42, Math.sin(angle) * 35 - 12, Math.cos(angle) * 53, Math.sin(angle) * 50 - 2);
-      ctx.stroke();
-    }
-
-    // Hardware-accelerated radial bloom for bell orb
-    const bellHalo = ctx.createRadialGradient(0, -7, 6, 0, -7, 36);
-    bellHalo.addColorStop(0, "rgba(207,220,255,.75)");
-    bellHalo.addColorStop(0.45, "rgba(155,188,255,.22)");
-    bellHalo.addColorStop(1, "rgba(155,188,255,0)");
-    ctx.fillStyle = bellHalo;
-    ctx.beginPath();
-    ctx.arc(0, -7, 36, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = "#cfdcff";
-    ctx.beginPath();
-    ctx.arc(0, -7, 20 + Math.sin(this.elapsed * 3) * 1.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,.65)";
-    ctx.beginPath();
-    ctx.arc(-7, -14, 5, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = "#18262a";
-    ctx.strokeStyle = "#9cabb5";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(-52, 31, 104, 21, 10);
-    ctx.fill();
-    ctx.stroke();
-    ctx.font = "900 9px Georgia, serif";
-    ctx.fillStyle = "#e3edf5";
-    ctx.textAlign = "center";
-    ctx.fillText("WARDEN BELL", 0, 45);
+    ctx.save(); ctx.translate(CENTER.x, CENTER.y);
+    const bellState = reportAvailability({ emergency: this.emergency, phase: this.phase, alive: this.human.alive, nearbyBody: false, nearBell: dist(this.human, CENTER) < 92, blocked: this.paused });
+    const nearby = bellState.allowed;
+    // A carved crescent and a small hanging chime, not a screen-shaped machine.
+    ctx.fillStyle = "rgba(24,53,40,.24)"; ctx.beginPath(); ctx.ellipse(0, 26, 46, 12, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#817c59"; ctx.lineWidth = 6; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(-31, 19); ctx.bezierCurveTo(-41, -14, -22, -43, 0, -36); ctx.bezierCurveTo(28, -41, 39, -8, 30, 19); ctx.stroke();
+    ctx.strokeStyle = "#b4c393"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, -32); ctx.lineTo(0, -12); ctx.stroke();
+    const bell = ctx.createLinearGradient(-14, -12, 14, 15);
+    bell.addColorStop(0, "#e5e8ba"); bell.addColorStop(.5, "#b9c69d"); bell.addColorStop(1, "#749b7c");
+    ctx.fillStyle = bell; ctx.beginPath(); ctx.moveTo(-14, 10); ctx.quadraticCurveTo(-12, -15, 0, -15); ctx.quadraticCurveTo(12, -15, 14, 10); ctx.quadraticCurveTo(0, 18, -14, 10); ctx.fill();
+    ctx.fillStyle = "#eff3ca"; ctx.beginPath(); ctx.arc(0, 14, 3, 0, Math.PI * 2); ctx.fill();
+    for (const side of [-1, 1]) { ctx.fillStyle = "#96b57b"; ctx.beginPath(); ctx.ellipse(side * 25, -18, 9, 3, side * -.6, 0, Math.PI * 2); ctx.fill(); }
+    if (nearby) { ctx.strokeStyle = "#d7ecc280"; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(0, 20, 62, 35, 0, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.font = "700 10px Georgia, serif"; ctx.textAlign = "center";
+    ctx.fillStyle = nearby ? "#eff6d6" : "#d8e4c8"; ctx.fillText(nearby ? "R · CALL THE CIRCLE" : bellState.label === "Locked" ? "SEALED · FIRST ORDEAL" : bellState.label.endsWith("s") ? `BELL · ${bellState.label}` : "WARDEN BELL", 0, 47);
     ctx.restore();
   }
+
 
   drawBeams(ctx: CanvasRenderingContext2D) {
     if (this.phase !== "ORDEAL") return;
@@ -2227,6 +3032,7 @@ class OrdealEngine {
       const isLocal = player.id === this.localPlayerId;
       const humanActive = isLocal && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil;
       if (!player.flashlight && !humanActive) continue;
+      if (!isLocal && this.visibilityFor(player, this.human, false).kind === "HIDDEN") continue;
       const angle = isLocal
         ? Math.atan2(this.mouse.y - player.y, this.mouse.x - player.x)
         : (typeof player.angle === "number" ? player.angle : Math.atan2(player.vy, player.vx));
@@ -2239,54 +3045,96 @@ class OrdealEngine {
       ctx.arc(player.x, player.y, 330, angle - Math.PI / 8, angle + Math.PI / 8);
       ctx.closePath();
       ctx.fill();
+      // Skill 3: Lantern Blind circular golden flash burst upon lantern activation.
+      if (humanActive && this.itemActiveUntil - this.elapsed > 6.2) {
+        const flashT = (this.itemActiveUntil - this.elapsed - 6.2) / .8;
+        const burst = ctx.createRadialGradient(player.x, player.y, 4, player.x, player.y, 76);
+        burst.addColorStop(0, `rgba(255,252,210,${(.78 * flashT).toFixed(2)})`);
+        burst.addColorStop(.55, `rgba(255,216,98,${(.42 * flashT).toFixed(2)})`);
+        burst.addColorStop(1, "rgba(255,198,64,0)");
+        ctx.fillStyle = burst;
+        ctx.beginPath(); ctx.arc(player.x, player.y, 76, 0, Math.PI * 2); ctx.fill();
+      }
     }
     for (const flare of this.flares) {
       const radius = 142 * Math.min(1, flare.life * 2);
       const gradient = ctx.createRadialGradient(flare.x, flare.y, 5, flare.x, flare.y, radius);
-      gradient.addColorStop(0, "rgba(255,92,73,.55)");
-      gradient.addColorStop(0.45, "rgba(255,154,74,.2)");
-      gradient.addColorStop(1, "rgba(255,92,73,0)");
+      gradient.addColorStop(0, "rgba(231,242,181,.45)");
+      gradient.addColorStop(0.45, "rgba(160,219,177,.2)");
+      gradient.addColorStop(1, "rgba(160,219,177,0)");
       ctx.fillStyle = gradient;
       ctx.beginPath();
       ctx.arc(flare.x, flare.y, radius, 0, Math.PI * 2);
       ctx.fill();
+      // Skill 1: Bounce Slam circular radial shockwaves ("AoE impact") on landing.
+      if (flare.life > 4.1) {
+        const slam = 1 - (flare.life - 4.1) / .9;
+        ctx.save();
+        ctx.strokeStyle = `rgba(214,196,255,${((1 - slam) * .68).toFixed(2)})`;
+        ctx.lineWidth = 2.2;
+        for (const ring of [1, .64]) {
+          ctx.beginPath();
+          ctx.ellipse(flare.x, flare.y + 8, (18 + slam * 54) * ring, (7 + slam * 20) * ring, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
 
       // Hardware-accelerated radial flare core glow
       const flareHalo = ctx.createRadialGradient(flare.x, flare.y, 2, flare.x, flare.y, 20);
       flareHalo.addColorStop(0, "#fff2ac");
-      flareHalo.addColorStop(0.45, "rgba(255,82,61,0.6)");
-      flareHalo.addColorStop(1, "rgba(255,82,61,0)");
+      flareHalo.addColorStop(0.45, "rgba(185,232,170,0.6)");
+      flareHalo.addColorStop(1, "rgba(185,232,170,0)");
       ctx.fillStyle = flareHalo;
       ctx.beginPath();
       ctx.arc(flare.x, flare.y, 20, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.fillStyle = "#fff2ac";
-      ctx.beginPath();
-      ctx.arc(flare.x, flare.y, 6 + Math.sin(this.elapsed * 20) * 2, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillStyle = "#dce8b5";
+      for (let petal = 0; petal < 5; petal++) {
+        const angle = petal * Math.PI * 2 / 5;
+        ctx.beginPath(); ctx.ellipse(flare.x + Math.cos(angle) * 7, flare.y + Math.sin(angle) * 7, 7, 3.5, angle, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.fillStyle = "#fff4c4"; ctx.beginPath(); ctx.arc(flare.x, flare.y, 3, 0, Math.PI * 2); ctx.fill();
     }
   }
 
-  bodyPath(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, lean = 0) {
+  drawWorkingStatus(ctx: CanvasRenderingContext2D, x: number, badgeY: number) {
+    const pulse = 0.72 + Math.sin(this.elapsed * 5.2) * 0.28;
+    const text = "✦ WORKING SHRINE";
     ctx.save();
-    ctx.translate(x, y);
-    ctx.transform(width / 64, 0, -lean / 70, height / 68, 0, 0);
-    slimeOutline(ctx);
+    ctx.font = "800 10px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    const width = Math.ceil(ctx.measureText(text).width) + 16;
+    const height = 18;
+    const rx = x - width / 2;
+    const ry = badgeY - 12;
+    ctx.fillStyle = "rgba(8, 22, 18, 0.88)";
+    ctx.strokeStyle = `rgba(126, 244, 198, ${(0.55 * pulse).toFixed(2)})`;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.roundRect(rx, ry, width, height, 9);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = `rgba(216, 255, 234, ${(0.82 + 0.18 * pulse).toFixed(2)})`;
+    ctx.fillText(text, x, badgeY);
     ctx.restore();
   }
 
-  drawSlime(ctx: CanvasRenderingContext2D, player: Player, silhouette = false, moonSightMarked = false, colorMuted = false, visibilityAlpha = 1) {
+  drawSlime(ctx: CanvasRenderingContext2D, player: Player, silhouette = false, moonSightMarked = false, colorMuted = false, visibilityAlpha = 1, identityAlpha = 1) {
+    const consumption = this.devourEvents.find((event) => event.killerId === player.id);
+    if (consumption && this.canRenderDevour(consumption)) {
+      const victimSight = this.visibilityFor(consumption, this.human, false);
+      this.drawDevourEffect(ctx, consumption, silhouette || consumption.witnessed !== "IDENTIFIED" || victimSight.kind === "SHAPE", player, colorMuted, Math.min(visibilityAlpha, victimSight.alpha));
+      return;
+    }
     const speed = Math.hypot(player.vx, player.vy);
     const seed = Array.from(player.id).reduce((sum, letter) => (sum * 31 + letter.charCodeAt(0)) % 997, 0);
-    const stride = this.elapsed * 4.2 + seed * 0.13;
-    const bounce = Math.sin(stride) * Math.min(0.6, speed / 240);
-    const squash = 1 + Math.sin(stride) * Math.min(0.022, speed / 7000) + Math.sin(this.elapsed * 1.6 + seed) * 0.006;
-    const width = 64 * squash;
-    const height = 68 / squash;
-    const lean = clamp(player.vx / 60, -3, 3);
+    const pose = this.slimeAnimator.sample(player, this.elapsed, this.reducedMotion);
+    const gait = sampleCatGait(player.id, player.vx, player.vy, pose.gazeX, pose.gazeY, this.elapsed, this.reducedMotion, player);
+    const idlePhase = this.reducedMotion ? 0 : this.elapsed * 1.7 + seed;
     const x = player.x;
-    const y = player.y + bounce;
+    const y = player.y;
     const baseColor = colorMuted ? muteHexColor(player.color) : player.color;
 
     ctx.save();
@@ -2308,203 +3156,149 @@ class OrdealEngine {
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    const contact = ctx.createRadialGradient(x, player.y + 29, 4, x, player.y + 29, 39);
+    const contact = ctx.createRadialGradient(x, player.y + 25, 4, x, player.y + 25, 36);
     contact.addColorStop(0, "rgba(1,8,13,.52)");
     contact.addColorStop(1, "rgba(1,8,13,0)");
     ctx.fillStyle = contact;
+    ctx.globalAlpha = visibilityAlpha * .92;
     ctx.beginPath();
-    ctx.ellipse(x, player.y + 31, 40, 11, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, player.y + 26, 34, 10, 0, 0, Math.PI * 2);
     ctx.fill();
-    if (speed > 55 && !silhouette) {
-      ctx.fillStyle = baseColor;
-      ctx.globalAlpha = visibilityAlpha * 0.075;
-      ctx.beginPath();
-      ctx.ellipse(x - clamp(player.vx / speed, -1, 1) * 19, y + 29 - clamp(player.vy / speed, -1, 1) * 10, 18, 3, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = visibilityAlpha;
+    ctx.globalAlpha = visibilityAlpha;
+    if (this.phase === "CALM" && !silhouette && !colorMuted && identityAlpha > .8) {
+      drawGroundResponse(ctx, x, player.y, speed, this.elapsed, this.reducedMotion);
     }
 
+    ctx.save();
+    // Grounded 4-legged cat stance: no slime hopping or jelly squash-and-stretch.
+    ctx.translate(x, y);
+    if (silhouette || identityAlpha < 1) drawAnimatedCat(ctx, { color: "#788993", concealed: true, direction: gait.direction, stridePhase: gait.stridePhase, strideAmount: gait.strideAmount, idlePhase, blink: false, tailTilt: pose.sproutTilt });
     if (silhouette) {
-      this.bodyPath(ctx, x, y, width, height, lean);
-      const gradient = ctx.createLinearGradient(x - 25, y - 38, x + 28, y + 38);
-      gradient.addColorStop(0, "rgba(137,150,157,.94)");
-      gradient.addColorStop(1, "rgba(63,75,84,.96)");
-      ctx.fillStyle = gradient;
-      ctx.strokeStyle = "rgba(31,42,49,.9)";
-      ctx.lineWidth = 1.3;
-      ctx.fill();
-      ctx.stroke();
+      ctx.restore();
+      if (player.working && player.alive) {
+        this.drawWorkingStatus(ctx, x, Math.max(18, player.y - 76));
+      }
       ctx.restore();
       return;
     }
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.transform(squash, 0, -lean / 70, 1 / squash, 0, 0);
-    ctx.drawImage(slimeSkin(baseColor, !colorMuted), -48, -54, 96, 112);
-    ctx.restore();
-
-    const blink = (this.elapsed + seed * 0.037) % 6.3 < 0.16;
-    const gazeX = clamp(player.vx / 160, -0.8, 0.8) + lean * 0.2;
-    const gazeY = clamp(player.vy / 220, -0.6, 0.6);
-    ctx.fillStyle = "rgba(7,22,29,.82)";
-    ctx.beginPath();
-    ctx.ellipse(x - 7 + gazeX, y + 1 + gazeY, 2, blink ? 0.5 : 2.6, 0, 0, Math.PI * 2);
-    ctx.moveTo(x + 10 + gazeX, y + 1 + gazeY);
-    ctx.ellipse(x + 8 + gazeX, y + 1 + gazeY, 2, blink ? 0.5 : 2.6, 0, 0, Math.PI * 2);
-    ctx.fill();
-    if (!blink) {
-      ctx.fillStyle = "rgba(170,199,206,.4)";
-      ctx.beginPath();
-      ctx.arc(x - 7.5 + gazeX, y + gazeY, 0.5, 0, Math.PI * 2);
-      ctx.moveTo(x + 8 + gazeX, y + gazeY);
-      ctx.arc(x + 7.5 + gazeX, y + gazeY, 0.5, 0, Math.PI * 2);
-      ctx.fill();
+    // Identity recedes ahead of the body: a neutral outline remains briefly
+    // inside the mist boundary. No ghost trail survives a failed sight check.
+    ctx.globalAlpha = visibilityAlpha * identityAlpha;
+    const completedStation = player.id === this.localPlayerId
+      ? this.stations.find((s) => s.completedAt !== undefined && this.elapsed - s.completedAt >= 0 && this.elapsed - s.completedAt < 1.3)
+      : undefined;
+    const completedPulse = completedStation && completedStation.completedAt !== undefined
+      ? 1 - (this.elapsed - completedStation.completedAt) / 1.3
+      : 0;
+    // Sealing Shrine (Task): glowing cyan rune tablet beneath the 4-legged cat's front paws.
+    if (player.working && player.alive && !colorMuted) {
+      const runePulse = .65 + Math.sin(this.elapsed * 6) * .25;
+      ctx.save();
+      ctx.fillStyle = `rgba(48,225,214,${(.22 * runePulse).toFixed(2)})`;
+      ctx.strokeStyle = `rgba(116,252,242,${(.75 * runePulse).toFixed(2)})`;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.ellipse(0, 26, 22, 6.5, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.restore();
     }
-
-    this.drawHat(ctx, player.hat, x + lean * 0.6, y - 43, colorMuted);
+    const blink = !this.reducedMotion && (this.elapsed + seed * 0.037) % 6.3 < 0.16;
+    const holdingLantern = player.flashlight || (player.id === this.localPlayerId && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil);
+    const activeEyeStyle = completedPulse > 0 ? "JOYFUL" : player.eyeStyle;
+    drawAnimatedCat(ctx, {
+      color: baseColor,
+      muted: colorMuted,
+      direction: gait.direction,
+      stridePhase: gait.stridePhase,
+      strideAmount: gait.strideAmount,
+      idlePhase,
+      blink,
+      eyeStyle: activeEyeStyle,
+      holdingLantern,
+      tailTilt: pose.sproutTilt,
+    });
+    // Task Complete!: celebratory sparkles around the bouncing 4-legged cat.
+    if (completedPulse > 0 && !this.reducedMotion && !colorMuted) {
+      ctx.save();
+      ctx.fillStyle = "#ffe26a";
+      for (const [sx, sy] of [[-38, -28], [38, -24], [-34, 12], [36, 10]]) {
+        const s = 2.5 + Math.sin(this.elapsed * 12 + sx) * 1.1;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy - s * 1.6); ctx.lineTo(sx + s * .5, sy - s * .5);
+        ctx.lineTo(sx + s * 1.6, sy); ctx.lineTo(sx + s * .5, sy + s * .5);
+        ctx.lineTo(sx, sy + s * 1.6); ctx.lineTo(sx - s * .5, sy + s * .5);
+        ctx.lineTo(sx - s * 1.6, sy); ctx.lineTo(sx - s * .5, sy - s * .5);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    }
+    drawWornAccessory(ctx, player.hat, gait.direction, colorMuted, gait.stridePhase, gait.strideAmount, "GAMEPLAY", idlePhase);
+    ctx.restore();
+    ctx.globalAlpha = visibilityAlpha * identityAlpha * identityAlpha;
     ctx.font = "900 12px ui-monospace, monospace";
     ctx.textAlign = "center";
     ctx.lineWidth = 4;
     ctx.strokeStyle = "rgba(5,10,15,.92)";
     const privateRed = player.id === this.localPlayerId && this.human.role === "IMPOSTOR";
     const label = player.name;
-    ctx.strokeText(label, x, y - 61);
+    const labelY = Math.max(18, player.y - 76);
+    ctx.strokeText(label, x, labelY);
     ctx.fillStyle = privateRed ? "#ff5362" : (colorMuted ? "#cfd8dc" : "#ffffff");
-    ctx.fillText(label, x, y - 61);
+    ctx.fillText(label, x, labelY);
+    if (player.working && player.alive) {
+      this.drawWorkingStatus(ctx, x, Math.max(16, labelY - 20));
+    }
     ctx.restore();
   }
 
   drawHat(ctx: CanvasRenderingContext2D, hat: Hat, x: number, y: number, muted: boolean) {
-    ctx.save();
-    ctx.translate(x, y + 5);
-    ctx.scale(0.82, 0.82);
-    x = 0;
-    y = 0;
-    const pale = muted ? "#9ca9ae" : "#a1b4b8";
-    const cloth = ctx.createLinearGradient(-25, -15, 25, 20);
-    cloth.addColorStop(0, muted ? "#69767d" : "#475361");
-    cloth.addColorStop(1, muted ? "#48545b" : "#1b2935");
-    const night = cloth;
-    ctx.strokeStyle = "rgba(10,22,30,.6)";
-    ctx.lineWidth = 1.5;
-    if (hat === "antlers") {
-      ctx.strokeStyle = muted ? "#66716f" : "#817b69";
-      ctx.lineWidth = 2.5;
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(x - 14, y + 17);
-      ctx.quadraticCurveTo(x - 27, y + 2, x - 23, y - 13);
-      ctx.moveTo(x - 24, y - 5);
-      ctx.lineTo(x - 34, y - 12);
-      ctx.moveTo(x - 24, y + 2);
-      ctx.lineTo(x - 36, y + 1);
-      ctx.moveTo(x + 14, y + 17);
-      ctx.quadraticCurveTo(x + 27, y + 2, x + 23, y - 13);
-      ctx.moveTo(x + 24, y - 5);
-      ctx.lineTo(x + 34, y - 12);
-      ctx.moveTo(x + 24, y + 2);
-      ctx.lineTo(x + 36, y + 1);
-      ctx.stroke();
-      ctx.lineCap = "butt";
-      ctx.fillStyle = night;
-      ctx.beginPath();
-      ctx.ellipse(x, y + 14, 25, 7, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(10,22,30,.6)";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    } else if (hat === "hood") {
-      ctx.fillStyle = night;
-      ctx.beginPath();
-      ctx.moveTo(x - 26, y + 18);
-      ctx.quadraticCurveTo(x - 23, y - 13, x, y - 18);
-      ctx.quadraticCurveTo(x + 23, y - 13, x + 26, y + 18);
-      ctx.quadraticCurveTo(x, y + 6, x - 26, y + 18);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = "rgba(10,22,30,.6)";
-      ctx.stroke();
-      ctx.fillStyle = pale;
-      ctx.beginPath();
-      ctx.arc(x - 2, y - 2, 8, -Math.PI * .6, Math.PI * .6);
-      ctx.fill();
-    } else if (hat === "moth") {
-      ctx.fillStyle = muted ? "#839093" : "#9ca9bb";
-      ctx.strokeStyle = "rgba(10,22,30,.6)";
-      ctx.lineWidth = 1.3;
-      ctx.beginPath();
-      ctx.ellipse(x - 14, y + 5, 17, 10, -.48, 0, Math.PI * 2);
-      ctx.ellipse(x + 14, y + 5, 17, 10, .48, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = muted ? "#647275" : "#5d6c81";
-      ctx.beginPath();
-      ctx.ellipse(x, y + 7, 7, 15, 0, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.fillStyle = night;
-      ctx.strokeStyle = "rgba(10,22,30,.6)";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(x - 27, y + 17);
-      ctx.quadraticCurveTo(x - 8, y - 7, x + 7, y - 22);
-      ctx.quadraticCurveTo(x + 17, y - 4, x + 25, y + 17);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = pale;
-      ctx.beginPath();
-      ctx.arc(x + 2, y + 1, 7, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = night;
-      ctx.beginPath();
-      ctx.arc(x + 6, y - 2, 7, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
+    drawAccessory(ctx, hat, x, y, muted);
+  }
+
+  drawDevourEffect(ctx: CanvasRenderingContext2D, event: DevourEvent, silhouette = false, killer?: Player, muted = false, alpha = 1) {
+    drawCatConsumption(ctx, event, (this.elapsed - event.startedAt) / event.duration, {
+      concealed: silhouette || !event.killerId,
+      muted,
+      alpha,
+      reducedMotion: this.reducedMotion,
+      returnTo: killer,
+      eyes: killer?.eyeStyle,
+      drawHat: killer ? (context, direction, phase, amount) => drawWornAccessory(context, killer.hat, direction, muted, phase, amount) : undefined,
+    });
   }
 
   drawBody(ctx: CanvasRenderingContext2D, body: Body) {
-    const wobble = Math.sin(this.elapsed * 3 + body.age) * 2;
-    ctx.save();
-    ctx.translate(body.x, body.y + 28);
-    ctx.fillStyle = `${body.color}a8`;
-    ctx.strokeStyle = "#111827";
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.moveTo(-45, 5);
-    ctx.bezierCurveTo(-38, -18, -12, -15 - wobble, -2, -9);
-    ctx.bezierCurveTo(9, -26, 34, -15, 43, 2);
-    ctx.bezierCurveTo(56, 14, 22, 22, 7, 15);
-    ctx.bezierCurveTo(-9, 26, -47, 20, -45, 5);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "rgba(255,255,255,.55)";
-    ctx.beginPath();
-    ctx.ellipse(-14, -8, 12, 4, -0.2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#f2f7e8";
-    ctx.strokeStyle = "#111827";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.roundRect(-5, -28, 12, 33, 5);
-    ctx.fill();
-    ctx.stroke();
+    const sight = this.visibilityFor(body, this.human, false);
+    if (sight.kind === "HIDDEN") return;
+    const activeDevour = this.devourEvents.find(e => e.id === body.id);
+    const progress = activeDevour ? (this.elapsed - activeDevour.startedAt) / activeDevour.duration : 1;
+    if (progress < .72) return;
+    const revealScale = activeDevour ? clamp((progress - .72) / .28, .05, 1) : 1;
+    ctx.save(); ctx.globalAlpha = sight.alpha;
+    ctx.translate(body.x, body.y + 26); ctx.scale(revealScale, revealScale);
+    drawFallenCat(ctx, body.color, sight.kind === "SHAPE");
     ctx.restore();
   }
 
+  getCrystalBlink(seed = 0): number {
+    if (this.phase !== "ORDEAL" || this.hazard !== "BLACKOUT") return 0;
+    const t = this.elapsed + seed * 0.017;
+    const slot = Math.floor(t * 2.3);
+    const slotFrac = t * 2.3 - slot;
+    const hash = Math.sin(slot * 127.1 + 311.7 + seed * 0.13) * 43758.5453;
+    const rand = hash - Math.floor(hash);
+    // Dormant ~68% of the time during Blackout; randomly blinks in the remaining slots
+    if (rand > 0.32) return 0;
+    const isDoubleBlink = rand < 0.14;
+    const pulse = isDoubleBlink
+      ? Math.max(
+          Math.exp(-Math.pow((slotFrac - 0.24) / 0.1, 2)),
+          0.88 * Math.exp(-Math.pow((slotFrac - 0.62) / 0.12, 2)),
+        )
+      : Math.exp(-Math.pow((slotFrac - 0.44) / 0.15, 2));
+    return pulse > 0.08 ? clamp(pulse, 0, 1) : 0;
+  }
+
   isRevealed(player: Player) {
-    if (player.id === this.localPlayerId) return true;
-    if (player.flashlight) return true;
-    if (dist(player, this.human) < (this.hazard === "BLACKOUT" ? 66 : 92)) return true;
-    if (this.flares.some((flare) => dist(player, flare) < 146)) return true;
-    if (this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil) {
-      const aim = Math.atan2(this.mouse.y - this.human.y, this.mouse.x - this.human.x);
-      const target = Math.atan2(player.y - this.human.y, player.x - this.human.x);
-      const delta = Math.atan2(Math.sin(target - aim), Math.cos(target - aim));
-      if (Math.abs(delta) < Math.PI / 8 && dist(player, this.human) < 330) return true;
-    }
-    return false;
+    return this.visibilityFor(player).kind === "IDENTIFIED";
   }
 
   cutRadial(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) {
@@ -2521,8 +3315,9 @@ class OrdealEngine {
   drawLighting(ctx: CanvasRenderingContext2D) {
     if (this.phase !== "ORDEAL") return;
     if (this.hazard === "MOONGLARE") {
-      const pulse = 0.5 + Math.sin(this.elapsed * 4.6) * 0.5;
+      const pulse = 0.45;
       ctx.save();
+      ctx.globalAlpha = this.lowGlare ? 0.4 : 0.88;
       ctx.globalCompositeOperation = "screen";
       const glare = ctx.createRadialGradient(W * 0.78, 34, 16, W * 0.55, H * 0.4, W * 0.92);
       glare.addColorStop(0, "rgba(255,255,247,.99)");
@@ -2542,17 +3337,37 @@ class OrdealEngine {
       ctx.restore();
       return;
     }
+    if (this.hazard === "MIRROR_POOL") {
+      ctx.save();
+      ctx.fillStyle = "rgba(14, 38, 66, 0.38)";
+      ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = "rgba(139, 233, 253, 0.22)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (const player of this.players) {
+        if (!player.alive) continue;
+        if (this.visibilityFor(player, this.human, false).kind === "HIDDEN") continue;
+        const ripple = ((this.elapsed * 42) % 44) + 18;
+        ctx.moveTo(player.x + ripple, player.y + 28);
+        ctx.ellipse(player.x, player.y + 28, ripple, ripple * 0.36, 0, 0, Math.PI * 2);
+      }
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
     if (this.hazard !== "BLACKOUT" && this.hazard !== "FOG") return;
     const mask = this.maskCtx;
     const moonSightActive = this.human.role === "IMPOSTOR" && this.elapsed < this.moonSightUntil;
-    mask.clearRect(0, 0, W, H);
+    mask.setTransform(1, 0, 0, 1, 0, 0);
+    mask.clearRect(0, 0, this.viewWidth, this.viewHeight);
+    mask.setTransform(1, 0, 0, 1, -this.camera.x, -this.camera.y);
     mask.globalCompositeOperation = "source-over";
     mask.fillStyle = moonSightActive
       ? "rgba(28,4,42,.44)"
       : this.hazard === "BLACKOUT"
         ? "rgba(1,3,9,.992)"
         : "rgba(177,202,209,.82)";
-    mask.fillRect(0, 0, W, H);
+    mask.fillRect(this.camera.x, this.camera.y, this.viewWidth, this.viewHeight);
     if (!moonSightActive) {
       mask.globalCompositeOperation = "destination-out";
       this.cutRadial(mask, this.human.x, this.human.y, this.hazard === "BLACKOUT" ? 76 : 108);
@@ -2570,6 +3385,15 @@ class OrdealEngine {
         mask.fill();
       }
       for (const flare of this.flares) this.cutRadial(mask, flare.x, flare.y, 152);
+      if (this.hazard === "BLACKOUT") {
+        for (const obs of this.obstacles) {
+          if (obs.kind !== "CRYSTAL_SPIRE") continue;
+          const blink = this.getCrystalBlink(obs.x);
+          if (blink > 0) {
+            this.cutRadial(mask, obs.x, obs.y - 24, 132 * blink);
+          }
+        }
+      }
       if (this.selectedItem === "SONAR" && this.elapsed < this.itemActiveUntil) {
         const ring = ((this.elapsed * 110) % 190) + 30;
         mask.strokeStyle = "rgba(0,0,0,.9)";
@@ -2583,15 +3407,37 @@ class OrdealEngine {
       this.cutRadial(mask, this.human.x, this.human.y, 178);
     }
     mask.globalCompositeOperation = "source-over";
-    ctx.drawImage(this.mask, 0, 0);
+    ctx.drawImage(this.mask, this.camera.x, this.camera.y);
+
+    // Subtle cyan wash over blinking crystals during Blackout
+    if (this.hazard === "BLACKOUT") {
+      for (const obs of this.obstacles) {
+        if (obs.kind !== "CRYSTAL_SPIRE") continue;
+        const blink = this.getCrystalBlink(obs.x);
+        if (blink <= 0) continue;
+        ctx.save();
+        const flash = ctx.createRadialGradient(obs.x, obs.y - 26, 6, obs.x, obs.y - 20, 132 * blink);
+        flash.addColorStop(0, `rgba(176, 250, 255, ${(0.34 * blink).toFixed(3)})`);
+        flash.addColorStop(0.45, `rgba(52, 212, 255, ${(0.16 * blink).toFixed(3)})`);
+        flash.addColorStop(1, "rgba(24, 130, 180, 0)");
+        ctx.fillStyle = flash;
+        ctx.beginPath();
+        ctx.arc(obs.x, obs.y - 20, 132 * blink, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
   }
 
   drawParticles(ctx: CanvasRenderingContext2D) {
     if (this.particles.length > 0) {
       ctx.save();
       for (const p of this.particles) {
-        ctx.globalAlpha = Math.max(0, p.life / p.max);
-        ctx.fillStyle = p.color;
+        const origin = this.visibilityFor({ x: p.sourceX, y: p.sourceY }, this.human, false);
+        const sight = this.visibilityFor(p, this.human, false);
+        if (origin.kind === "HIDDEN" || sight.kind === "HIDDEN") continue;
+        ctx.globalAlpha = Math.max(0, p.life / p.max) * Math.min(origin.alpha, sight.alpha);
+        ctx.fillStyle = origin.kind === "SHAPE" || sight.kind === "SHAPE" ? "#b5c1c4" : p.color;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fill();
@@ -2632,21 +3478,41 @@ class OrdealEngine {
     ctx.restore();
   }
 
+  drawObstacle(ctx: CanvasRenderingContext2D, obs: SanctuaryObstacle) {
+    drawForestObstacle(ctx, obs, this.elapsed, this.human, this.reducedMotion, obs.kind === "CRYSTAL_SPIRE" ? this.getCrystalBlink(obs.x) : 0);
+  }
+
   drawCanvasLabels(ctx: CanvasRenderingContext2D) {
+    // Ambient current Sanctuary Zone indicator in top-left of the arena
+    const currentZone = sanctuaryZoneName(this.human.x, this.human.y);
+    ctx.save();
+    ctx.font = "800 10px ui-monospace, monospace";
+    const zoneText = `✦ ${currentZone}`;
+    const zoneWidth = Math.ceil(ctx.measureText(zoneText).width) + 18;
+    ctx.fillStyle = "rgba(7, 19, 22, 0.76)";
+    ctx.strokeStyle = "rgba(158, 222, 196, 0.38)";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.roundRect(this.viewWidth / 2 - zoneWidth / 2, this.viewHeight - 35, zoneWidth, 22, 6);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "rgba(218, 242, 226, 0.9)";
+    ctx.textAlign = "left";
+    ctx.fillText(zoneText, this.viewWidth / 2 - zoneWidth / 2 + 9, this.viewHeight - 20);
+    ctx.restore();
+
     if (this.phase === "COUNTDOWN") {
-      const alpha = 0.62 + Math.sin(this.elapsed * 12) * 0.2;
-      ctx.fillStyle = `rgba(166,18,30,${alpha})`;
-      ctx.fillRect(0, 330, W, 94);
-      ctx.strokeStyle = "#ff6670";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(0, 330, W, 94);
-      ctx.fillStyle = "#fff";
-      ctx.font = "1000 34px ui-monospace, monospace";
+      // The accessible HTML preparation banner leaves the paths and cell warnings visible.
+      ctx.fillStyle = "#e4edc7";
+      ctx.font = "700 13px ui-monospace, monospace";
       ctx.textAlign = "center";
-      ctx.fillText("⚠  ORDEAL COUNTDOWN", W / 2, 369);
-      ctx.font = "800 17px ui-monospace, monospace";
-      ctx.fillStyle = "#ffd9d9";
-      ctx.fillText(`${Math.ceil(this.phaseTime)}  •  MEMORIZE WHO IS NEARBY`, W / 2, 399);
+      ctx.fillText("MEMORIZE NEARBY WARDENS • PREPARE YOUR GEAR", this.viewWidth / 2, this.viewHeight - 48);
+    }
+    if (this.phase === "CALM" && this.human.trueColor && this.human.color !== this.human.trueColor) {
+      ctx.fillStyle = "rgba(139,233,253,.95)";
+      ctx.font = "900 12px ui-monospace, monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("MIRROR GLAMOUR • SWAPPED COLOR PERSISTS UNTIL MEETING", this.viewWidth / 2, this.viewHeight - 49);
     }
     if (this.phase === "ORDEAL") {
       const moonSightActive = this.human.role === "IMPOSTOR" && this.elapsed < this.moonSightUntil;
@@ -2659,11 +3525,14 @@ class OrdealEngine {
         label = "MOON GLARE • IDENTITIES BLEACHED";
         labelColor = "rgba(51,63,78,.94)";
       } else if (this.hazard === "ROOTWAKE") {
-        label = "ROOTWAKE • YOUR MOON CELL IS SEALED";
+        label = rootGatesOpen(this.phaseTime) ? "ROOTWAKE • MOON DOORS ARE OPEN" : "ROOTWAKE • DOORS OPEN HALFWAY";
         labelColor = "rgba(137,245,170,.96)";
       } else if (this.hazard === "PHANTOMS") {
-        label = "PHANTOM PROCESSION • TRUST YOUR SONAR";
+        label = "PHANTOM PROCESSION • TRUST YOUR ECHO BELL";
         labelColor = "rgba(172,159,255,.96)";
+      } else if (this.hazard === "MIRROR_POOL") {
+        label = "MIRROR POOL • BUMPS SWAP COLORS, NOT CONTROLS";
+        labelColor = "rgba(139,233,253,.96)";
       }
       if (moonSightActive) {
         label = "MOON SIGHT • LIVING AURAS EXPOSED";
@@ -2672,7 +3541,7 @@ class OrdealEngine {
       ctx.fillStyle = labelColor;
       ctx.font = "900 13px ui-monospace, monospace";
       ctx.textAlign = "center";
-      ctx.fillText(label, W / 2, 53);
+      ctx.fillText(label, this.viewWidth / 2, this.viewHeight - 49);
     }
   }
 }
@@ -2680,8 +3549,10 @@ class OrdealEngine {
 function Logo() {
   return (
     <div className="brand" aria-label="Moonwarden">
-      <span className="brand-mark"><i /><i /><i /></span>
-      <span>MOON<b>WARDEN</b></span>
+      <div className="brand-copy">
+        <span className="brand-name">MOON<b>WARDEN</b></span>
+        <small className="release-badge" data-game-version={GAME_RELEASE_VERSION} title={`Release ${GAME_RELEASE_VERSION}. Multiplayer compatibility: ${GAME_WORLD_VERSION}.`}>{GAME_RELEASE_LABEL}</small>
+      </div>
     </div>
   );
 }
@@ -2698,113 +3569,48 @@ const COLOR_NAMES: Record<string, string> = {
 };
 
 const HAT_META: Record<Hat, { label: string; title: string }> = {
+  moonbell: { label: "MOONBELL", title: "Moonbell Collar" },
+  leafband: { label: "LEAF BAND", title: "Woodland Bandana" },
+  starlock: { label: "STARLOCK", title: "Starlight Collar" },
+  mothbow: { label: "MOTH BOW", title: "Moonmoth Bow" },
   antlers: { label: "ANTLERS", title: "Elder Bough" },
   hood: { label: "HOOD", title: "Nightveil" },
   moth: { label: "MOTH", title: "Lunar Crest" },
   mooncap: { label: "MOONCAP", title: "Star Point" },
 };
 
-const WARDEN_CALLSIGNS = [
-  "Sylph",
-  "Bramble",
-  "Lumen",
-  "Vesper",
-  "Mochi",
-  "Cinder",
-  "Nori",
-  "Thistle",
-  "Solstice",
-  "Glimmer",
-  "Rune",
-  "Zephyr",
-];
-
 function HatGraphic({ hat }: { hat: Hat }) {
-  if (hat === "antlers") {
-    return (
-      <svg className="slime-hat-svg hat-antlers" viewBox="0 0 80 44" aria-hidden="true">
-        <path
-          d="M27 38 L22 18 L11 12 M22 22 L15 24 M22 18 L28 9 M53 38 L58 18 L69 12 M58 22 L65 24 M58 18 L52 9"
-          fill="none"
-          stroke="#0c151f"
-          strokeWidth="7"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M27 38 L22 18 L11 12 M22 22 L15 24 M22 18 L28 9 M53 38 L58 18 L69 12 M58 22 L65 24 M58 18 L52 9"
-          fill="none"
-          stroke="#dfd0ad"
-          strokeWidth="4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <circle cx="11" cy="12" r="2.5" fill="#6cf5e3" />
-        <circle cx="69" cy="12" r="2.5" fill="#6cf5e3" />
-      </svg>
-    );
-  }
-  if (hat === "hood") {
-    return (
-      <svg className="slime-hat-svg hat-hood" viewBox="0 0 80 44" aria-hidden="true">
-        <path
-          d="M14 39 C14 17 28 7 40 5 C52 7 66 17 66 39 C54 33 26 33 14 39 Z"
-          fill="#262f52"
-          stroke="#0c151f"
-          strokeWidth="3.5"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M22 36 C26 22 34 15 40 13 C46 15 54 22 58 36"
-          fill="none"
-          stroke="#54dbef"
-          strokeWidth="2"
-          strokeOpacity="0.65"
-          strokeLinecap="round"
-        />
-      </svg>
-    );
-  }
-  if (hat === "moth") {
-    return (
-      <svg className="slime-hat-svg hat-moth" viewBox="0 0 80 44" aria-hidden="true">
-        <path
-          d="M33 36 C28 21 19 13 11 11 C15 21 22 29 31 35 Z M47 36 C52 21 61 13 69 11 C65 21 58 29 49 35 Z"
-          fill="#d9c6ff"
-          stroke="#0c151f"
-          strokeWidth="3"
-          strokeLinejoin="round"
-        />
-        <circle cx="16" cy="15" r="3" fill="#6cf5e3" />
-        <circle cx="64" cy="15" r="3" fill="#6cf5e3" />
-        <circle cx="40" cy="34" r="4" fill="#ffee99" stroke="#0c151f" strokeWidth="2.5" />
-      </svg>
-    );
-  }
-  return (
-    <svg className="slime-hat-svg hat-mooncap" viewBox="0 0 80 44" aria-hidden="true">
-      <path
-        d="M16 37 C18 17 35 7 60 11 C53 20 51 28 58 36 C42 33 28 34 16 37 Z"
-        fill="#313968"
-        stroke="#0c151f"
-        strokeWidth="3.5"
-        strokeLinejoin="round"
-      />
-      <circle cx="62" cy="12" r="5.5" fill="#ffd94a" stroke="#0c151f" strokeWidth="2.5" />
-    </svg>
-  );
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const context = ref.current?.getContext("2d");
+    if (!context) return;
+    const { width, height, anchorX, anchorY, pixelRatio } = ACCESSORY_FRAME;
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    context.clearRect(0, 0, width, height);
+    drawAccessory(context, hat, anchorX, anchorY);
+  }, [hat]);
+  return <canvas ref={ref} width={ACCESSORY_FRAME.width * ACCESSORY_FRAME.pixelRatio} height={ACCESSORY_FRAME.height * ACCESSORY_FRAME.pixelRatio} className={`slime-hat-svg hat-${hat} ${isCollar(hat) ? "cat-collar-svg" : "cat-headwear-svg"}`} aria-hidden="true" />;
 }
-
 function SlimeAvatar({
   color,
   hat,
+  eyeStyle,
   size = "md",
   isBot = false,
+  greeting = false,
+  homePose = false,
+  lobbyPose = !homePose,
+  animated = true,
 }: {
   color: string;
   hat: Hat;
+  eyeStyle?: EyeStyle;
   size?: "sm" | "md" | "lg";
   isBot?: boolean;
+  greeting?: boolean;
+  homePose?: boolean;
+  lobbyPose?: boolean;
+  animated?: boolean;
 }) {
   return (
     <div
@@ -2812,63 +3618,260 @@ function SlimeAvatar({
       style={{ "--slime": color } as React.CSSProperties}
       aria-hidden="true"
     >
-      <HatGraphic hat={hat} />
-      <div className="slime-avatar-body">
-        <span className="shine" />
-        <span className="eye e1" />
-        <span className="eye e2" />
-        <span className="mouth" />
-      </div>
+      <span className="slime-avatar-motion">
+        <SlimePortrait color={color} eyeStyle={eyeStyle} accessory={hat} greeting={greeting} pose={lobbyPose ? "LOBBY" : homePose ? "SEATED" : "GAMEPLAY"} animated={animated} />
+      </span>
     </div>
   );
 }
 
+const CIRCLE_WARDEN_NAMES = ["Pebble", "Nori", "YOU", "Mochi", "Bubbles"] as const;
+const CIRCLE_WARDEN_QUIPS: readonly (readonly string[])[] = [
+  [
+    "I was at the shrine. Probably.",
+    "My lantern flickered right by the willow!",
+    "Don’t look at me, I’m just a very round pebble.",
+    "Whoever rang the Echo Bell owes me an explanation.",
+  ],
+  [
+    "That shadow looked familiar…",
+    "I saw two cats near the Hollow, then only one.",
+    "Check the moss prints! They lead toward the pond.",
+    "Stay in pairs when the sea fog rolls in.",
+  ],
+  WARDEN_ALIBIS,
+  [
+    "Who turned off the moon?!",
+    "I dropped my Moonblossom and ran for my life!",
+    "Wait—can The Hollow squeeze through root cages?!",
+    "If the blue crystal blinks, stand inside its light!",
+  ],
+  [
+    "We can trust each other… right?",
+    "Let’s stick together by the campfire.",
+    "I’m 98% sure Mochi just vented into a bush.",
+    "Boop me again and I’m calling an emergency meeting!",
+  ],
+];
+const BOOP_EMOTES = ["🐾", "♪", "♡", "!", "☽", "✿", "⚡"] as const;
+
+let lobbyAudioCtx: AudioContext | null = null;
+function playLobbySfx(
+  kind: "boop" | "wave" | "switch" | "weather" | "customize" | "moon" | "launch",
+  variant = 0
+) {
+  if (typeof window === "undefined") return;
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return;
+    if (!lobbyAudioCtx) lobbyAudioCtx = new Ctx();
+    const ctx = lobbyAudioCtx;
+    if (ctx.state === "suspended") void ctx.resume();
+    const now = ctx.currentTime;
+
+    if (kind === "boop") {
+      const baseFreqs = [392, 440, 523.25, 587.33, 659.25];
+      const f0 = baseFreqs[variant % baseFreqs.length];
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(f0 * 0.85, now);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 1.38, now + 0.09);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 1.12, now + 0.19);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.085, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.21);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.22);
+    } else if (kind === "wave") {
+      [392, 440, 523.25, 659.25, 783.99].forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const t = now + idx * 0.055;
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(freq, t);
+        osc.frequency.exponentialRampToValueAtTime(freq * 1.18, t + 0.14);
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(0.06, t + 0.018);
+        gain.gain.exponentialRampToValueAtTime(0.0008, t + 0.18);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.19);
+      });
+    } else if (kind === "customize") {
+      const f0 = 480 + (variant % 6) * 45;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(f0, now);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 1.25, now + 0.08);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.06, now + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.11);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.12);
+    } else if (kind === "switch") {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(variant ? 540 : 460, now);
+      osc.frequency.exponentialRampToValueAtTime(variant ? 680 : 580, now + 0.07);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.045, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.09);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.1);
+    } else if (kind === "weather") {
+      const chords = [
+        [523.25, 659.25], // CALM
+        [349.23, 466.16], // FOG
+        [220, 277.18],    // BLACKOUT
+      ];
+      const pair = chords[variant % chords.length];
+      pair.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const t = now + idx * 0.04;
+        osc.type = variant === 2 ? "sine" : "triangle";
+        osc.frequency.setValueAtTime(freq, t);
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(0.05, t + 0.025);
+        gain.gain.exponentialRampToValueAtTime(0.0008, t + 0.28);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.3);
+      });
+    } else if (kind === "moon") {
+      [783.99, 1046.5, 1318.5].forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const t = now + idx * 0.06;
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, t);
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(0.045, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0008, t + 0.36);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.38);
+      });
+    } else if (kind === "launch") {
+      [261.63, 329.63, 392, 523.25].forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const t = now + idx * 0.05;
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(freq, t);
+        osc.frequency.exponentialRampToValueAtTime(freq * 1.12, t + 0.28);
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(0.065, t + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0008, t + 0.36);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.38);
+      });
+    }
+  } catch {
+    // Ignore audio context restrictions before user gesture
+  }
+}
+
 function Lobby({
   onLaunch,
+  onReplayIntro,
+  onReplayHollow,
   multiplayerClient,
   mpState,
 }: {
-  onLaunch: (count: number, role: RoleChoice) => void;
+  onLaunch: (count: number, role: RoleChoice, profile: SoloProfile, hollowCount: number, chaosMoonsway: boolean) => void;
+  onReplayIntro?: () => void;
+  onReplayHollow?: () => void;
   multiplayerClient?: MultiplayerClient | null;
   mpState?: MultiplayerState | null;
 }) {
-  const [tab, setTab] = useState<"SOLO" | "MULTI">("MULTI");
+  const [menuHistory, setMenuHistory] = useState<MenuScreen[]>(["HOME"]);
+  const menuScreen = menuHistory[menuHistory.length - 1];
+  const tab = menuScreen === "SOLO" || menuScreen === "LOOK" ? "SOLO" : "MULTI";
+  const [roomPane, setRoomPane] = useState<"CREW" | "CHAT" | "SETTINGS" | "LOOK">("CREW");
+  const [lookPane, setLookPane] = useState<"COLOR" | "HAT" | "EYES">("COLOR");
+  const [roomPage, setRoomPage] = useState(0);
   const [previewMood, setPreviewMood] = useState<"CALM" | "FOG" | "BLACKOUT">("CALM");
   const [previewSpeaker, setPreviewSpeaker] = useState(2);
   const [previewQuip, setPreviewQuip] = useState(0);
   const [studioView, setStudioView] = useState<"WARDEN" | "CIRCLE">("WARDEN");
   const [players, setPlayers] = useState(6);
   const [role, setRole] = useState<RoleChoice>("RANDOM");
+  const [utility, setUtility] = useState<UtilityKind>("WISP_STEP");
+  const [difficulty, setDifficulty] = useState<RitualDifficulty>("STANDARD");
+  const [meetingSeconds, setMeetingSeconds] = useState(75);
 
-  // Multiplayer form state
-  const [nickname, setNickname] = useState("Warden");
+  // Interactive preview stage state
+  const [stagePointer, setStagePointer] = useState({ x: 50, y: 52, gazeX: 0, gazeY: 0, active: false });
+  const [boopedWarden, setBoopedWarden] = useState<{ index: number; emote: string; seq: number } | null>(null);
+  const [isGroupWaving, setIsGroupWaving] = useState(false);
+  const waveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (waveTimer.current) clearTimeout(waveTimer.current); }, []);
+  const [moonPulse, setMoonPulse] = useState(0);
+  const [isLaunching, setIsLaunching] = useState(false);
+  const [motionPaused, setMotionPaused] = useState(false);
+
+  // Multiplayer form state (deterministic initial render, randomized callsign on mount)
+  const [nickname, setNickname] = useState(WARDEN_CALLSIGNS[0]);
   const [selectedColor, setSelectedColor] = useState(COLORS[0]);
-  const [selectedHat, setSelectedHat] = useState<Hat>("antlers");
+  const [selectedHat, setSelectedHat] = useState<Hat>("moonbell");
+  const [selectedEyes, setSelectedEyes] = useState<EyeStyle>("FIERCE");
   const [joinCode, setJoinCode] = useState("");
   const [botFill, setBotFill] = useState(true);
   const [targetPlayers, setTargetPlayers] = useState(6);
+  const [hollowCount, setHollowCount] = useState(1);
+  const [chaosMoonsway, setChaosMoonsway] = useState(false);
   const [copied, setCopied] = useState(false);
   const [hideRoomCode, setHideRoomCode] = useState(false);
-  const [editingInRoom, setEditingInRoom] = useState(false);
   const [lobbyChatDraft, setLobbyChatDraft] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
   const [isRefreshingRooms, setIsRefreshingRooms] = useState(false);
   const [roomsChecked, setRoomsChecked] = useState(false);
   const [mpError, setMpError] = useState("");
   const lobbyConsoleRef = useRef<HTMLDivElement>(null);
+  const roomAttemptRef = useRef<{ entry: "create" | "join" } | null>(null);
 
   const inRoom = Boolean(mpState?.roomCode);
   const activeTargetPlayers = inRoom && mpState ? mpState.targetPlayers : targetPlayers;
   const activeBotFill = inRoom && mpState ? mpState.botFill : botFill;
+  const activeHollowCount = inRoom && mpState ? mpState.hollowCount : hollowCount;
+  const activeChaosMoonsway = inRoom && mpState ? mpState.chaosMoonsway : chaosMoonsway;
+  const roomPopulation = activeBotFill ? activeTargetPlayers : mpState?.players.length ?? 4;
   const myNetPlayer = inRoom && mpState ? mpState.players.find((p) => p.id === mpState.playerId) : undefined;
   const readyCount = inRoom && mpState ? mpState.players.filter((p) => p.ready || p.isHost).length : 0;
   const displayError = mpError || mpState?.lastError || "";
   const occupiedColors = new Set(mpState?.players.filter((p) => p.id !== mpState.playerId).map((p) => p.color) ?? []);
+  const occupiedNames = mpState?.players.filter((p) => p.id !== mpState.playerId).map((p) => p.name) ?? [];
   const showRoomResults = Boolean(mpState?.connected && roomsChecked);
+  const roomWindow = pageWindow(mpState?.openRooms.length ?? 0, roomPage);
+  const screenTitleRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
-    lobbyConsoleRef.current?.scrollTo(0, 0);
-  }, [inRoom, tab]);
+    // Randomize only after hydration so the server/client first render agrees.
+    const frame = requestAnimationFrame(() => setNickname(randomWardenCallsign()));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    screenTitleRef.current?.focus({ preventScroll: true });
+  }, [inRoom, menuScreen]);
+
+  useEffect(() => {
+    if (inRoom) return;
+    const back = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector("dialog[open]")) return;
+      setMenuHistory(history => history.length > 1 ? history.slice(0, -1) : history);
+    };
+    window.addEventListener("keydown", back);
+    return () => window.removeEventListener("keydown", back);
+  }, [inRoom]);
 
   useEffect(() => {
     if (!multiplayerClient) return;
@@ -2876,13 +3879,33 @@ function Lobby({
       if (!state.connected) setRoomsChecked(false);
       const own = state.players.find((p) => p.id === state.playerId);
       if (own) {
+        setNickname(own.name);
         setSelectedColor(own.color);
         setSelectedHat(own.hat);
+        setSelectedEyes(normalizeEyeStyle(own.eyeStyle));
       }
     });
     const unsubscribeRooms = multiplayerClient.onMessage((message) => {
       if (message.type === "ROOMS_LIST") setRoomsChecked(true);
-      if (message.type === "ROOM_STATE") setRoomsChecked(false);
+      if (message.type === "ROOM_STATE") {
+        setRoomsChecked(false);
+        const attempt = roomAttemptRef.current;
+        if (attempt && message.roomCode) {
+          roomAttemptRef.current = null;
+          trackGameEvent("room_entered", {
+            mode: "multiplayer",
+            entry: attempt.entry,
+            player_count: message.players.length,
+          });
+        }
+      }
+      if (message.type === "ERROR_ALERT" && roomAttemptRef.current) {
+        const attempt = roomAttemptRef.current;
+        roomAttemptRef.current = null;
+        if (attempt.entry === "join") {
+          trackGameEvent("room_join_failed", { mode: "multiplayer", reason: "rejected" });
+        }
+      }
     });
     return () => { unsubscribe(); unsubscribeRooms(); };
   }, [multiplayerClient]);
@@ -2904,45 +3927,124 @@ function Lobby({
   };
 
   const handleSwitchTab = (nextTab: "SOLO" | "MULTI") => {
-    setTab(nextTab);
+    if (nextTab !== tab) playLobbySfx("switch", nextTab === "SOLO" ? 1 : 0);
     setMpError("");
     multiplayerClient?.clearError();
-    if (nextTab === "MULTI" && !inRoom) {
-      void handleRefreshRooms();
-    }
+  };
+
+  const navigateMenu = (screen: MenuScreen) => {
+    playLobbySfx("switch", screen === "SOLO" ? 1 : 0);
+    if (screen === "SOLO" || screen === "LOOK") handleSwitchTab("SOLO");
+    else if (screen === "MULTI" || screen === "ROOMS") handleSwitchTab("MULTI");
+    setMenuHistory(history => [...history, screen]);
+    if (screen === "ROOMS") { setRoomPage(0); void handleRefreshRooms(); }
+  };
+
+  const triggerWardenBoop = (index: number, customEmote?: string) => {
+    const emote = customEmote ?? BOOP_EMOTES[(index + previewQuip) % BOOP_EMOTES.length];
+    setBoopedWarden((prev) => ({ index, emote, seq: (prev?.seq ?? 0) + 1 }));
+    playLobbySfx("boop", index);
+  };
+
+  const handleStageWave = () => {
+    if (isGroupWaving) return;
+    playLobbySfx("wave");
+    setIsGroupWaving(true);
+    setPreviewQuip((q) => q + 1);
+    waveTimer.current = setTimeout(() => setIsGroupWaving(false), 800);
+  };
+
+  const handleCycleColor = () => {
+    const available = COLORS.filter((c) => !occupiedColors.has(c));
+    const pool = available.length > 0 ? available : [...COLORS];
+    const nextIdx = (pool.indexOf(selectedColor) + 1) % pool.length;
+    const nextColor = pool[nextIdx] ?? selectedColor;
+    playLobbySfx("customize", nextIdx);
+    triggerWardenBoop(2, "🎨");
+    handleProfileChange(nickname, nextColor, selectedHat, selectedEyes);
+  };
+
+  const handleCycleHat = () => {
+    const nextIdx = (HATS.indexOf(selectedHat) + 1) % HATS.length;
+    const nextHat = HATS[nextIdx] ?? selectedHat;
+    playLobbySfx("customize", nextIdx + 2);
+    triggerWardenBoop(2, "🐾");
+    handleProfileChange(nickname, selectedColor, nextHat, selectedEyes);
+  };
+
+  const handleCycleEyes = () => {
+    const nextIdx = (EYE_STYLES.indexOf(selectedEyes) + 1) % EYE_STYLES.length;
+    const nextEyes = EYE_STYLES[nextIdx] ?? selectedEyes;
+    playLobbySfx("customize", nextIdx + 4);
+    triggerWardenBoop(2, "👀");
+    handleProfileChange(nickname, selectedColor, selectedHat, nextEyes);
   };
 
   const handleRandomizeProfile = () => {
-    const randomName = WARDEN_CALLSIGNS[Math.floor(Math.random() * WARDEN_CALLSIGNS.length)];
+    const randomName = randomWardenCallsign([...occupiedNames, nickname]);
     const available = COLORS.filter((color) => !occupiedColors.has(color));
     const randomColor = available[Math.floor(Math.random() * available.length)] ?? selectedColor;
     const randomHat = HATS[Math.floor(Math.random() * HATS.length)];
+    const randomEyes = EYE_STYLES[Math.floor(Math.random() * EYE_STYLES.length)];
+    playLobbySfx("wave");
+    triggerWardenBoop(2, "🎲");
     setNickname(randomName);
     setSelectedColor(randomColor);
     setSelectedHat(randomHat);
+    setSelectedEyes(randomEyes);
     if (inRoom && multiplayerClient) {
-      multiplayerClient.updateProfile(randomName, randomColor, randomHat);
+      multiplayerClient.updateProfile(randomName, randomColor, randomHat, randomEyes);
     }
   };
 
-  const handleProfileChange = (nextName: string, nextColor: string, nextHat: Hat) => {
+  const handleProfileChange = (nextName: string, nextColor: string, nextHat: Hat, nextEyes = selectedEyes) => {
     setNickname(nextName);
     setSelectedColor(nextColor);
     setSelectedHat(nextHat);
+    setSelectedEyes(nextEyes);
     if (inRoom && multiplayerClient) {
-      multiplayerClient.updateProfile(nextName.trim() || "Warden", nextColor, nextHat);
+      const fallbackName = myNetPlayer?.name || randomWardenCallsign(occupiedNames);
+      multiplayerClient.updateProfile(nextName.trim() || fallbackName, nextColor, nextHat, nextEyes);
     }
+  };
+
+  const handleSoloLaunch = () => {
+    if (isLaunching) return;
+    playLobbySfx("launch");
+    setIsLaunching(true);
+    const launchProfile: SoloProfile = {
+      utility, difficulty, meetingSeconds,
+      name: availablePlayerName(nickname, []),
+      color: selectedColor,
+      hat: selectedHat,
+      eyeStyle: selectedEyes,
+    };
+    window.setTimeout(() => {
+      onLaunch(players, role, launchProfile, clampHollowCount(hollowCount, players), chaosMoonsway);
+    }, 380);
   };
 
   const handleCreateRoom = async () => {
     if (!multiplayerClient) return;
+    const attempt = { entry: "create" as const };
+    roomAttemptRef.current = attempt;
+    trackGameEvent("room_create_attempt", { mode: "multiplayer" });
     setMpError("");
     multiplayerClient.clearError();
     setIsConnecting(true);
+    setRoomPane("CREW");
     try {
       await multiplayerClient.connect();
-      multiplayerClient.createRoom(nickname.trim() || "Warden", selectedColor, selectedHat);
+      const callsign = availablePlayerName(nickname, []);
+      setNickname(callsign);
+      multiplayerClient.createRoom(callsign, selectedColor, selectedHat, selectedEyes);
+      multiplayerClient.setUtility(utility);
+      multiplayerClient.setDifficulty(difficulty);
+      multiplayerClient.setMeetingDuration(meetingSeconds);
     } catch (error) {
+      if (roomAttemptRef.current === attempt) {
+        roomAttemptRef.current = null;
+      }
       setMpError(error instanceof Error ? error.message : "Failed to connect to game server. Please retry.");
     } finally {
       setIsConnecting(false);
@@ -2952,13 +4054,24 @@ function Lobby({
   const handleJoinRoom = async (codeOverride?: string) => {
     const codeToJoin = (codeOverride ?? joinCode).trim().toUpperCase();
     if (!multiplayerClient || !codeToJoin) return;
+    const attempt = { entry: "join" as const };
+    roomAttemptRef.current = attempt;
+    trackGameEvent("room_join_attempt", { mode: "multiplayer", method: codeOverride ? "list" : "code" });
     setMpError("");
     multiplayerClient.clearError();
     setIsConnecting(true);
+    setRoomPane("CREW");
     try {
       await multiplayerClient.connect();
-      multiplayerClient.joinRoom(codeToJoin, nickname.trim() || "Warden", selectedColor, selectedHat);
+      const callsign = availablePlayerName(nickname, []);
+      setNickname(callsign);
+      multiplayerClient.joinRoom(codeToJoin, callsign, selectedColor, selectedHat, selectedEyes);
+      multiplayerClient.setUtility(utility);
     } catch (error) {
+      if (roomAttemptRef.current === attempt) {
+        roomAttemptRef.current = null;
+        trackGameEvent("room_join_failed", { mode: "multiplayer", reason: "connection" });
+      }
       setMpError(error instanceof Error ? error.message : "Failed to connect to room. Verify code and server connection.");
     } finally {
       setIsConnecting(false);
@@ -2972,11 +4085,11 @@ function Lobby({
     window.setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleHostConfigUpdate = (nextTarget: number, nextBotFill: boolean) => {
+  const handleHostConfigUpdate = (nextTarget: number, nextBotFill: boolean, nextHollows = activeHollowCount, nextChaos = activeChaosMoonsway) => {
     setTargetPlayers(nextTarget);
     setBotFill(nextBotFill);
     if (inRoom && mpState?.isHost && multiplayerClient) {
-      multiplayerClient.updateRoomConfig(nextTarget, nextBotFill);
+      multiplayerClient.updateRoomConfig(nextTarget, nextBotFill, nextHollows, nextChaos);
     }
   };
 
@@ -2987,11 +4100,47 @@ function Lobby({
     if (!textOverride) setLobbyChatDraft("");
   };
 
+  const handleStagePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (motionPaused) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+    const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+    const gazeX = Number((((x - 50) / 50) * 4.5).toFixed(2));
+    const gazeY = Number((((y - 52) / 50) * 3.2).toFixed(2));
+    setStagePointer({ x, y, gazeX, gazeY, active: true });
+  };
+
+  const handleStagePointerLeave = () => {
+    setStagePointer((prev) => ({ ...prev, gazeX: 0, gazeY: 0, active: false }));
+  };
+
+  const speakerQuipPool = CIRCLE_WARDEN_QUIPS[previewSpeaker] ?? WARDEN_ALIBIS;
+  const activeDialogueLine = speakerQuipPool[previewQuip % speakerQuipPool.length];
+  const cursorLitWarden =
+    stagePointer.active && studioView === "CIRCLE"
+      ? Math.min(4, Math.max(0, Math.floor((stagePointer.x / 100) * 5)))
+      : -1;
+
   return (
-    <main className={`lobby-shell moon-studio ${inRoom ? "studio-in-room" : ""}`}>
+    <main data-menu={inRoom ? "ROOM" : menuScreen} data-room-pane={roomPane} data-look-pane={lookPane} className={`lobby-shell moon-studio game-menu-shell ${inRoom ? "studio-in-room" : "studio-at-home"} ${isLaunching ? "studio-launching" : ""} ${motionPaused ? "home-motion-paused" : ""}`}>
+      {!inRoom && (menuScreen === "HOME" ? <MenuGroveBackdrop /> : <HomeAtmosphere />)}
+      {isLaunching && (
+        <div className="studio-launch-portal" aria-hidden="true">
+          <div className="launch-portal-ring" />
+          <span>ENTERING THE MOONWARD…</span>
+        </div>
+      )}
       <div className="studio-frame">
       <header className="lobby-nav">
         <Logo />
+        {inRoom && mpState ? <div className="room-header-actions">
+          <span>{myNetPlayer?.name || nickname}</span>
+          <button type="button" className="wardrobe-toggle-btn" aria-pressed={roomPane === "LOOK"} onClick={() => setRoomPane(roomPane === "LOOK" ? "CREW" : "LOOK")}>{roomPane === "LOOK" ? "← Players" : "✎ Customize"}</button>
+          {!mpState.isHost ? <button type="button" className={`ready-toggle-btn ${myNetPlayer?.ready ? "is-ready" : ""}`} aria-pressed={!!myNetPlayer?.ready} disabled={!mpState.connected} onClick={() => multiplayerClient?.toggleReady()}>{myNetPlayer?.ready ? "✓ Ready" : "Mark ready"}</button> : null}
+        </div> : null}
+        {!inRoom && menuScreen !== "HOME" ? <div className="menu-screen-heading"><button type="button" className="menu-back" onClick={() => setMenuHistory(history => history.slice(0, -1))} aria-label="Back to previous menu">← Back</button><h1 ref={screenTitleRef} tabIndex={-1}>{MENU_TITLES[menuScreen]}</h1></div> : null}
+        {!inRoom && <button className="home-motion-toggle" type="button" aria-pressed={motionPaused} onClick={() => { setMotionPaused(!motionPaused); handleStagePointerLeave(); }}>{motionPaused ? "▷ Resume animations" : "Ⅱ Pause animations"}</button>}
         <div className="nav-status">
           <span />
           {inRoom
@@ -3005,81 +4154,131 @@ function Lobby({
       </header>
 
       <section className={`lobby-grid ${tab === "MULTI" ? "lobby-grid-multi" : ""} ${inRoom ? "lobby-grid-room" : ""}`}>
-        <aside className="studio-guide" aria-label="Moonwarden game guide">
-          <div className="eyebrow"><span>SILVERPINE SUMMIT</span></div>
-          <h1>Good friends.<br /><em>Suspicious slimes.</em></h1>
-          <p className="lede">A little magic. A lot of mistrust. Gather your friends, restore the forest shrines, and uncover the impostor.</p>
-          <div className="lobby-mode-switch" role="tablist" aria-label="Game Mode">
-            <button role="tab" aria-selected={tab === "MULTI"} className={tab === "MULTI" ? "active" : ""} onClick={() => handleSwitchTab("MULTI")}>
-              <span>✦ MULTIPLAYER</span><span className="live-pill">{inRoom ? "IN ROOM" : "WITH FRIENDS"}</span>
-            </button>
-            <button role="tab" aria-selected={tab === "SOLO"} className={tab === "SOLO" ? "active" : ""} disabled={inRoom} title={inRoom ? "Leave your room before starting solo practice" : "Practice with AI wardens"} onClick={() => handleSwitchTab("SOLO")}>
-              <span>SOLO PRACTICE</span>
-            </button>
-          </div>
-          <details className="studio-guide-steps">
-            <summary>A night in the sanctuary</summary>
-            <div><span>01</span><p><b>Gather your circle</b><small>Create a room. Share your ward code.</small></p></div>
-            <div><span>02</span><p><b>Brave the Ordeals</b><small>Restore shrines. Earn gear. Stay close.</small></p></div>
-            <div><span>03</span><p><b>Discuss. Vote. Repeat.</b><small>One of you has a very bad alibi.</small></p></div>
-          </details>
-          <div className="home-game-tags" aria-label="About the game">
-            <span>4–8 wardens</span><span>One hidden impostor</span><span>Play in your browser</span>
-          </div>
-          <div className="studio-guide-note"><span aria-hidden="true">☽</span><p>Trust the light.<br /><b>Question everyone else.</b></p></div>
-        </aside>
+        {!inRoom && menuScreen === "HOME" ? <GameMenu onNavigate={navigateMenu} /> : null}
+        {!inRoom && menuScreen === "GUIDE" ? <CompactFieldGuide onReplayIntro={onReplayIntro} onReplayHollow={onReplayHollow} /> : null}
 
-        <div className="lobby-copy studio-stage">
+        <div className="lobby-copy studio-stage" hidden={inRoom || menuScreen !== "HOME"}>
           <div className="studio-view-switch" role="group" aria-label="Character preview view">
-            <button type="button" aria-pressed={studioView === "WARDEN"} onClick={() => { setStudioView("WARDEN"); setPreviewSpeaker(2); }}>Your warden</button>
-            <button type="button" aria-pressed={studioView === "CIRCLE"} onClick={() => setStudioView("CIRCLE")}>The circle</button>
+            <button
+              type="button"
+              aria-pressed={studioView === "WARDEN"}
+              onClick={() => {
+                if (studioView !== "WARDEN") playLobbySfx("switch", 0);
+                setStudioView("WARDEN");
+                setPreviewSpeaker(2);
+              }}
+            >
+              Your warden
+            </button>
+            <button
+              type="button"
+              aria-pressed={studioView === "CIRCLE"}
+              onClick={() => {
+                if (studioView !== "CIRCLE") playLobbySfx("switch", 1);
+                setStudioView("CIRCLE");
+              }}
+            >
+              The circle
+            </button>
           </div>
-          <div className={`sanctuary-preview preview-${previewMood.toLowerCase()} studio-view-${studioView.toLowerCase()}`}>
-            <div className="studio-stage-title"><small>{studioView === "WARDEN" ? "YOUR MOONLIT ALTER EGO" : "FRIENDLY FACES. QUESTIONABLE ALIBIS."}</small><h2>{studioView === "WARDEN" ? nickname.trim() || "Warden" : "The usual suspects."}</h2><p>{studioView === "WARDEN" ? `${COLOR_NAMES[selectedColor]} · ${HAT_META[selectedHat].title}` : "Preview circle · not a live room"}</p></div>
-            <div className="preview-heading"><span>✦ A PEEK INTO THE SANCTUARY</span><small>INTERACTIVE PREVIEW</small></div>
-            <div className="preview-moon" aria-hidden="true" />
+          <div
+            className={`sanctuary-preview preview-${previewMood.toLowerCase()} studio-view-${studioView.toLowerCase()} ${stagePointer.active ? "has-pointer" : ""}`}
+            onPointerMove={handleStagePointerMove}
+            onPointerLeave={handleStagePointerLeave}
+            style={{
+              "--cursor-x": `${stagePointer.x}%`,
+              "--cursor-y": `${stagePointer.y}%`,
+              "--gaze-x": `${stagePointer.gazeX}px`,
+              "--gaze-y": `${stagePointer.gazeY}px`,
+            } as React.CSSProperties}
+          >
+            <div className="studio-stage-title" key={studioView}>
+              <small>{studioView === "WARDEN" ? "YOUR MOONLIT ALTER EGO" : "FRIENDLY FACES. QUESTIONABLE ALIBIS."}</small>
+              <h2>{studioView === "WARDEN" ? nickname.trim() || WARDEN_CALLSIGNS[0] : "The usual suspects."}</h2>
+              <p>{studioView === "WARDEN" ? `${COLOR_NAMES[selectedColor]} · ${HAT_META[selectedHat].title} · ${EYE_LABELS[selectedEyes]} eyes` : "Preview circle · tap any cat or sweep your lantern"}</p>
+            </div>
+            <div className="preview-heading"><span>A PEEK INTO THE SANCTUARY</span><small>INTERACTIVE PREVIEW</small></div>
+            <HomeGrove />
+            <button
+              type="button"
+              className={`preview-moon ${moonPulse > 0 ? "is-pulsing" : ""}`}
+              aria-label="Make a wish on the moon"
+              onClick={() => {
+                playLobbySfx("moon");
+                setMoonPulse((p) => p + 1);
+              }}
+            />
+            {moonPulse > 0 && <div key={moonPulse} className="preview-shooting-star" aria-hidden="true" />}
+            <div className="preview-lantern-beam" aria-hidden="true" />
+            <div className="preview-fog-layer" aria-hidden="true" />
             <div className="preview-orbit" aria-hidden="true" />
             <div className="preview-fireflies" aria-hidden="true">{Array.from({ length: 8 }, (_, i) => <i key={i} style={{ "--i": i, "--top": `${16 + (i * 23) % 70}%` } as React.CSSProperties} />)}</div>
-            <div className="preview-dialogue" role="status" aria-live="polite">
-              <b>{previewSpeaker === 2 ? nickname.trim() || "Warden" : ["Pebble", "Nori", "", "Mochi", "Bubbles"][previewSpeaker]}:</b>{" "}
-              {previewSpeaker === 2 ? WARDEN_ALIBIS[previewQuip] : ["I was at the shrine. Probably.", "That shadow looked familiar…", "", "Who turned off the moon?!", "We can trust each other… right?"][previewSpeaker]}
+            <div className="stage-quick-bar" role="toolbar" aria-label="Quick stage actions">
+              <button type="button" onClick={handleCycleColor} title="Cycle cat coat color">🎨 Hue</button>
+              <button type="button" onClick={handleCycleHat} title="Cycle accessory"><GameGlyph name="collar" /> Accessory</button>
+              <button type="button" onClick={handleCycleEyes} title="Cycle eye expression">👀 Eyes</button>
+              <button type="button" onClick={handleStageWave} title="Say hello to the wardens"><GameGlyph name="paw" /> Say hi</button>
+            </div>
+            <div className="preview-dialogue" role="status" aria-live="polite" key={`${previewSpeaker}-${previewQuip}`}>
+              <b>{previewSpeaker === 2 ? nickname.trim() || WARDEN_CALLSIGNS[0] : CIRCLE_WARDEN_NAMES[previewSpeaker]}:</b>{" "}
+              {activeDialogueLine}
             </div>
             <div className="preview-circle" role="group" aria-label="Meet the preview wardens">
             {COLORS.slice(0, 5).map((color, index) => {
               const showcaseColor = index === 2 ? selectedColor : COLORS.filter((hue) => hue !== selectedColor)[index < 2 ? index : index - 1];
               const showcaseHat = index === 2 ? selectedHat : HATS[index % HATS.length];
+              const isBooped = boopedWarden?.index === index;
+              const isCursorLit = cursorLitWarden === index;
               return (
                 <button
                   type="button"
-                  className={`preview-warden ${index === 2 ? "is-you" : ""}`}
-                  aria-label={index === 2 ? "Hear your warden’s alibi" : `Hear ${["Pebble", "Nori", "", "Mochi", "Bubbles"][index]}’s alibi`}
+                  className={`preview-warden ${index === 2 ? "is-you" : ""} ${isBooped ? "is-booped" : ""} ${isGroupWaving ? "is-waving" : ""} ${isCursorLit ? "is-cursor-lit" : ""}`}
+                  aria-label={index === 2 ? "Hear your warden’s alibi" : `Hear ${CIRCLE_WARDEN_NAMES[index]}’s alibi`}
                   aria-pressed={previewSpeaker === index}
-                  onClick={() => { setPreviewSpeaker(index); if (index === 2) setPreviewQuip((quip) => (quip + 1) % WARDEN_ALIBIS.length); }}
+                  inert={studioView === "WARDEN" && index !== 2}
+                  onClick={() => {
+                    setPreviewSpeaker(index);
+                    setPreviewQuip((quip) => quip + 1);
+                    triggerWardenBoop(index);
+                  }}
                   key={color}
                 >
-                  <SlimeAvatar color={showcaseColor} hat={showcaseHat} size="lg" />
-                  <span className="preview-name">{index === 2 ? "YOU" : ["Pebble", "Nori", "", "Mochi", "Bubbles"][index]}</span>
+                  {isBooped && boopedWarden && (
+                    <span key={boopedWarden.seq} className="warden-emote-pop" aria-hidden="true">
+                      {boopedWarden.emote}
+                    </span>
+                  )}
+                  <SlimeAvatar color={showcaseColor} hat={showcaseHat} eyeStyle={index === 2 ? selectedEyes : EYE_STYLES[index % EYE_STYLES.length]} size="lg" homePose animated={!motionPaused} greeting={isGroupWaving && !motionPaused} />
+                  <span className="preview-name">{index === 2 ? "YOU" : CIRCLE_WARDEN_NAMES[index]}</span>
                 </button>
               );
             })}
             </div>
             <div className="preview-weather" role="group" aria-label="Preview an Ordeal">
-              {(["CALM", "FOG", "BLACKOUT"] as const).map((mood) => (
-                <button type="button" key={mood} aria-pressed={previewMood === mood} onClick={() => setPreviewMood(mood)}>
-                  {mood === "CALM" ? "☽ Moonlit calm" : mood === "FOG" ? "≋ Sea fog" : "✧ Blackout"}
+              {(["CALM", "FOG", "BLACKOUT"] as const).map((mood, moodIdx) => (
+                <button
+                  type="button"
+                  key={mood}
+                  aria-pressed={previewMood === mood}
+                  onClick={() => {
+                    if (previewMood !== mood) playLobbySfx("weather", moodIdx);
+                    setPreviewMood(mood);
+                  }}
+                >
+                  {mood === "CALM" ? "☽ Moonlit calm" : mood === "FOG" ? "≋ Sea fog" : "◐ Blackout"}
                 </button>
               ))}
             </div>
-            <p className="preview-caption" aria-live="polite">{previewMood === "CALM" ? "Tap a slime for an alibi. Then try changing the weather." : previewMood === "FOG" ? "In the fog, colors and accessories give way to anonymous shapes." : "When the light goes out, stay close. Unlit strangers disappear."}</p>
+            <p className="preview-caption" aria-live="polite">{previewMood === "CALM" ? "Tap a cat to boop & hear an alibi, or use the quick pills above." : previewMood === "FOG" ? "In the fog, colors fade to silhouettes. Move your cursor to part the mist." : "When blackout falls, sweep your cursor like a lantern to reveal hidden wardens."}</p>
           </div>
         </div>
 
-        <div ref={lobbyConsoleRef} className={`lobby-console ${tab === "MULTI" ? "lobby-console-multi" : ""} ${inRoom ? "lobby-console-room" : ""}`}>
+        <div ref={lobbyConsoleRef} hidden={!inRoom && ["HOME", "GUIDE"].includes(menuScreen)} className={`lobby-console ${tab === "MULTI" ? "lobby-console-multi" : ""} ${inRoom ? "lobby-console-room" : ""}`}>
           <div className="console-head">
             <div>
               <span className="status-dot" />
               {tab === "SOLO"
-                ? "SOLO PRACTICE"
+                ? MENU_TITLES[menuScreen]
                 : inRoom
                   ? `SANCTUARY CIRCLE • ROOM ${hideRoomCode ? "••••" : mpState?.roomCode}`
                   : "GATHER YOUR CIRCLE"}
@@ -3106,33 +4305,120 @@ function Lobby({
                   multiplayerClient?.disconnect();
                   multiplayerClient?.clearError();
                   setMpError("");
-                  setEditingInRoom(false);
+                  setRoomPane("CREW");
                 }}>RETURN TO LOBBY</button>
               </div>
             )}
 
-            {tab === "SOLO" ? (
+            <div className="console-panel-stage" key={inRoom ? "room" : tab}>
+            {!inRoom && tab === "SOLO" ? (
               <>
-                <p className="solo-practice-note">A quiet rehearsal with AI wardens. Learn the shrines and Ordeals before inviting your friends.</p>
-                <label className="field-label" htmlFor="player-count">WARDEN CIRCLE <span>{players} SLOTS</span></label>
+                <section hidden={menuScreen !== "LOOK"} className="home-wardrobe solo-wardrobe" aria-label="Customize your Warden">
+                  <WardrobePreview color={selectedColor} eyeStyle={selectedEyes} accessory={selectedHat} name={nickname.trim() || WARDEN_CALLSIGNS[0]} animated={!motionPaused && menuScreen === "LOOK"} greeting={isGroupWaving && !motionPaused} onGreet={handleStageWave} onRandomize={handleRandomizeProfile} />
+                  <div className="wardrobe-editor">
+                  <div className="wardrobe-summary-bar">
+                    <span>
+                      <small>MAKE IT YOURS</small>
+                      <strong>{nickname.trim() || WARDEN_CALLSIGNS[0]}</strong>
+                      <em>{COLOR_NAMES[selectedColor]} · {HAT_META[selectedHat].label} · {EYE_LABELS[selectedEyes]} eyes</em>
+                    </span>
+                  </div>
+                  <nav className="menu-tabs look-tabs" aria-label="Customize category">{(["COLOR", "HAT", "EYES"] as const).map(pane => <button type="button" key={pane} aria-pressed={lookPane === pane} onClick={() => setLookPane(pane)}>{pane === "COLOR" ? "Color" : pane === "HAT" ? "Accessories" : "Eyes"}</button>)}</nav>
+                  <div className="mp-customizer-card">
+                    <div className="mp-customizer-controls">
+                      <div className="look-name">
+                      <label className="field-label" htmlFor="solo-nickname">
+                        CALLSIGN <span>{nickname.length}/16</span>
+                      </label>
+                      <input
+                        id="solo-nickname"
+                        className="mp-field"
+                        maxLength={16}
+                        value={nickname}
+                        onChange={(e) => setNickname(e.target.value)}
+                        placeholder="Enter your warden name…"
+                      />
+                      </div>
+                      <div hidden={lookPane !== "COLOR"}>
+                      <div className="field-label" style={{ marginTop: 12 }}>
+                        COAT COLOR <span>{COLOR_NAMES[selectedColor]}</span>
+                      </div>
+                      <div className="mp-palette" role="group" aria-label="Coat color">
+                        {COLORS.map((c, idx) => (
+                          <button
+                            key={c}
+                            type="button"
+                            className={`mp-color-btn ${selectedColor === c ? "active" : ""}`}
+                            style={{ backgroundColor: c, color: c }}
+                            aria-pressed={selectedColor === c}
+                            onClick={() => { playLobbySfx("customize", idx); triggerWardenBoop(2, "🎨"); setSelectedColor(c); }}
+                            title={COLOR_NAMES[c]}
+                            aria-label={`Select coat color ${COLOR_NAMES[c] || c}`}
+                          >
+                            {selectedColor === c && <span className="color-check" aria-hidden="true">✓</span>}
+                          </button>
+                        ))}
+                      </div>
+                      </div>
+                      <div hidden={lookPane !== "HAT"}>
+                      <div className="field-label">
+                        ACCESSORY <span>{HAT_META[selectedHat].title.toUpperCase()}</span>
+                      </div>
+                      <div className="mp-hat-row" role="group" aria-label="Accessory selection">
+                        {HATS.map((h, idx) => (
+                          <button
+                            key={h}
+                            type="button"
+                            className={`mp-hat-btn ${selectedHat === h ? "active" : ""}`}
+                            aria-pressed={selectedHat === h}
+                            onClick={() => { playLobbySfx("customize", idx + 2); triggerWardenBoop(2, "🐾"); setSelectedHat(h); }}
+                          >
+                            <span className="hat-btn-preview">
+                              <HatGraphic hat={h} />
+                            </span>
+                            <b>{HAT_META[h].label}</b>
+                          </button>
+                        ))}
+                      </div>
+                      </div>
+                      <div hidden={lookPane !== "EYES"}><EyeStylePicker value={selectedEyes} onChange={(eyes) => { playLobbySfx("customize", 5); triggerWardenBoop(2, "👀"); setSelectedEyes(eyes); }} /></div>
+                    </div>
+                  </div>
+                  </div>
+                </section>
+                <div className="solo-settings" hidden={menuScreen !== "SOLO"}>
+                <div className="practice-profile"><SlimeAvatar color={selectedColor} hat={selectedHat} eyeStyle={selectedEyes} size="sm" /><b>{nickname}</b><button type="button" onClick={() => navigateMenu("LOOK")}>Customize →</button></div>
+                <p className="solo-practice-note">Practice movement and rituals with AI. Human lobbies are the real deduction experience.</p>
+                <div className="ritual-loadout">
+                  <label>Rituals<select value={difficulty} onChange={event => setDifficulty(event.target.value as RitualDifficulty)}><option value="STANDARD">Standard</option><option value="CHALLENGING">Challenging</option></select></label>
+                  <label>Meeting limit<select value={meetingSeconds} onChange={event => setMeetingSeconds(Number(event.target.value))}>{[60, 75, 90].map(seconds => <option key={seconds} value={seconds}>{seconds}s</option>)}</select></label>
+                  <label>Your utility<select value={utility} onChange={event => setUtility(event.target.value as UtilityKind)}><option value="WISP_STEP">Wisp Step · dash</option><option value="WATCHROOT">Watchroot · alarm</option></select></label>
+                  <small>Both roles · shrine-earned charge · Ordeal only</small>
+                </div>
+                <div className="practice-setting">
+                <label className="field-label" htmlFor="player-count">PLAYERS <span>{players} INCLUDING YOU</span></label>
                 <input id="player-count" className="player-range" type="range" min="4" max="8" value={players} onChange={(event) => setPlayers(Number(event.target.value))} />
                 <div className="range-labels"><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
-
-                <div className="field-label role-label">TEST IDENTITY <span>PRIVATE TO THIS CLIENT</span></div>
+                </div>
+                <div className="practice-setting">
+                <label className="field-label" htmlFor="solo-hollow-count">HOLLOWS <span>1 RECOMMENDED · 2 AT 7–8 PLAYERS</span></label>
+                <select id="solo-hollow-count" className="mp-field" value={clampHollowCount(hollowCount, players)} onChange={event => setHollowCount(Number(event.target.value))}>
+                  {Array.from({ length: players >= 7 ? 2 : 1 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} {i ? "Hollows · advanced" : "Hollow · recommended"}</option>)}
+                </select>
+                </div>
+                <div className="practice-setting">
+                <div className="field-label">YOUR ROLE</div>
                 <div className="role-switch" role="group" aria-label="Choose test role">
                   {(["RANDOM", "CREWMATE", "IMPOSTOR"] as RoleChoice[]).map((value) => (
-                    <button key={value} className={role === value ? "active" : ""} onClick={() => setRole(value)}>{value === "RANDOM" ? "AUTO" : value}</button>
+                    <button key={value} className={role === value ? "active" : ""} onClick={() => { playLobbySfx("switch", 1); setRole(value); }}>{value === "RANDOM" ? "AUTO" : ROLE_LABELS[value].toUpperCase()}</button>
                   ))}
                 </div>
-                <p className="role-note">Role information never leaves your private HUD. Every slime uses the same movement, face, and silhouette.</p>
+                </div>
+                <label className="chaos-setting"><input type="checkbox" checked={chaosMoonsway} onChange={event => setChaosMoonsway(event.target.checked)} /><span>Chaos · Moonsway<small>Reporter votes may shift (25%).</small></span></label>
 
-                <button className="launch-button" onClick={() => onLaunch(players, role)}>
-                  <span>ENTER THE MOONWARD</span><kbd>ENTER</kbd>
+                <button className="launch-button" disabled={isLaunching} onClick={handleSoloLaunch}>
+                  <span>{isLaunching ? "Opening…" : "Start practice"}</span><span aria-hidden="true">↗</span>
                 </button>
-                <div className="console-log">
-                  <span><i className="green" /> WARDENS GATHERED</span>
-                  <span><i className="amber" /> HAZARDS ARMED</span>
-                  <span><i className="green" /> ZERO VISUAL TELLS</span>
                 </div>
               </>
             ) : inRoom && mpState ? (
@@ -3141,7 +4427,7 @@ function Lobby({
                 {/* Room Code & Controls Banner */}
                 <div className="room-code-banner">
                   <div className="room-code-display">
-                    <small>SANCTUARY WARD CODE • SHARE WITH FRIENDS</small>
+                    <small>ROOM CODE · INVITE YOUR FRIENDS</small>
                     <div className="room-code-row">
                       <strong>{hideRoomCode ? "••••" : mpState.roomCode}</strong>
                       <span className="room-ping-pill">
@@ -3164,45 +4450,12 @@ function Lobby({
                   </div>
                 </div>
 
-                {/* Live Wardrobe / Profile Bar inside Waiting Room */}
-                <div className="inroom-profile-bar">
-                  <div className="inroom-profile-summary">
-                    <SlimeAvatar
-                      color={myNetPlayer?.color || selectedColor}
-                      hat={myNetPlayer?.hat || selectedHat}
-                      size="sm"
-                    />
-                    <div>
-                      <small>YOUR WARDEN</small>
-                      <strong>{myNetPlayer?.name || nickname}</strong>
-                      <span>
-                        {COLOR_NAMES[myNetPlayer?.color || selectedColor] || "Custom"} •{" "}
-                        {HAT_META[myNetPlayer?.hat || selectedHat].title}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="inroom-profile-actions">
-                    <button
-                      type="button"
-                      className={`wardrobe-toggle-btn ${editingInRoom ? "active" : ""}`}
-                      onClick={() => setEditingInRoom((v) => !v)}
-                    >
-                      {editingInRoom ? "✓ DONE" : "✎ WARDROBE"}
-                    </button>
-                    {!mpState.isHost && (
-                      <button
-                        type="button"
-                        className={`ready-toggle-btn ${myNetPlayer?.ready ? "is-ready" : ""}`}
-                        onClick={() => multiplayerClient?.toggleReady()}
-                      >
-                        {myNetPlayer?.ready ? "✓ READY" : "MARK READY"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {editingInRoom && (
-                  <div className="inroom-wardrobe-drawer">
+                <nav className="menu-tabs room-tabs" aria-label="Waiting room pages">{(["CREW", "CHAT", "SETTINGS"] as const).map(pane => <button type="button" key={pane} aria-pressed={roomPane === pane} onClick={() => setRoomPane(pane)}>{pane === "CREW" ? `Players · ${mpState.players.length}/${activeTargetPlayers}` : pane === "CHAT" ? "Chat" : "Settings"}</button>)}</nav>
+                {roomPane === "LOOK" && (
+                  <div className="inroom-wardrobe-layout">
+                  <WardrobePreview color={selectedColor} eyeStyle={selectedEyes} accessory={selectedHat} name={nickname.trim() || WARDEN_CALLSIGNS[0]} animated={!motionPaused && roomPane === "LOOK"} greeting={isGroupWaving && !motionPaused} onGreet={handleStageWave} onRandomize={handleRandomizeProfile} />
+                  <div className="inroom-wardrobe-drawer wardrobe-editor">
+                    <nav className="menu-tabs look-tabs" aria-label="Customize category">{(["COLOR", "HAT", "EYES"] as const).map(pane => <button type="button" key={pane} aria-pressed={lookPane === pane} onClick={() => setLookPane(pane)}>{pane === "COLOR" ? "Color" : pane === "HAT" ? "Accessories" : "Eyes"}</button>)}</nav>
                     <div className="wardrobe-row">
                       <label className="field-label" htmlFor="inroom-nickname">
                         CALLSIGN <span>{nickname.length}/16</span>
@@ -3216,13 +4469,13 @@ function Lobby({
                           onChange={(e) => handleProfileChange(e.target.value, selectedColor, selectedHat)}
                           placeholder="Warden callsign…"
                         />
-                        <button type="button" className="mp-random-btn" onClick={handleRandomizeProfile}>
-                          🎲 RANDOM
-                        </button>
                       </div>
                     </div>
-
-                    <div className="mp-palette" role="group" aria-label="Slime Color">
+                    <div hidden={lookPane !== "COLOR"}>
+                    <div className="field-label">
+                      COAT COLOR <span>{COLOR_NAMES[selectedColor]}</span>
+                    </div>
+                    <div className="mp-palette" role="group" aria-label="Coat color">
                       {COLORS.map((c) => (
                         <button
                           key={c}
@@ -3233,12 +4486,18 @@ function Lobby({
                           disabled={occupiedColors.has(c)}
                           onClick={() => handleProfileChange(nickname, c, selectedHat)}
                           title={`${COLOR_NAMES[c]}${occupiedColors.has(c) ? " — taken" : ""}`}
-                          aria-label={`Select slime color ${COLOR_NAMES[c] || c}`}
-                        />
+                          aria-label={`Select coat color ${COLOR_NAMES[c] || c}`}
+                        >
+                          {selectedColor === c && <span className="color-check" aria-hidden="true">✓</span>}
+                        </button>
                       ))}
                     </div>
-
-                    <div className="mp-hat-row" role="group" aria-label="Hat selection">
+                    </div>
+                    <div hidden={lookPane !== "HAT"}>
+                    <div className="field-label">
+                      ACCESSORY <span>{HAT_META[selectedHat].title.toUpperCase()}</span>
+                    </div>
+                    <div className="mp-hat-row" role="group" aria-label="Accessory selection">
                       {HATS.map((h) => (
                         <button
                           key={h}
@@ -3254,12 +4513,16 @@ function Lobby({
                         </button>
                       ))}
                     </div>
+                    </div>
+                    <div hidden={lookPane !== "EYES"}><EyeStylePicker value={selectedEyes} onChange={eyes => handleProfileChange(nickname, selectedColor, selectedHat, eyes)} /></div>
+                  </div>
                   </div>
                 )}
 
                 {/* Visual 4-8 Slot Warden Circle Grid */}
+                <div hidden={roomPane !== "CREW"} className="room-crew-pane">
                 <div className="field-label">
-                  SANCTUARY CIRCLE ROSTER{" "}
+                  YOUR CIRCLE{" "}
                   <span>
                     {mpState.players.length} HUMAN • {readyCount}/{mpState.players.length} READY
                   </span>
@@ -3287,7 +4550,7 @@ function Lobby({
                             </span>
                           </div>
                           <div className="slot-avatar-stage">
-                            <SlimeAvatar color={p.color} hat={p.hat} size="md" />
+                            <SlimeAvatar color={p.color} hat={p.hat} eyeStyle={p.eyeStyle} size="md" lobbyPose animated={!motionPaused} />
                           </div>
                           <div className="slot-card-meta">
                             <strong className="roster-name">{p.name}</strong>
@@ -3308,7 +4571,7 @@ function Lobby({
                             <span className="slot-ready-pill bot">AUTO</span>
                           </div>
                           <div className="slot-avatar-stage">
-                            <SlimeAvatar color={botColor} hat={botHat} size="md" isBot />
+                            <SlimeAvatar color={botColor} hat={botHat} eyeStyle={EYE_STYLES[slotIdx % EYE_STYLES.length]} size="md" lobbyPose animated={!motionPaused} isBot />
                           </div>
                           <div className="slot-card-meta">
                             <strong className="roster-name">Bot #{botNum}</strong>
@@ -3323,7 +4586,7 @@ function Lobby({
                         <div className="slot-card-top">
                           <span className="roster-badge empty">SLOT 0{slotIdx + 1}</span>
                         </div>
-                        <div className="slot-empty-sigil">✦</div>
+                        <div className="slot-empty-sigil"><GameGlyph name="paw" /></div>
                         <div className="slot-card-meta">
                           <strong className="roster-name">Open Ward</strong>
                           <small>Awaiting player…</small>
@@ -3332,11 +4595,12 @@ function Lobby({
                     );
                   })}
                 </div>
+                </div>
 
                 {/* Pre-Game Sanctuary Comms (Lobby Chat) */}
-                <div className="lobby-comms-box">
+                <div hidden={roomPane !== "CHAT"} className="lobby-comms-box">
                   <div className="lobby-comms-head">
-                    <span>SANCTUARY COMMS</span>
+                    <span>ROOM CHAT</span>
                     <div className="quick-comms-chips">
                       {["Ready! 🌙", "Wait a sec", "Let's go! ⚡"].map((phrase) => (
                         <button
@@ -3352,7 +4616,7 @@ function Lobby({
                   <div className="lobby-comms-feed" role="log" aria-live="polite">
                     {mpState.lobbyChat.length === 0 ? (
                       <div className="lobby-comms-empty">
-                        Circle channel open. Greet your fellow Wardens before the trial begins.
+                        Say hello before the moon rises.
                       </div>
                     ) : (
                       mpState.lobbyChat.slice(-12).map((m) => (
@@ -3395,12 +4659,24 @@ function Lobby({
                 </div>
 
                 {/* Host Controls or Guest Status */}
+                <div hidden={roomPane !== "SETTINGS"} className="room-settings-pane">
+                  <div className="ritual-loadout">
+                    <label>Rituals · host choice<select disabled={!myNetPlayer?.isHost} value={mpState?.puzzleDifficulty ?? "STANDARD"} onChange={event => multiplayerClient?.setDifficulty(event.target.value as RitualDifficulty)}><option value="STANDARD">Standard</option><option value="CHALLENGING">Challenging</option></select></label>
+                    <label>Meeting limit · host choice<select disabled={!myNetPlayer?.isHost} value={mpState.meetingSeconds ?? 75} onChange={event => multiplayerClient?.setMeetingDuration(Number(event.target.value))}>{[60, 75, 90].map(seconds => <option key={seconds} value={seconds}>{seconds}s</option>)}</select></label>
+                    <label>Your utility<select value={mpState?.utility ?? "WISP_STEP"} onChange={event => multiplayerClient?.setUtility(event.target.value as UtilityKind)}><option value="WISP_STEP">Wisp Step · dash</option><option value="WATCHROOT">Watchroot · alarm</option></select></label>
+                    <small>Both roles · shrine-earned charge · Ordeal only</small>
+                  </div>
                 {mpState.isHost ? (
                   <div className="host-panel">
-                    <div className="host-config-header">
-                      <label className="field-label" htmlFor="mp-player-count">
-                        TARGET CIRCLE <span>{activeTargetPlayers} SLOTS</span>
-                      </label>
+                    <div className="practice-setting">
+                    <label className="field-label" htmlFor="mp-hollow-count">HOLLOWS <span>1 RECOMMENDED · 2 AT 7–8 PLAYERS</span></label>
+                    <select id="mp-hollow-count" className="mp-field" value={clampHollowCount(activeHollowCount, roomPopulation)} onChange={event => handleHostConfigUpdate(activeTargetPlayers, activeBotFill, Number(event.target.value))}>
+                      {Array.from({ length: roomPopulation >= 7 ? 2 : 1 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} {i ? "Hollows · advanced" : "Hollow · recommended"}</option>)}
+                    </select>
+                    </div>
+                    <label className="chaos-setting"><input type="checkbox" checked={activeChaosMoonsway} onChange={event => handleHostConfigUpdate(activeTargetPlayers, activeBotFill, activeHollowCount, event.target.checked)} /><span>Chaos · Moonsway<small>Reporter votes may shift (25%).</small></span></label>
+                    <div className="practice-setting">
+                      <div className="field-label">PLAYERS <span>{activeTargetPlayers} SLOTS</span></div>
                       <div className="slot-Count-pills" role="group" aria-label="Target player count">
                         {[4, 5, 6, 7, 8].map((n) => (
                           <button
@@ -3414,15 +4690,6 @@ function Lobby({
                         ))}
                       </div>
                     </div>
-                    <input
-                      id="mp-player-count"
-                      className="player-range"
-                      type="range"
-                      min="4"
-                      max="8"
-                      value={activeTargetPlayers}
-                      onChange={(e) => handleHostConfigUpdate(Number(e.target.value), activeBotFill)}
-                    />
 
                     <label className="bot-checkbox-row">
                       <input
@@ -3430,143 +4697,70 @@ function Lobby({
                         checked={activeBotFill}
                         onChange={(e) => handleHostConfigUpdate(activeTargetPlayers, e.target.checked)}
                       />
-                      <span>FILL EMPTY SLOTS WITH AI BOTS ON START</span>
+                      <span>Fill empty slots with AI</span>
                     </label>
 
-                    <button
-                      className="launch-button"
-                      disabled={!mpState.connected}
-                      onClick={() => multiplayerClient?.startMatch(activeBotFill, activeTargetPlayers)}
-                    >
-                      <span>
-                        START MATCH ({mpState.players.length} HUMAN
-                        {activeBotFill && activeTargetPlayers > mpState.players.length
-                          ? ` + ${activeTargetPlayers - mpState.players.length} AI`
-                          : ""}
-                        )
-                      </span>
-                      <kbd>START</kbd>
-                    </button>
                   </div>
                 ) : (
                   <div className="waiting-status">
-                    <span>
-                      ✦ Waiting for host to initiate the moonward trial ({activeTargetPlayers} slots
-                      {activeBotFill ? " • AI fill enabled" : ""})…
-                    </span>
+                    <p>{activeTargetPlayers} players · {activeHollowCount} Hollow{activeHollowCount === 1 ? "" : "s"} · {activeBotFill ? "AI fill on" : "No AI"}</p>
+                    <span>{activeChaosMoonsway ? "Chaos Moonsway on" : "Standard voting"} · Only the host can change settings.</span>
                   </div>
                 )}
+                </div>
 
                 </fieldset>
-                <button className="mp-btn-secondary" onClick={() => multiplayerClient?.leaveRoom()}>
-                  LEAVE ROOM
-                </button>
+                <div className="room-bottom-actions"><button className="mp-btn-secondary" onClick={() => { multiplayerClient?.leaveRoom(); setMenuHistory(["HOME", "MULTI"]); }}>Leave room</button>
+                {mpState.isHost ? <button className="launch-button" disabled={!mpState.connected} onClick={() => multiplayerClient?.startMatch(activeBotFill, activeTargetPlayers, activeHollowCount, activeChaosMoonsway)}>Start match <span>{mpState.players.length} human{activeBotFill && activeTargetPlayers > mpState.players.length ? ` + ${activeTargetPlayers - mpState.players.length} AI` : ""}</span></button> : <span className="room-host-wait">{myNetPlayer?.ready ? "Ready! Waiting for the host…" : "Mark ready when you’re set."}</span>}
+                </div>
               </div>
             ) : (
               <div className="mp-config">
-                <div className="home-gateway-intro">
-                  <h2>Make it a moonlit night.</h2>
-                  <p>Your circle is one invite away.</p>
-                </div>
+                <div className="home-entry-column" hidden={menuScreen !== "MULTI"}>
+                <label className="play-name" htmlFor="play-nickname">Your name
+                  <input id="play-nickname" className="mp-field" maxLength={16} value={nickname} onChange={(event) => setNickname(event.target.value)} placeholder="Enter your warden name…" autoComplete="nickname" />
+                </label>
                 <div className="mp-actions-grid">
                   <div className="mp-action-card host-card">
                     <div className="mp-card-header">
-                      <small>MAKE ROOM FOR YOUR FRIENDS</small>
-                      <b>Create a circle</b>
+                      <small>YOUR CIRCLE, YOUR RULES</small>
+                      <b>Host a game</b>
                     </div>
-                    <p className="mp-card-desc">Your sanctuary. Your invite code. Up to 8 wonderfully suspicious wardens.</p>
+                    <p className="mp-card-desc">Invite friends with a room code.</p>
                     <button className="mp-btn-primary" onClick={handleCreateRoom} disabled={isConnecting || !multiplayerClient}>
-                      {isConnecting ? "CONNECTING..." : "✦ CREATE ROOM"}
+                      {isConnecting ? "CONNECTING..." : "CREATE ROOM"}
                     </button>
                   </div>
                   <div className="mp-action-card join-card">
                     <div className="mp-card-header">
-                      <small>ALREADY HAVE A WARD CODE?</small>
+                      <small>GOT AN INVITE?</small>
                       <b>Join your friends</b>
                     </div>
                     <form className="mp-code-entry-form" onSubmit={(e) => { e.preventDefault(); void handleJoinRoom(); }}>
                       <input
+                        id="home-room-code"
                         className="mp-field mp-code-input"
                         maxLength={4}
                         value={joinCode}
                         onChange={(e) => setJoinCode(e.target.value.replace(/[^a-zA-Z]/g, "").toUpperCase())}
-                        placeholder="LUNA"
+                        placeholder="CODE"
                         aria-label="4-letter room code"
                         autoComplete="off"
                         spellCheck={false}
                       />
-                      <button type="submit" className="mp-btn-secondary" disabled={isConnecting || joinCode.length !== 4 || !multiplayerClient}>JOIN ROOM →</button>
+                      <button type="submit" className="mp-btn-secondary" disabled={isConnecting || joinCode.length !== 4 || !multiplayerClient}>JOIN WITH CODE</button>
                     </form>
                   </div>
                 </div>
-
-                <details className="home-wardrobe" open>
-                  <summary>
-                    <SlimeAvatar color={selectedColor} hat={selectedHat} size="sm" />
-                    <span><small>YOU’RE ENTERING AS</small><strong>{nickname.trim() || "Warden"}</strong><em>{COLOR_NAMES[selectedColor]} · {HAT_META[selectedHat].label}</em></span>
-                    <b>WARDROBE <i aria-hidden="true">⌄</i></b>
-                  </summary>
-                <div className="mp-customizer-card">
-                  <div className="mp-customizer-controls">
-                    <label className="field-label" htmlFor="mp-nickname">
-                      WARDEN IDENTITY <span>{nickname.length}/16</span>
-                    </label>
-                    <input
-                      id="mp-nickname"
-                      className="mp-field"
-                      maxLength={16}
-                      value={nickname}
-                      onChange={(e) => setNickname(e.target.value)}
-                      placeholder="Enter your warden name…"
-                    />
-
-                    <div className="field-label" style={{ marginTop: 12 }}>
-                      SLIME HUE <span>{COLOR_NAMES[selectedColor]}</span>
-                    </div>
-                    <div className="mp-palette" role="group" aria-label="Slime Color">
-                      {COLORS.map((c) => (
-                        <button
-                          key={c}
-                          type="button"
-                          className={`mp-color-btn ${selectedColor === c ? "active" : ""}`}
-                          style={{ backgroundColor: c, color: c }}
-                          aria-pressed={selectedColor === c}
-                          onClick={() => setSelectedColor(c)}
-                          title={COLOR_NAMES[c]}
-                          aria-label={`Select slime color ${COLOR_NAMES[c] || c}`}
-                        />
-                      ))}
-                    </div>
-
-                    <div className="field-label">
-                      HEADDRESS <span>{HAT_META[selectedHat].title.toUpperCase()}</span>
-                    </div>
-                    <div className="mp-hat-row" role="group" aria-label="Hat selection">
-                      {HATS.map((h) => (
-                        <button
-                          key={h}
-                          type="button"
-                          className={`mp-hat-btn ${selectedHat === h ? "active" : ""}`}
-                          aria-pressed={selectedHat === h}
-                          onClick={() => setSelectedHat(h)}
-                        >
-                          <span className="hat-btn-preview">
-                            <HatGraphic hat={h} />
-                          </span>
-                          <b>{HAT_META[h].label}</b>
-                        </button>
-                      ))}
-                    </div>
-                    <button type="button" className="mp-random-btn" onClick={handleRandomizeProfile} title="Randomize Warden Identity">↻ SURPRISE ME</button>
-                  </div>
+                <nav className="menu-inline-nav" aria-label="More play options"><button onClick={() => navigateMenu("ROOMS")}>Find rooms →</button><button onClick={() => navigateMenu("LOOK")}>Customize →</button></nav>
                 </div>
-                </details>
 
+                <div className="home-social-column" hidden={menuScreen !== "ROOMS"}>
                 {/* Live Open Rooms Browser */}
                 <div className="mp-open-rooms">
                   <div className="mp-open-rooms-head">
                     <div className="field-label">
-                      ACTIVE SANCTUARIES{" "}
+                      OPEN ROOMS{" "}
                       <span>{showRoomResults ? `${mpState?.openRooms.length ?? 0} OPEN` : "NOT CHECKED"}</span>
                     </div>
                     <button
@@ -3581,18 +4775,15 @@ function Lobby({
 
                   {showRoomResults && mpState?.openRooms && mpState.openRooms.length > 0 ? (
                     <div className="mp-open-rooms-list" role="list">
-                      {mpState.openRooms.map((room) => (
+                      {mpState.openRooms.slice(roomWindow.start, roomWindow.end).map((room) => (
                         <div className="open-room-item" key={room.code} role="listitem">
                           <div className="open-room-host">
-                            <SlimeAvatar color={room.hostColor} hat={room.hostHat} size="sm" />
+                            <SlimeAvatar color={room.hostColor} hat={room.hostHat} eyeStyle={room.hostEyeStyle} size="sm" />
                             <div>
                               <strong>
                                 {room.hostName}&apos;s Circle <span className="open-room-code">{room.code}</span>
                               </strong>
-                              <small>
-                                {room.playerCount}/{room.targetPlayers} Wardens{" "}
-                                {room.botFill ? "• AI Bot Fill" : "• Humans Only"}
-                              </small>
+                              <small>{room.playerCount}/{room.targetPlayers} players · {room.botFill ? "AI fill" : "Friends only"}{room.chaosMoonsway ? " · Chaos" : ""}</small>
                             </div>
                           </div>
                           <button
@@ -3611,23 +4802,26 @@ function Lobby({
                       <span>{isRefreshingRooms ? "Listening for circles in the forest…" : showRoomResults ? "No open circles yet. Create one and bring your friends!" : "Looking for company? Find an open circle, or create your own above."}</span>
                     </div>
                   )}
+                  <nav className="menu-pagination" aria-label="Room pages"><button type="button" disabled={roomWindow.page === 0} onClick={() => setRoomPage(roomWindow.page - 1)} aria-label="Previous room page">←</button><span>{roomWindow.page + 1} / {roomWindow.pages}</span><button type="button" disabled={roomWindow.page + 1 >= roomWindow.pages} onClick={() => setRoomPage(roomWindow.page + 1)} aria-label="Next room page">→</button></nav>
+                </div>
                 </div>
               </div>
             )}
+            </div>
           </div>
         </div>
       </section>
 
-      <footer className="lobby-footer"><span>WASD / ARROWS TO MOVE</span><span>E TASK</span><span>F ITEM</span><span>R REPORT</span><span>Q / SPACE KILL</span></footer>
+      <footer className="lobby-footer"><span>{GAME_RELEASE_LABEL}</span><span>{inRoom ? "Gather your circle. Trust is optional." : "A little charm. A little chaos."}</span><span>Landscape gameplay</span></footer>
       </div>
     </main>
   );
 }
 
 function ItemIcon({ item }: { item: ItemKind }) {
-  if (item === "FLASHLIGHT") return <span className="icon-flashlight" />;
-  if (item === "FLARE") return <span className="icon-flare" />;
-  return <span className="icon-sonar"><i /><i /></span>;
+  if (item === "FLASHLIGHT") return <span className="forest-item mushroom" aria-hidden="true">✦<i /></span>;
+  if (item === "FLARE") return <span className="forest-item moonblossom" aria-hidden="true">✿</span>;
+  return <svg className="forest-item echo-bell" viewBox="0 0 32 32" aria-hidden="true" fill="none"><path d="M16 3v5m-6 17h12M7 23c3-3 2-14 9-14s6 11 9 14c-5 3-13 3-18 0Z" fill="#b6c9a2" stroke="#e5edc6" strokeWidth="1.5" /><path d="M12 6c-4-6-9-2-7 1 2 2 5 1 7-1Zm8 0c4-6 9-2 7 1-2 2-5 1-7-1Z" fill="#91bba1" /><circle cx="16" cy="27" r="2" fill="#eff2c3" /></svg>;
 }
 
 function openingChat(m: Meeting): ChatMessage[] {
@@ -3670,55 +4864,90 @@ function openingChat(m: Meeting): ChatMessage[] {
   return lines;
 }
 
-function TouchButton({ code, children, onTouch }: { code: string; children: React.ReactNode; onTouch: (code: string, down: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      onPointerDown={(event) => { event.preventDefault(); onTouch(code, true); }}
-      onPointerUp={() => onTouch(code, false)}
-      onPointerCancel={() => onTouch(code, false)}
-      onPointerLeave={() => onTouch(code, false)}
-    >
-      {children}
-    </button>
-  );
-}
-
 function Game({
   count,
   roleChoice,
+  soloProfile,
   multiplayerClient,
   initialPlayers,
   assignedRole,
+  layoutSeed = 0,
+  hollowCount = 1,
+  hollowAllies,
+  chaosMoonsway = false,
   onExit,
+  onMatchComplete,
 }: {
   count: number;
   roleChoice: RoleChoice;
+  soloProfile?: SoloProfile;
   multiplayerClient?: MultiplayerClient | null;
   initialPlayers?: NetPlayer[];
   assignedRole?: Role;
+  layoutSeed?: number;
+  hollowCount?: number;
+  hollowAllies?: string[];
+  chaosMoonsway?: boolean;
   onExit: () => void;
+  onMatchComplete: (result: string) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const stageRef = useRef<HTMLElement>(null);
+  const [mapLayout] = useState(() => createMatchLayout(layoutSeed));
   const engineRef = useRef<OrdealEngine | null>(null);
   const normalMusicRef = useRef<HTMLAudioElement | null>(null);
   const ordealMusicRef = useRef<HTMLAudioElement | null>(null);
   const musicFadeRef = useRef<number | null>(null);
   const chatLogRef = useRef<HTMLDivElement>(null);
   const meetingSerialRef = useRef(0);
+  const [meetingKey, setMeetingKey] = useState(0);
   const [snapshot, setSnapshot] = useState<Snapshot>(initialSnapshot());
+  const firstRewardSeenRef = useRef(false);
+  const firstGearCueTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [firstGearCue, setFirstGearCue] = useState(false);
   const [meeting, setMeeting] = useState<Meeting | null>(null);
+  const [meetingNotesOpen, setMeetingNotesOpen] = useState(false);
+  const discussionSeconds = useDiscussionCountdown(meeting && !meeting.tally ? meeting.votingOpensAt : undefined);
+  const meetingSecondsLeft = useDiscussionCountdown(meeting && !meeting.tally ? meeting.endsAt : undefined, 90);
+  useEffect(() => {
+    if (multiplayerClient || !meeting?.endsAt || meeting.tally) return;
+    const timer = window.setTimeout(() => engineRef.current?.vote(null), Math.max(0, meeting.endsAt - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [multiplayerClient, meeting?.endsAt, meeting?.tally]);
+  const [banishment, setBanishment] = useState<BanishmentOutcome | null>(null);
+  const banishmentSeenRef = useRef<Set<string>>(new Set());
   const [puzzle, setPuzzle] = useState<TaskPuzzle | null>(null);
   const [killNotice, setKillNotice] = useState<KillNotice | null>(null);
   const [deathReveal, setDeathReveal] = useState<DeathReveal | null>(null);
   const [result, setResult] = useState("");
+  const [victory, setVictory] = useState<MatchVictory | null>(null);
   const [roleReveal, setRoleReveal] = useState<Role | null>(null);
   const [musicEnabled, setMusicEnabled] = useState(true);
-  const [musicReady, setMusicReady] = useState(false);
+  const [musicReady, setMusicReady] = useState(true);
   const [musicBlocked, setMusicBlocked] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [lowGlare, setLowGlare] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [networkState, setNetworkState] = useState<MultiplayerState | null>(() => multiplayerClient?.getSnapshot() ?? null);
+  const [navigationExpanded, setNavigationExpanded] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const landscapeRequired = useLandscapeRequired();
+  const [notebookOpen, setNotebookOpen] = useState(false);
+  const [observations, setObservations] = useState<ObservationNote[]>([]);
+  const [knownNames, setKnownNames] = useState<KnownName[]>([]);
+  const [reducedMotion, setReducedMotion] = useState(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return false;
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const onChange = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = multiplayerClient?.onStateChange(setNetworkState);
@@ -3727,33 +4956,85 @@ function Game({
 
   useEffect(() => {
     if (!canvasRef.current) return;
+    let discussionCandidates: Player[] | null = null;
     const handleMeeting = (next: Meeting | null) => {
       setMeeting(next);
       if (!next) {
+        discussionCandidates = null;
         meetingSerialRef.current += 1;
         setChatMessages([]);
         setChatDraft("");
-      } else if (!next.tally) {
+        setBanishment(null);
+      } else if (!next.tally && next.candidates !== discussionCandidates) {
+        setMeetingNotesOpen(false);
+        discussionCandidates = next.candidates;
         meetingSerialRef.current += 1;
+        setMeetingKey(meetingSerialRef.current);
         setChatMessages(openingChat(next));
         setChatDraft("");
+        setBanishment(null);
+      } else if (next.tally) {
+        const key = `banish-${meetingSerialRef.current}-${next.ejectedId ?? (next.tied ? "tied" : "skip")}`;
+        if (!banishmentSeenRef.current.has(key)) {
+          banishmentSeenRef.current.add(key);
+          const outcome = banishmentOutcome({
+            key,
+            ejectedId: next.ejectedId,
+            verdict: next.verdict,
+            tied: next.tied,
+            tally: next.tally,
+            candidates: next.candidates,
+            localPlayerId: engineRef.current?.localPlayerId ?? null,
+          });
+          if (outcome) {
+            setBanishment(outcome);
+            engineRef.current?.resetInput();
+          }
+        }
       }
     };
     const engine = new OrdealEngine(
       canvasRef.current,
       count,
       roleChoice,
-      setSnapshot,
+      next => {
+        setSnapshot(next);
+        // Only a confirmed personal reward starts the cue, once per match.
+        if (next.rewardNotice && !firstRewardSeenRef.current) {
+          firstRewardSeenRef.current = true;
+          setFirstGearCue(true);
+          firstGearCueTimerRef.current = setTimeout(() => {
+            setFirstGearCue(false);
+            firstGearCueTimerRef.current = null;
+          }, 2600);
+        }
+      },
       handleMeeting,
       setPuzzle,
       setKillNotice,
       setDeathReveal,
-      setResult,
+      (nextResult) => {
+        onMatchComplete(nextResult);
+        setBanishment(null);
+        setMeeting(null);
+        setPuzzle(null);
+        setDeathReveal(null);
+        setKillNotice(null);
+        setRoleReveal(null);
+        setSettingsOpen(false);
+        setNotebookOpen(false);
+        setNavigationExpanded(false);
+        setVictory(matchVictory(nextResult, engineRef.current?.human));
+        setResult(nextResult);
+      },
       multiplayerClient,
       initialPlayers,
       assignedRole,
+      soloProfile,
+      { layoutSeed, hollowCount, hollowAllies, chaosMoonsway },
     );
     engineRef.current = engine;
+    setKnownNames(engine.players.map(({ id, name }) => ({ id, name })));
     engine.roleRevealActive = true;
     engine.paused = !multiplayerClient;
     setRoleReveal(engine.human.role);
@@ -3782,10 +5063,11 @@ function Game({
     }
     return () => {
       window.clearTimeout(revealTimer);
+      if (firstGearCueTimerRef.current) clearTimeout(firstGearCueTimerRef.current);
       if (unsubChat) unsubChat();
       engine.destroy();
     };
-  }, [count, roleChoice, multiplayerClient, initialPlayers, assignedRole]);
+  }, [count, roleChoice, multiplayerClient, initialPlayers, assignedRole, soloProfile, layoutSeed, hollowCount, hollowAllies, chaosMoonsway, onMatchComplete]);
 
   useEffect(() => {
     const normalMusic = new Audio("/audio/moonlit-deduction.mp3");
@@ -3811,6 +5093,7 @@ function Game({
     const ordealMusic = ordealMusicRef.current;
     if (!normalMusic || !ordealMusic) return;
     if (musicFadeRef.current !== null) window.cancelAnimationFrame(musicFadeRef.current);
+    let cancelled = false;
 
     const crossfadeTo = (normalTarget: number, ordealTarget: number, duration: number) => {
       const normalInitial = normalMusic.volume;
@@ -3831,29 +5114,57 @@ function Game({
       musicFadeRef.current = window.requestAnimationFrame(step);
     };
 
-    if (musicEnabled && musicReady) {
+    if (musicEnabled && musicReady && !result) {
       const ordealActive = snapshot.phase === "ORDEAL";
       const activeTrack = ordealActive ? ordealMusic : normalMusic;
       void activeTrack.play()
         .then(() => {
+          if (cancelled) return;
           setMusicBlocked(false);
           crossfadeTo(ordealActive ? 0 : 0.2, ordealActive ? 0.26 : 0, 900);
         })
         .catch(() => {
-          setMusicBlocked(true);
-          setMusicReady(false);
+          if (!cancelled) setMusicBlocked(true);
         });
     } else {
       crossfadeTo(0, 0, 620);
     }
 
     return () => {
+      cancelled = true;
       if (musicFadeRef.current !== null) {
         window.cancelAnimationFrame(musicFadeRef.current);
         musicFadeRef.current = null;
       }
     };
-  }, [snapshot.phase, musicEnabled, musicReady]);
+  }, [snapshot.phase, musicEnabled, musicReady, result]);
+
+  useEffect(() => {
+    if (!musicEnabled || !musicBlocked || result) return;
+    let cancelled = false;
+    const unlockOnGesture = () => {
+      const normalMusic = normalMusicRef.current;
+      const ordealMusic = ordealMusicRef.current;
+      if (!normalMusic || !ordealMusic) return;
+      const ordealActive = snapshot.phase === "ORDEAL";
+      const activeTrack = ordealActive ? ordealMusic : normalMusic;
+      void activeTrack.play()
+        .then(() => {
+          if (cancelled) return;
+          setMusicBlocked(false);
+          setMusicReady(true);
+          activeTrack.volume = ordealActive ? 0.26 : 0.2;
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener("pointerdown", unlockOnGesture, { once: true });
+    window.addEventListener("keydown", unlockOnGesture, { once: true });
+    return () => {
+      cancelled = true;
+      window.removeEventListener("pointerdown", unlockOnGesture);
+      window.removeEventListener("keydown", unlockOnGesture);
+    };
+  }, [musicEnabled, musicBlocked, snapshot.phase, result]);
 
   useEffect(() => {
     if (!deathReveal) return;
@@ -3873,9 +5184,9 @@ function Game({
   useEffect(() => {
     const chatLog = chatLogRef.current;
     if (chatLog) chatLog.scrollTop = chatLog.scrollHeight;
-  }, [chatMessages]);
+  }, [chatMessages, meetingNotesOpen]);
 
-  const phaseLabel = snapshot.phase === "ORDEAL" ? HAZARD_LABELS[snapshot.hazard] : snapshot.phase;
+  const phaseLabel = snapshot.phase === "ORDEAL" ? HAZARD_LABELS[snapshot.hazard] : snapshot.phase === "CALM" ? "Forest calm" : snapshot.phase === "COUNTDOWN" ? "Moon rising" : "Circle time";
   const primeBackgroundMusic = () => {
     const normalMusic = normalMusicRef.current;
     const ordealMusic = ordealMusicRef.current;
@@ -3896,11 +5207,11 @@ function Game({
       })
       .catch(() => {
         setMusicBlocked(true);
-        setMusicReady(false);
       });
   };
   const dismissRoleReveal = () => {
     if (musicEnabled) primeBackgroundMusic();
+    if (soundEnabled) void engineRef.current?.audio.unlock().then((ready) => { if (ready) engineRef.current?.audio.cue("ui"); });
     setRoleReveal(null);
     if (engineRef.current) {
       engineRef.current.roleRevealActive = false;
@@ -3962,41 +5273,54 @@ function Game({
       }]);
     }, 650 + Math.random() * 650);
   };
-  const handleTouch = useCallback((code: string, down: boolean) => {
-    engineRef.current?.setTouch(code, down);
-  }, []);
+  const handleMoveVector = useCallback((vector: MoveVector) => engineRef.current?.setMoveVector(vector), []);
+  const handleDestinationChange = useCallback((id: string) => engineRef.current?.setNavigationDestination(id), []);
+  const handleNavigationExpanded = useCallback((open: boolean) => setNavigationExpanded(open), []);
+  useEffect(() => {
+    engineRef.current?.setNavigationOpen(navigationExpanded || settingsOpen || landscapeRequired);
+    engineRef.current?.setOrientationBlocked(landscapeRequired);
+  }, [navigationExpanded, settingsOpen, landscapeRequired]);
+  const handleNotebookOpen = useCallback((open: boolean) => { setNotebookOpen(open); engineRef.current?.setNotebookOpen(open); }, []);
+  const recordObservation = useCallback((note: ObservationNote) => setObservations(previous => [note, ...previous].slice(0, 8)), []);
   const toggleBackgroundMusic = () => {
-    if (musicEnabled && musicReady && !musicBlocked) {
+    if (musicEnabled) {
       setMusicEnabled(false);
       return;
     }
-    if (musicReady && !musicBlocked) {
-      setMusicEnabled(true);
-      return;
-    }
+    setMusicEnabled(true);
     primeBackgroundMusic();
   };
 
   return (
-    <main className="game-shell">
+    <main className="game-shell playful-game" data-phase={snapshot.phase} onPointerDownCapture={() => { void engineRef.current?.audio.unlock(); }} onKeyDownCapture={() => { void engineRef.current?.audio.unlock(); }}
+      onClickCapture={event => { const target = event.target; if (target instanceof Element && target.closest("button:not(:disabled), summary")) engineRef.current?.audio.cue("ui"); }}>
       <header className="game-nav">
         <Logo />
-        <div className={`phase-chip phase-${snapshot.phase.toLowerCase()}`}><span />{phaseLabel}<b>{Math.ceil(snapshot.time).toString().padStart(2, "0")}</b></div>
+        <div className={`phase-chip phase-${snapshot.phase.toLowerCase()}`}><GameGlyph name="moon" /><span className="phase-name">{phaseLabel}</span><b>{Math.ceil(snapshot.time).toString().padStart(2, "0")}<small>s</small></b></div>
         <div className="game-nav-actions">
-          <button
-            className={`music-button ${musicEnabled && musicReady && !musicBlocked ? "active" : ""} ${!musicReady || musicBlocked ? "blocked" : ""}`}
-            onClick={toggleBackgroundMusic}
-            aria-pressed={musicEnabled && musicReady && !musicBlocked}
-            aria-label={!musicReady || musicBlocked ? "Enable background music" : `${musicEnabled ? "Disable" : "Enable"} background music`}
-          >
-            <span aria-hidden="true">♪</span>{!musicReady || musicBlocked ? "ENABLE BGM" : musicEnabled ? "BGM ON" : "BGM OFF"}
-          </button>
-          <button className="leave-button" onClick={onExit}>LEAVE SIM</button>
+          <button type="button" className="play-settings-open" aria-label="Open game settings" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)} disabled={!!meeting || !!puzzle || !!roleReveal || !!deathReveal || !!result || !!banishment}><GameGlyph name="settings" /><span>Settings</span></button>
+          <button type="button" className="leave-button" onClick={onExit}><GameGlyph name="exit" /><span>Leave</span></button>
         </div>
       </header>
+      <GameplaySettings open={settingsOpen} onOpenChange={setSettingsOpen} enabled={!meeting && !puzzle && !roleReveal && !deathReveal && !result && !landscapeRequired}
+        soundEnabled={soundEnabled} musicEnabled={musicEnabled} lowGlare={lowGlare}
+        onSoundToggle={async () => setSoundEnabled(await engineRef.current?.audio.toggle() ?? false)} onMusicToggle={toggleBackgroundMusic}
+        onGlareToggle={() => { const next = !lowGlare; setLowGlare(next); if (engineRef.current) engineRef.current.lowGlare = next; }} onExit={onExit} />
 
-      <section className="game-stage">
+      <section className="game-stage" ref={stageRef}>
         <canvas ref={canvasRef} aria-label="Top-down view of the Moonwarden mountain sanctuary" />
+        <NavigationMap
+          position={snapshot.navigation}
+          phase={snapshot.phase}
+          hazard={snapshot.hazard}
+          layoutSeed={layoutSeed}
+          stations={mapLayout.stations.map(station => ({ ...station, personalCompleted: snapshot.navigation.personalCompleted.includes(station.id), teamRestored: snapshot.navigation.teamRestored.includes(station.id), overgrown: snapshot.overgrownStation === station.id }))}
+          destinationId={snapshot.navigation.destinationId}
+          onDestinationChange={handleDestinationChange}
+          onExpandedChange={handleNavigationExpanded}
+          enabled={!meeting && !puzzle && !roleReveal && !deathReveal && !result && !settingsOpen && !notebookOpen && !landscapeRequired && (!networkState || networkState.connected)}
+        />
+        <FieldNotebook roster={knownNames} notes={observations} onRecord={recordObservation} open={notebookOpen} onOpenChange={handleNotebookOpen} enabled={snapshot.humanAlive && !meeting && !puzzle && !roleReveal && !deathReveal && !result && !navigationExpanded && !settingsOpen && !landscapeRequired && (!networkState || networkState.connected)} />
         {networkState && !networkState.connected && (
           <div className="connection-lost" role="alert">
             <b>CONNECTION LOST</b>
@@ -4005,118 +5329,110 @@ function Game({
           </div>
         )}
 
-        <div className="task-hud">
-          <div className="task-label"><span>MOON WARDS</span><b>{Math.floor(snapshot.taskProgress)}%</b></div>
-          <div className="task-track"><i style={{ width: `${snapshot.taskProgress}%` }} /></div>
-        </div>
+        <ObjectiveStrip role={snapshot.role} phase={snapshot.phase} hazard={snapshot.hazard} alive={snapshot.humanAlive}
+          progress={snapshot.taskProgress} charges={snapshot.charges} selectedItem={snapshot.selectedItem}
+          allRitesComplete={snapshot.navigation.personalCompleted.length >= mapLayout.stations.length} strikeSpent={snapshot.killSpent}
+          destinationLabel={mapLayout.stations.find(station => station.id === snapshot.navigation.destinationId)?.label.toLowerCase()}
+          allies={(hollowAllies ?? []).filter(id => id !== snapshot.localPlayerId).map(id => initialPlayers?.find(p => p.id === id)?.name).filter(Boolean).join(", ")} />
 
-        <div className="crew-count"><span className="crew-dot" />{snapshot.living}<small> / {snapshot.total} ALIVE</small></div>
+        <div className="crew-count"><GameGlyph name="people" /><b>{snapshot.living}<small> / {snapshot.total}</small></b><span>in the circle</span></div>
+        {chaosMoonsway && <div className="chaos-match-badge">CHAOS · MOONSWAY ON</div>}
 
-        {snapshot.role === "IMPOSTOR" && (
-          <div className="private-role"><small>PRIVATE ROLE</small><b>IMPOSTOR</b><span>Moon Sight <kbd>V</kbd> • one strike per Ordeal</span></div>
-        )}
-
-        {snapshot.message && <div className="toast-message">{snapshot.message}</div>}
-        {!snapshot.humanAlive && <div className="spectator-chip">SPECTATING • YOU ARE JELLY</div>}
+        {snapshot.message && !(snapshot.phase === "COUNTDOWN" && snapshot.message.startsWith(`${HAZARD_LABELS[snapshot.hazard]} INCOMING`)) && <div className="toast-message">{snapshot.message}</div>}
+        {snapshot.soundCaption && <div className="sound-caption" role="status" aria-live="polite">♬ {snapshot.soundCaption}</div>}
 
         {snapshot.rewardNotice && (
-          <aside className="reward-toast" aria-live="polite">
-            <span className="reward-icon"><ItemIcon item={snapshot.rewardNotice.item} /></span>
-            <div><small>ITEM ACQUIRED • {snapshot.rewardNotice.station}</small><b>{ITEM_LABELS[snapshot.rewardNotice.item]}</b><p>{ITEM_DESCRIPTIONS[snapshot.rewardNotice.item]}.</p></div>
-          </aside>
+          <RewardHandoff key={`${snapshot.rewardNotice.station}-${snapshot.charges[snapshot.rewardNotice.item]}`} item={snapshot.rewardNotice.item} station={snapshot.rewardNotice.station}
+            role={snapshot.role} icon={<ItemIcon item={snapshot.rewardNotice.item} />} description={ITEM_DESCRIPTIONS[snapshot.rewardNotice.item]} />
         )}
 
-        <div className="item-dock">
-          <div className="dock-title"><span>TASK-EARNED GEAR</span><small>COMPLETE A MARKED SHRINE • USE F</small></div>
-          <div className="dock-items">
-            {(["FLASHLIGHT", "FLARE", "SONAR"] as ItemKind[]).map((item, index) => (
-              <button
-                key={item}
-                className={`${snapshot.selectedItem === item ? "selected" : ""} ${snapshot.charges[item] <= 0 ? "locked" : "acquired"}`}
-                onClick={() => engineRef.current?.selectItem(item)}
-                aria-label={`Select ${ITEM_LABELS[item]}, ${snapshot.charges[item]} charges`}
-                title={ITEM_DESCRIPTIONS[item]}
-              >
-                <kbd>{index + 1}</kbd><ItemIcon item={item} /><span>{ITEM_LABELS[item]}</span><b>{snapshot.charges[item] > 0 ? `×${snapshot.charges[item]}` : "LOCKED"}</b>
-              </button>
-            ))}
-          </div>
-        </div>
+        <EarnedGearDock charges={snapshot.charges} selectedItem={snapshot.selectedItem}
+          onSelect={item => engineRef.current?.selectItem(item)} renderIcon={item => <ItemIcon item={item} />}
+          disabled={!snapshot.humanAlive || !!meeting || !!puzzle || !!roleReveal || !!deathReveal || !!result || navigationExpanded || notebookOpen || settingsOpen || landscapeRequired} />
 
-        <div className="action-dock">
-          <button className={`action report ${snapshot.canReport ? "ready" : ""}`} onClick={() => engineRef.current?.report()}><kbd>R</kbd><span>REPORT</span></button>
-          {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight || snapshot.moonSightActive ? "ready" : ""}`} onClick={() => engineRef.current?.useMoonSight()} disabled={snapshot.phase !== "ORDEAL" || !snapshot.canUseMoonSight}><kbd>V</kbd><span>{snapshot.moonSightActive ? "SEEING" : "SIGHT"}</span></button>}
-          {snapshot.role === "IMPOSTOR" && <button className={`action kill ${snapshot.canKill ? "ready" : ""}`} onClick={() => engineRef.current?.kill()} disabled={snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.killCooldown > 0}><kbd>Q</kbd><span>{snapshot.killSpent ? "SPENT" : snapshot.killCooldown > 0 ? snapshot.killCooldown.toFixed(1) : "KILL"}</span></button>}
-          <button className={`action use ${snapshot.charges[snapshot.selectedItem] > 0 ? "ready" : ""}`} onClick={() => engineRef.current?.useItem()}><kbd>F</kbd><span>USE</span></button>
+        <div className="action-dock" aria-label="Game actions">
+          {snapshot.utility && (snapshot.utility.charge > 0 || snapshot.utility.cooldown > 0) && <button className={`action use ${snapshot.utility.charge && !snapshot.utility.cooldown ? "ready" : ""}`} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || !snapshot.utility.charge || snapshot.utility.cooldown > 0} title={`${UTILITY_LABELS[snapshot.utility.kind]}: aim with your movement direction. One shrine-earned charge; 18s cooldown. Both roles can use it.`} onClick={() => engineRef.current?.useUtility()}><kbd>G</kbd><GameGlyph name="spark" /><span>{snapshot.utility.cooldown ? `${snapshot.utility.cooldown}s` : UTILITY_LABELS[snapshot.utility.kind]}</span></button>}
+          <ReportAction allowed={snapshot.canReport} label={snapshot.reportLabel} hint={snapshot.reportHint} onReport={() => engineRef.current?.report()} />
+          {snapshot.role === "IMPOSTOR" && <details className="hollow-tricks" data-no-joystick><summary><GameGlyph name="veil" /><span>Tricks</span></summary><div className="hollow-tricks-panel" aria-label="Advanced Hollow actions"><small>One special action per Ordeal: Sight or Echo.</small>
+          <button className={`action sight ${snapshot.canUseMoonSight || snapshot.moonSightActive ? "ready" : ""}`} onClick={() => engineRef.current?.useMoonSight()} disabled={snapshot.phase !== "ORDEAL" || !snapshot.canUseMoonSight} title="Moon Sight: briefly reveal living cats during an Ordeal"><kbd>V</kbd><GameGlyph name="sight" /><span>{snapshot.moonSightActive ? "Seeing" : "Sight"}</span></button>
+          {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight ? "ready" : ""}`} title="Aim, then create a two-second false rustle. Shares one charge with Sight." onClick={() => engineRef.current?.useEchoLure()} disabled={!snapshot.canUseMoonSight}><kbd>C</kbd><GameGlyph name="echo" /><span>Echo</span></button>}
+          {snapshot.role === "IMPOSTOR" && <button className={`action kill veiled ${snapshot.canKill && !snapshot.stealthCooldown && !snapshot.stealthOrdealsLeft ? "ready" : ""}`} title="Veiled Bite: uses your strike; fallen cat appears 8s later. Cooldown: 45s and two Ordeal starts." onClick={() => engineRef.current?.kill(true)} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.stealthCooldown > 0 || snapshot.stealthOrdealsLeft > 0}><kbd>X</kbd><GameGlyph name="veil" /><span>{snapshot.stealthCooldown ? `${snapshot.stealthCooldown}s` : snapshot.stealthOrdealsLeft ? `${snapshot.stealthOrdealsLeft} rounds` : "Veiled bite"}</span></button>}
+          </div></details>}
+          {snapshot.role === "IMPOSTOR" && <button className={`action kill ${snapshot.canKill ? "ready" : ""}`} onClick={() => engineRef.current?.kill()} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.killCooldown > 0} title="Bite a nearby cat. One strike per Ordeal."><kbd>Q</kbd><GameGlyph name="bite" /><span>{snapshot.killSpent ? "Spent" : snapshot.killCooldown > 0 ? `${Math.ceil(snapshot.killCooldown)}s` : "Bite"}</span></button>}
+          {snapshot.charges[snapshot.selectedItem] > 0 && <button className={`action use ${snapshot.phase === "ORDEAL" ? "ready" : ""}`} data-first-gear={firstGearCue}
+            onClick={() => { setFirstGearCue(false); engineRef.current?.useItem(); }} disabled={!snapshot.humanAlive} aria-label={`Use ${ITEM_LABELS[snapshot.selectedItem]}`}
+            title={snapshot.phase === "ORDEAL" ? `Use ${ITEM_LABELS[snapshot.selectedItem]}` : "Save your gear—Use activates during an Ordeal."}><kbd>F</kbd><GameGlyph name="spark" /><span>{snapshot.phase === "ORDEAL" ? "Use" : "Ordeal gear"}</span></button>}
         </div>
 
         {snapshot.taskPrompt && (
-          <button
-            type="button"
-            className="interaction-prompt interaction-prompt-button"
-            onClick={() => engineRef.current?.tryOpenPuzzle()}
-            onPointerDown={() => { if (snapshot.taskMode === "HOLD") engineRef.current?.setTouch("KeyE", true); }}
-            onPointerUp={() => engineRef.current?.setTouch("KeyE", false)}
-            onPointerCancel={() => engineRef.current?.setTouch("KeyE", false)}
-            onPointerLeave={() => engineRef.current?.setTouch("KeyE", false)}
-          >
-            <kbd>E</kbd>
-            <span>{snapshot.taskMode === "PUZZLE" ? (snapshot.role === "IMPOSTOR" ? "OPEN FAKE PUZZLE" : "OPEN QUICK PUZZLE") : (snapshot.role === "IMPOSTOR" ? "HOLD FAKE CALIBRATION" : "HOLD TO CALIBRATE")} • EARNS {snapshot.stationStatus ? ITEM_LABELS[snapshot.stationStatus.reward].toUpperCase() : "GEAR"}</span>
-          </button>
-        )}
-
-        {snapshot.stationStatus?.completed && snapshot.phase === "CALM" && (
-          <div className="station-sealed-prompt" role="status">
-            <span>✓</span><div><b>WARD SEALED</b><small>{snapshot.stationStatus.label} reopens next round • choose another sanctum</small></div>
+          <div className="interaction-prompt interaction-shell">
+            <button
+              type="button"
+              className="interaction-prompt-button"
+              onClick={() => { if (snapshot.taskMode === "PUZZLE") engineRef.current?.tryOpenPuzzle(); }}
+              onPointerDown={event => { if (snapshot.taskMode === "HOLD") { event.currentTarget.setPointerCapture(event.pointerId); engineRef.current?.setTouch("KeyE", true); } }}
+              onPointerUp={() => engineRef.current?.setTouch("KeyE", false)}
+              onPointerCancel={() => engineRef.current?.setTouch("KeyE", false)}
+              onLostPointerCapture={() => engineRef.current?.setTouch("KeyE", false)}
+              onBlur={() => engineRef.current?.setTouch("KeyE", false)}
+              onKeyDown={event => { if (snapshot.taskMode === "HOLD" && ["Space", "Enter"].includes(event.code)) { event.preventDefault(); engineRef.current?.setTouch("KeyE", true); } }}
+              onKeyUp={event => { if (["Space", "Enter"].includes(event.code)) engineRef.current?.setTouch("KeyE", false); }}
+            >
+              <kbd>E</kbd>
+              <span><b>{snapshot.taskMode === "PUZZLE" ? (snapshot.role === "IMPOSTOR" ? "Fake ritual" : "Restore shrine") : (snapshot.role === "IMPOSTOR" ? "Hold to fake ritual" : "Hold to restore")}</b><small>{snapshot.stationStatus?.label} · {snapshot.stationStatus?.overgrown && snapshot.phase === "ORDEAL" ? "Dangerous bloom · stay exposed" : snapshot.taskMode === "HOLD" ? "Stay still · earn gear" : "Complete a puzzle · earn gear"}</small></span><GameGlyph name="spark" />
+            </button>
+            {snapshot.taskMode === "HOLD" && <TaskHoldGauge progress={snapshot.taskHoldProgress} holding={snapshot.taskHolding} />}
           </div>
         )}
 
-        <div className="touch-pad" aria-label="Touch movement controls">
-          <TouchButton code="ArrowUp" onTouch={handleTouch}>▲</TouchButton>
-          <TouchButton code="ArrowLeft" onTouch={handleTouch}>◀</TouchButton>
-          <TouchButton code="ArrowDown" onTouch={handleTouch}>▼</TouchButton>
-          <TouchButton code="ArrowRight" onTouch={handleTouch}>▶</TouchButton>
-        </div>
+        {snapshot.stationStatus?.completed && snapshot.phase !== "DISCUSSION" && (
+          <div className="station-sealed-prompt" role="status">
+            <span>✓</span><div><b>All done here!</b><small>{snapshot.stationStatus.label} reopens next round. Your gear stays.</small></div>
+          </div>
+        )}
+
+        {snapshot.taskPrompt && !puzzle && !roleReveal && <div className="duet-controls" data-no-joystick>
+          <button type="button" className="paired-ritual-button" aria-pressed={!!snapshot.pairRitual}
+            title="Join a duet, stay still, and take turns playing the lit rune. Both earn gear. Your chant is audible; a Hollow can join too. Move or press H again to leave."
+            onClick={() => engineRef.current?.setPairRitual(!snapshot.pairRitual)}>
+            <span><kbd>H</kbd> {snapshot.pairRitual ? "Leave duet" : "Join a duet"}</span>
+            <small>{snapshot.pairRitual ? `${snapshot.pairRitual.participants}/2 ready · ${snapshot.pairRitual.beats ?? 0}/4 notes` : `Take turns · at least ${PAIR_RITUAL_SECONDS}s · audible nearby`}</small>
+            <i style={{ width: `${(snapshot.pairRitual?.progress ?? 0) * 100}%` }} />
+          </button>
+          {snapshot.pairRitual && <div className="duet-runes" role="group" aria-label="Duet runes">
+            <small role="status">{(snapshot.pairRitual.beats ?? 0) >= 4 ? "Hold still…" : snapshot.pairRitual.participants < 2 ? "Waiting for a companion…" : snapshot.pairRitual.nextPlayerId === snapshot.localPlayerId ? "Your turn: play the lit rune" : "Your companion’s turn"}</small>
+            {["☀ Sun · J", "☾ Moon · K"].map((label, rune) => <button key={rune} type="button" disabled={snapshot.pairRitual?.nextPlayerId !== snapshot.localPlayerId || snapshot.pairRitual?.rune !== rune || (snapshot.pairRitual?.beats ?? 0) >= 4} onClick={() => engineRef.current?.pulsePairRune(rune)}>{label}</button>)}
+          </div>}
+        </div>}
+        <FloatingJoystick surfaceRef={stageRef} onVector={handleMoveVector} enabled={snapshot.humanAlive && !meeting && !puzzle && !roleReveal && !deathReveal && !result && !navigationExpanded && !notebookOpen && !settingsOpen && !landscapeRequired && (!networkState || networkState.connected)} />
       </section>
 
       <footer className="game-footer">
+        <AnalyticsSettingsButton compact />
         <span>MOVE <kbd>WASD</kbd></span>
         <span>AIM <kbd>MOUSE</kbd></span>
         <span>TASK <kbd>E / HOLD E</kbd></span>
         <span>REPORT <kbd>R</kbd></span>
-        {snapshot.role === "IMPOSTOR" && <span>MOON SIGHT <kbd>V</kbd></span>}
+        {snapshot.role === "IMPOSTOR" && <span>SIGHT <kbd>V</kbd> OR ECHO <kbd>C</kbd> • AIM FIRST</span>}
         {multiplayerClient ? (
           <span className="latency"><i style={{ background: networkState?.connected ? "#43efba" : "#ff687c" }} /> {networkState?.connected ? networkState.transport === "HTTP" ? "HTTP RELAY" : "REALTIME" : "DISCONNECTED"} • ROOM {multiplayerClient.roomCode} • {networkState?.ping || "—"}ms</span>
         ) : (
-          <span className="latency"><i /> AI LINK 12ms</span>
+          <span className="latency"><i /> Practice with AI</span>
         )}
       </footer>
 
       {roleReveal && (
-        <div className={`impostor-reveal ${roleReveal === "IMPOSTOR" ? "impostor-theme" : "warden-theme"}`} role="dialog" aria-modal="true" aria-labelledby="role-reveal-title">
-          <div className="reveal-vignette" />
-          <div className="reveal-scanline" />
-          <div className="reveal-core" aria-hidden="true">
-            <span className="reveal-orbit orbit-one" />
-            <span className="reveal-orbit orbit-two" />
-            <span className="impostor-sigil"><i /><i /><b /></span>
-          </div>
-          <div className="reveal-copy">
-            <small>{roleReveal === "IMPOSTOR" ? "PRIVATE IDENTITY // DECRYPTING" : "CIRCLE IDENTITY // ATTUNING"}</small>
-            <p className="reveal-lead">YOU ARE {roleReveal === "IMPOSTOR" ? "THE" : "A"}</p>
-            <h2 id="role-reveal-title">{roleReveal === "IMPOSTOR" ? "IMPOSTOR" : "WARDEN"}</h2>
-            <p className="reveal-order">{roleReveal === "IMPOSTOR" ? "Hide in plain sight. Hunt freely during the Ordeal." : "Restore the moon wards. Keep your circle alive."}</p>
-            <div className="reveal-progress" aria-hidden="true"><i /><i /><i /><i /><i /></div>
-            <button onClick={dismissRoleReveal}>ENTER THE SANCTUARY</button>
-          </div>
-        </div>
+        <RoleReveal role={roleReveal} color={networkState?.players.find(player => player.id === snapshot.localPlayerId)?.color ?? soloProfile?.color ?? COLORS[0]}
+          accessory={networkState?.players.find(player => player.id === snapshot.localPlayerId)?.hat ?? soloProfile?.hat ?? "moonbell"}
+          eyeStyle={networkState?.players.find(player => player.id === snapshot.localPlayerId)?.eyeStyle ?? soloProfile?.eyeStyle ?? "FIERCE"}
+          onContinue={dismissRoleReveal} />
       )}
 
       {killNotice && (
         <div key={killNotice.key} className="kill-notice" role="status" aria-live="polite" aria-atomic="true">
           <span aria-hidden="true">☾</span>
           <div className="kill-notice-copy">
-            <strong>A Warden was dissolved</strong>
+            <strong>A Warden has fallen</strong>
             <small>Stay alert. The hunt continues.</small>
           </div>
         </div>
@@ -4127,27 +5443,31 @@ function Game({
           <div className="death-ripple" aria-hidden="true"><i /><i /><i /></div>
           <div className="death-reveal-card">
             <small>IDENTITY CONFIRMED // PRIVATE</small>
-            <h2 id="death-reveal-title">YOU WERE DISSOLVED</h2>
+            <h2 id="death-reveal-title">YOU WERE CONSUMED</h2>
             <div className="killer-label">KILLED BY</div>
-            <div className="killer-portrait" style={{ "--killer-color": deathReveal.killerColor } as React.CSSProperties} aria-hidden="true">
-              <span><i /><i /><b /></span>
-            </div>
+            <ConsumptionPortrait killerColor={deathReveal.killerColor} victimColor={deathReveal.victimColor || "#63e6be"} />
             <strong>{deathReveal.killerName}</strong>
-            <p>You now know the Impostor—but the living crew cannot hear you.</p>
+            <p>You now know The Hollow—but the living Wardens cannot hear you.</p>
             <button onClick={dismissDeathReveal}>CONTINUE AS SPECTATOR</button>
           </div>
         </div>
       )}
 
+      {snapshot.taskFailure && snapshot.humanAlive && !puzzle && !deathReveal && !result && snapshot.phase !== "DISCUSSION" && (
+        <div className="task-failure-toast" role="alert" aria-atomic="true">
+          <span aria-hidden="true">!</span>
+          <div><strong>Ritual failed</strong><p>{snapshot.taskFailure}</p></div>
+        </div>
+      )}
       {puzzle && (
         <div className="modal-backdrop task-backdrop" role="dialog" aria-modal="true" aria-labelledby="task-puzzle-title">
           <div className="task-puzzle-card">
             <div className="task-puzzle-head">
-              <div><small>MOON SHRINE // {puzzle.kind === "MATH" ? "RUNE CALCULATION" : "CONSTELLATION LINK"}</small><h2 id="task-puzzle-title">{puzzle.stationLabel}</h2><span className="puzzle-reward">REWARD • {ITEM_LABELS[puzzle.reward].toUpperCase()}</span></div>
+              <div><small>MOON SHRINE // {puzzle.challenge ? RITUAL_LABELS[puzzle.challenge.kind].toUpperCase() : puzzle.kind === "MATH" ? "RUNE CALCULATION" : "CONSTELLATION LINK"}</small><h2 id="task-puzzle-title">{puzzle.stationLabel}</h2><span className="puzzle-reward">REWARD • {ITEM_LABELS[puzzle.reward].toUpperCase()} + UTILITY CHARGE</span></div>
               <button onClick={() => engineRef.current?.cancelPuzzle()} aria-label="Close puzzle">×</button>
             </div>
             <div className="task-puzzle-body">
-              {puzzle.kind === "MATH" ? (
+              {puzzle.challenge ? <ForestRitual key={puzzle.challenge.id} challenge={puzzle.challenge} onSubmit={answer => engineRef.current?.submitForestRitual(answer)} /> : puzzle.kind === "MATH" ? (
                 <>
                   <p>Balance the ward by solving this short rune calculation.</p>
                   <div className="math-question">{puzzle.prompt}</div>
@@ -4166,56 +5486,67 @@ function Game({
                   <button key={`${option}-${index}`} onClick={() => engineRef.current?.submitPuzzle(index)}><kbd>{index + 1}</kbd><b>{option}</b></button>
                 ))}
               </div>
-              <div className={`puzzle-feedback ${puzzle.error ? "error" : ""}`}>{puzzle.error || `Choose one answer. This sanctum seals for the current round and grants one ${ITEM_LABELS[puzzle.reward]} charge. It reopens at the next Calm.`}</div>
+              {!puzzle.challenge && <div className={`puzzle-feedback ${puzzle.error ? "error" : ""}`}>{puzzle.error || `Choose one answer. This sanctum seals for the current round and grants one ${ITEM_LABELS[puzzle.reward]} charge. It reopens at the next Calm.`}</div>}
             </div>
           </div>
         </div>
       )}
 
       {meeting && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="meeting-title">
+        <div
+          key={`meeting-${meetingKey}`}
+          className={`modal-backdrop meeting-backdrop ${meeting.tally ? "is-tally" : "is-discussion"} ${meeting.reason.includes("PUDDLE") || meeting.reason.includes("BODY") ? "body-report" : "bell-report"}`}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="meeting-title"
+        >
+          <div className="meeting-shockwave" aria-hidden="true"><i /><i /><i /></div>
           <div className="meeting-card">
-            <div className="meeting-alert"><span>!</span><div><small>{meeting.tally ? "VOTES COUNTED" : `REPORTED BY ${meeting.reporter}`}</small><h2 id="meeting-title">{meeting.reason}</h2></div><b>{meeting.tally ? "FINAL TALLY" : "DISCUSS + VOTE"}</b></div>
+            <div className="meeting-alert">
+              <span>{meeting.tally ? "⚖" : "!"}</span>
+              <div>
+                <small>{meeting.tally ? "VOTES COUNTED" : `REPORTED BY ${meeting.reporter}`}</small>
+                <h2 id="meeting-title">{meeting.reason.replace("WAS FOUND AS A JELLY PUDDLE", "— FALLEN WARDEN REPORTED")}</h2>
+              </div>
+              <b>{meeting.tally ? "FINAL TALLY" : `${discussionSeconds > 0 ? "DISCUSSION" : "VOTING"} · ${meetingSecondsLeft}s`}</b>
+            </div>
+            {!meeting.tally ? <div className="meeting-toolbar">
+              <p role="status" aria-live="polite">{discussionSeconds > 0 ? <>Talk it through · Vote in <strong>{discussionSeconds}s</strong></> : "Voting is open · Keep discussing while you choose."}</p>
+              <button type="button" aria-expanded={meetingNotesOpen} aria-controls="meeting-private-notes" onClick={() => setMeetingNotesOpen(open => !open)}>{meetingNotesOpen ? "Close notes" : "▤ Notes"}</button>
+            </div> : null}
             <div className="meeting-content">
+              {meeting.localVote && (
+                <div className={`vote-receipt ${meeting.localVote.shifted ? "vote-shifted" : ""}`} role="status" aria-live="polite" aria-atomic="true">
+                  <strong>{meeting.localVote.shifted ? "☾ Vote shifted" : "Vote locked"}</strong>
+                  <span>Counts toward {meeting.localVote.targetId ? meeting.candidates.find(player => player.id === meeting.localVote?.targetId)?.name ?? "the departed player" : "Skip"}.</span>
+                </div>
+              )}
+              {meeting.voteError && <p className="vote-receipt vote-error" role="alert">{meeting.voteError}</p>}
               {meeting.tally ? (
                 <div className="vote-tally-screen">
                   <div className={`vote-verdict ${meeting.ejectedId ? "ejected" : "no-ejection"}`}>
-                    <small>FINAL VERDICT</small>
-                    <h3>{meeting.verdict}</h3>
-                    <p>The crew’s votes have been counted.</p>
+                    <h3>{meeting.verdict && meetingVerdictLabel(meeting.verdict)}</h3>
                   </div>
-                  <div className="tally-grid" aria-label="Vote totals by player">
-                    {meeting.tally.map((entry) => (
-                      <div className={`tally-card ${entry.isTop ? "top-tally" : ""} ${entry.targetId === meeting.ejectedId ? "ejected" : ""} ${entry.targetId ? "" : "skip-tally"}`} key={entry.targetId || "SKIP"}>
-                        <b className="tally-name">{entry.targetName}</b>
-                        {entry.targetColor ? (
-                          <span className="tally-slime" style={{ "--tally-color": entry.targetColor } as React.CSSProperties}><i /><i /><em /></span>
-                        ) : (
-                          <span className="tally-skip-mark">—</span>
-                        )}
-                        <strong>{entry.votes}</strong>
-                        <small>{entry.votes === 1 ? "VOTE" : "VOTES"}</small>
-                        {entry.targetId === meeting.ejectedId && <span className="tally-status">EJECTED</span>}
-                        {!meeting.ejectedId && meeting.tied && entry.isTop && entry.votes > 0 && <span className="tally-status">TIED</span>}
-                      </div>
-                    ))}
-                  </div>
+                  <TallyRoster tally={meeting.tally} ejectedId={meeting.ejectedId} tied={meeting.tied} />
                   <button className="continue-vote" onClick={() => engineRef.current?.resolveMeeting()}>CONTINUE MATCH</button>
                 </div>
               ) : (
                 <div className="discussion-layout">
-                  <section className="meeting-chat" aria-label="Meeting discussion">
-                    <div className="chat-heading"><div><small>LIVE DISCUSSION</small><b>WARDEN CHANNEL</b></div><span>{snapshot.living} ONLINE</span></div>
+                  <section hidden={meetingNotesOpen} className="meeting-chat" aria-label="Meeting discussion">
+                    <div className="chat-heading"><div><small>LIVE DISCUSSION · WARDEN CHANNEL</small><b>What did you see?</b></div><span>{snapshot.living} ALIVE</span></div>
                     <div className="chat-log" ref={chatLogRef} role="log" aria-live="polite">
                       {chatMessages.map((message) => message.system ? (
                         <div className="chat-system" key={message.id}><span>◆</span>{message.text}</div>
                       ) : (
                         <div className={`chat-message ${message.playerId === "you" ? "from-you" : ""}`} key={message.id}>
-                          <span className="chat-avatar" style={{ "--chat-color": message.playerColor } as React.CSSProperties}><i /><i /></span>
+                          <span className="chat-avatar"><CatHead color={message.playerColor ?? "#8257cb"} eyeStyle={meeting.candidates.find(player => player.id === message.playerId)?.eyeStyle} /></span>
                           <div><b>{message.playerName}</b><p>{message.text}</p></div>
                         </div>
                       ))}
                     </div>
+                    {snapshot.humanAlive && <div className="meeting-claim-prompts" aria-label="Draft a claim">
+                      {["I was at…", "I last saw… near…", "I heard… near…"].map(claim => <button type="button" key={claim} onClick={() => setChatDraft(claim)}>{claim}</button>)}
+                    </div>}
                     <form className="chat-composer" onSubmit={sendChatMessage}>
                       <input
                         value={chatDraft}
@@ -4227,24 +5558,16 @@ function Game({
                       />
                       <button type="submit" disabled={!snapshot.humanAlive || !chatDraft.trim()} aria-label="Send meeting message">SEND</button>
                     </form>
-                    <small className="chat-rule">Living players only • Messages close when voting ends</small>
+                    <small className="chat-rule">Claims are player statements, not verified evidence • Living players only</small>
                   </section>
 
                   <section className="vote-panel" aria-label="Cast your vote">
-                    <p>Discuss first, then select the slime you distrust. The next screen shows the final tally.</p>
-                    <div className="vote-grid">
-                      {meeting.candidates.map((player) => {
-                        const isYou = player.id === snapshot.localPlayerId;
-                        return (
-                          <button key={player.id} disabled={!player.alive || isYou || !snapshot.humanAlive} onClick={() => engineRef.current?.vote(player.id)}>
-                            <span className="vote-slime" style={{ "--vote-color": player.alive ? player.color : "#53616b" } as React.CSSProperties}><i /><i /></span>
-                            <b>{player.name}</b><small>{player.alive ? (isYou ? "YOU" : "VOTE") : "ELIMINATED"}</small>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <button className="skip-vote" onClick={() => engineRef.current?.vote(null)}>{snapshot.humanAlive ? "SKIP VOTE" : "REVEAL CREW VOTE"}</button>
+                    {chaosMoonsway && meeting.bodyReporterId ? <p className="moonsway-rule">☾ Reporter votes may shift ({Math.round(REPORTER_VOTE_DRIFT_CHANCE * 100)}%). Skip is safe.</p> : null}
+                    {meeting.votePending && <p className="vote-receipt" role="status">Sealing your vote…</p>}
+                    <VoteRoster candidates={meeting.candidates} localPlayerId={snapshot.localPlayerId} alive={snapshot.humanAlive} discussing={discussionSeconds > 0} locked={!!meeting.localVote || !!meeting.votePending} onVote={id => engineRef.current?.vote(id)} />
+                    <button className="skip-vote" disabled={discussionSeconds > 0 || !!meeting.localVote || !!meeting.votePending || Boolean(multiplayerClient && !snapshot.humanAlive)} onClick={() => engineRef.current?.vote(null)}>{snapshot.humanAlive ? "SKIP VOTE" : "REVEAL CREW VOTE"}</button>
                   </section>
+                  <div id="meeting-private-notes" hidden={!meetingNotesOpen} className="meeting-notes-page"><MeetingObservations panel roster={knownNames} notes={observations} onRecord={recordObservation} onDraft={text => { setChatDraft(text); setMeetingNotesOpen(false); }} disabled={!snapshot.humanAlive} /></div>
                 </div>
               )}
             </div>
@@ -4252,29 +5575,41 @@ function Game({
         </div>
       )}
 
-      {result && (
-        <div className="modal-backdrop result-backdrop" role="dialog" aria-modal="true" aria-labelledby="result-title">
-          <div className="result-card">
-            <small>SIMULATION COMPLETE</small>
-            <h2 id="result-title">{result}</h2>
-            <p>The hidden role was assigned privately. No public character trait revealed allegiance.</p>
-            <button onClick={onExit}>RETURN TO LOBBY</button>
-          </div>
-        </div>
+      {banishment && (
+        <BanishmentOverlay
+          outcome={banishment}
+          reducedMotion={reducedMotion}
+          onPlayAudio={(kind) => {
+            if (kind === "OPENING") engineRef.current?.audio.banishmentOpening();
+            else if (kind === "WARDEN") engineRef.current?.audio.banishmentWarden();
+            else if (kind === "HOLLOW") engineRef.current?.audio.banishmentHollow();
+          }}
+          onComplete={() => setBanishment(null)}
+        />
       )}
+
+      {result && victory && <VictoryOverlay key={result} victory={victory} reducedMotion={reducedMotion}
+        onCelebrate={kind => { engineRef.current?.audio.celebration(kind); }} onExit={onExit} />}
+      <LandscapeGuard active={landscapeRequired} multiplayer={!!multiplayerClient} onExit={onExit} />
     </main>
   );
 }
 
 export default function Home() {
+  const [introOpen, setIntroOpen] = useState(false);
+  const [hollowLessonOpen, setHollowLessonOpen] = useState(false);
+  const [introDismissed, setIntroDismissed] = useState(false);
+  const introNeeded = useSyncExternalStore(subscribeFirstSteps, shouldShowFirstSteps, () => false);
   const [match, setMatch] = useState<
-    | { mode: "SOLO"; count: number; role: RoleChoice }
-    | { mode: "MULTI"; client: MultiplayerClient; initialPlayers: NetPlayer[]; assignedRole: Role }
+    | { mode: "SOLO"; count: number; role: RoleChoice; profile: SoloProfile; hollowCount: number; layoutSeed: number; chaosMoonsway: boolean }
+    | { mode: "MULTI"; client: MultiplayerClient; initialPlayers: NetPlayer[]; assignedRole: Role; hollowCount: number; layoutSeed: number; hollowAllies?: string[]; chaosMoonsway: boolean }
     | null
   >(null);
 
   const [client] = useState(() => new MultiplayerClient());
+  const [gameAnalytics] = useState(() => new GameAnalyticsLifecycle());
   const [mpState, setMpState] = useState<MultiplayerState | null>(null);
+  const handleMatchComplete = useCallback((result: string) => gameAnalytics.complete(result), [gameAnalytics]);
 
   useEffect(() => {
     const unsubState = client.onStateChange((next) => {
@@ -4283,11 +5618,19 @@ export default function Home() {
 
     const unsubMsg = client.onMessage((msg) => {
       if (msg.type === "MATCH_STARTED") {
+        setIntroOpen(false);
+        setHollowLessonOpen(false);
+        setIntroDismissed(true);
+        gameAnalytics.start("multiplayer", msg.players.length);
         setMatch({
           mode: "MULTI",
           client,
           initialPlayers: msg.players,
           assignedRole: msg.role,
+          layoutSeed: msg.layoutSeed ?? 0,
+          hollowCount: msg.hollowCount ?? 1,
+          hollowAllies: msg.hollowAllies,
+          chaosMoonsway: msg.chaosMoonsway === true,
         });
       }
     });
@@ -4297,29 +5640,55 @@ export default function Home() {
       unsubMsg();
       client.disconnect();
     };
-  }, [client]);
+  }, [client, gameAnalytics]);
 
   const handleExit = () => {
+    gameAnalytics.leave();
     if (match?.mode === "MULTI") {
       match.client.leaveRoom();
     }
     setMatch(null);
   };
 
+  const introVisible = (introOpen || (introNeeded && !introDismissed)) && !match && !client.roomCode;
+  const hollowLessonVisible = hollowLessonOpen && !introVisible && !match && !client.roomCode;
+
   return match ? (
     <Game
       count={match.mode === "SOLO" ? match.count : match.initialPlayers.length}
       roleChoice={match.mode === "SOLO" ? match.role : match.assignedRole}
+      soloProfile={match.mode === "SOLO" ? match.profile : undefined}
       multiplayerClient={match.mode === "MULTI" ? match.client : null}
       initialPlayers={match.mode === "MULTI" ? match.initialPlayers : undefined}
       assignedRole={match.mode === "MULTI" ? match.assignedRole : undefined}
+      layoutSeed={match.layoutSeed}
+      hollowCount={match.hollowCount}
+      chaosMoonsway={match.chaosMoonsway}
+      hollowAllies={match.mode === "MULTI" ? match.hollowAllies : undefined}
       onExit={handleExit}
+      onMatchComplete={handleMatchComplete}
     />
   ) : (
+    <>
+    <div inert={introVisible || hollowLessonVisible}>
     <Lobby
-      onLaunch={(count, role) => setMatch({ mode: "SOLO", count, role })}
+      onReplayIntro={() => { if (!match && !client.roomCode) setIntroOpen(true); }}
+      onReplayHollow={() => { if (!match && !client.roomCode) setHollowLessonOpen(true); }}
+      onLaunch={(count, role, profile, hollowCount, chaosMoonsway) => {
+        setHollowLessonOpen(false);
+        setIntroOpen(false);
+        setIntroDismissed(true);
+        gameAnalytics.start("solo", count);
+        setMatch({ mode: "SOLO", count, role, profile, hollowCount, chaosMoonsway, layoutSeed: Math.floor(Math.random() * 4294967296) });
+      }}
       multiplayerClient={client}
       mpState={mpState}
     />
+    </div>
+    {introVisible && <FirstSteps
+      onComplete={() => { setIntroOpen(false); setIntroDismissed(true); }}
+      onSkip={() => { setIntroOpen(false); setIntroDismissed(true); }} />}
+    {hollowLessonVisible && <HollowLesson onExit={() => setHollowLessonOpen(false)} />}
+    </>
   );
 }

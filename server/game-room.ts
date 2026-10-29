@@ -12,7 +12,41 @@ import type {
   RoomSummary,
   S2CMessage,
 } from "./game-types";
-import { availablePlayerColor, PLAYER_COLORS as COLORS } from "./palette";
+import { availablePlayerColor, availablePlayerName, PLAYER_COLORS as COLORS } from "./palette";
+import { MEETING_DISCUSSION_MS } from "./match-rules";
+import { RestorationLedger } from "./match-rules";
+import { rootwakeEnvelope, rootwakeMove, overgrownStationIndex, lurePoint } from "./sanctuary-design";
+import { createRitual, normalizeDifficulty, ritualAnswerIsCorrect, type RitualChallenge, type RitualDifficulty } from "./forest-rituals";
+import { ForestUtilities } from "./forest-utilities";
+import { EYE_STYLES, isEyeStyle, normalizeEyeStyle, type EyeStyle } from "./appearance";
+import {
+  ECHO_RANGE,
+  ECHO_SECONDS,
+  HEARING_RANGE,
+  MIRROR_BUMP_COOLDOWN_MS,
+  MIRROR_BUMP_DISTANCE,
+  MOON_SIGHT_SECONDS,
+  nextHazard,
+  ordealDuration,
+  isOccludedByObstacle,
+  resolveObstacleMovement,
+  resolveObstaclePosition,
+} from "./ordeal-rules";
+import {
+  CALM_SECONDS,
+  CENTER,
+  STATIONS,
+  clampWorldPoint,
+  keepInRootCell,
+  sharesRootCell,
+  type WorldPoint,
+} from "./sanctuary-map";
+import { planRoute } from "./sanctuary-paths";
+import { ejectionVerdict } from "./role-presentation";
+import { createMatchLayout } from "./match-layout";
+import { PAIR_RITUAL_RANGE, PairedRituals } from "./pair-ritual";
+import { advanceEmergency, afterMeeting, finishFirstOrdeal, initialEmergencyState, reportAvailability } from "./report-rules";
+import { clampHollowCount, hollowVictory, resolveReporterVote, type VoteReceipt, WARD_SETTLE_SECONDS, STEALTH_BODY_DELAY_SECONDS, STEALTH_COOLDOWN_SECONDS, STEALTH_ORDEAL_LOCKOUT } from "./match-rules";
 
 export interface IWebSocketClient {
   send(data: string): void;
@@ -21,23 +55,10 @@ export interface IWebSocketClient {
   bufferedAmount?: number;
 }
 
-const ROOM = { left: 76, top: 72, right: 1204, bottom: 690 };
-const ROOT_BARRIERS = [
-  { x: 432, y: ROOM.top, w: 36, h: ROOM.bottom - ROOM.top },
-  { x: 812, y: ROOM.top, w: 36, h: ROOM.bottom - ROOM.top },
-  { x: ROOM.left, y: 362, w: ROOM.right - ROOM.left, h: 36 },
-] as const;
 const BOT_NAMES = ["Mochi", "Bubbles", "Gloop", "Pebble", "Nori", "Fizz", "Pip", "Wobble"];
-const HATS: readonly Hat[] = ["antlers", "hood", "moth", "mooncap"];
-const STATION_REWARDS = new Map<string, ItemKind>([
-  ["FROST FONT", "FLASHLIGHT"],
-  ["STAR ALTAR", "SONAR"],
-  ["OWL TOTEM", "FLARE"],
-  ["EAST WARD", "FLASHLIGHT"],
-  ["MOONWELL", "FLARE"],
-  ["ROOT SEAL", "SONAR"],
-]);
-const TASK_PROGRESS_REWARD = 17;
+const HATS: readonly Hat[] = ["moonbell", "leafband", "starlock", "mothbow", "antlers", "hood", "moth", "mooncap"];
+const STATION_INTERACTION_RANGE = 104;
+const BOT_RITUAL_SECONDS = 2.6;
 const KILL_COOLDOWN_MS = 1500;
 
 function dist(a: { x: number; y: number }, b: { x: number; y: number }) {
@@ -50,53 +71,7 @@ function choose<T>(items: readonly T[] | T[]): T {
 
 function rootwakeStrength(phase: Phase, hazard: Hazard, phaseTime: number) {
   if (phase !== "ORDEAL" || hazard !== "ROOTWAKE") return 0;
-  const risen = Math.max(0, Math.min(1, (10 - phaseTime) / 0.75));
-  const receding = Math.max(0, Math.min(1, phaseTime / 0.55));
-  return Math.min(risen, receding);
-}
-
-function resolveRootPosition(x: number, y: number, radius = 30) {
-  let resolvedX = x;
-  let resolvedY = y;
-  for (const barrier of ROOT_BARRIERS) {
-    const left = barrier.x - radius;
-    const right = barrier.x + barrier.w + radius;
-    const top = barrier.y - radius;
-    const bottom = barrier.y + barrier.h + radius;
-    if (resolvedX <= left || resolvedX >= right || resolvedY <= top || resolvedY >= bottom) continue;
-    const exits = [
-      { distance: resolvedX - left, axis: "x" as const, value: left },
-      { distance: right - resolvedX, axis: "x" as const, value: right },
-      { distance: resolvedY - top, axis: "y" as const, value: top },
-      { distance: bottom - resolvedY, axis: "y" as const, value: bottom },
-    ].sort((a, b) => a.distance - b.distance);
-    if (exits[0].axis === "x") resolvedX = exits[0].value;
-    else resolvedY = exits[0].value;
-  }
-  return { x: resolvedX, y: resolvedY };
-}
-
-function rootCellIndex(position: { x: number; y: number }) {
-  const [leftRoot, rightRoot, middleRoot] = ROOT_BARRIERS;
-  const column = position.x < leftRoot.x + leftRoot.w / 2 ? 0 : position.x < rightRoot.x + rightRoot.w / 2 ? 1 : 2;
-  const row = position.y < middleRoot.y + middleRoot.h / 2 ? 0 : 1;
-  return row * 3 + column;
-}
-
-function sharesRootCell(a: { x: number; y: number }, b: { x: number; y: number }) {
-  return rootCellIndex(a) === rootCellIndex(b);
-}
-
-function keepInRootCell(previous: { x: number; y: number }, next: { x: number; y: number }) {
-  const origin = resolveRootPosition(previous.x, previous.y);
-  const column = rootCellIndex(origin) % 3;
-  const row = Math.floor(rootCellIndex(origin) / 3);
-  const [first, second, middle] = ROOT_BARRIERS;
-  const left = column === 0 ? ROOM.left + 36 : (column === 1 ? first.x + first.w : second.x + second.w) + 30;
-  const right = column === 2 ? ROOM.right - 36 : (column === 0 ? first.x : second.x) - 30;
-  const top = row === 0 ? ROOM.top + 48 : middle.y + middle.h + 30;
-  const bottom = row === 1 ? ROOM.bottom - 32 : middle.y - 30;
-  return { x: Math.max(left, Math.min(right, next.x)), y: Math.max(top, Math.min(bottom, next.y)) };
+  return rootwakeEnvelope(phaseTime);
 }
 
 export class GameRoom {
@@ -105,25 +80,62 @@ export class GameRoom {
   state: "LOBBY" | "PLAYING" | "ENDED" = "LOBBY";
   targetPlayers: number = 6;
   botFill: boolean = true;
+  hollowCount = 1;
+  chaosMoonsway = false;
+  puzzleDifficulty: RitualDifficulty = "STANDARD";
+  meetingSeconds = 75;
+  utilities = new ForestUtilities();
+  private ritualAttempts = new Map<string, number>();
+  private ritualChallenges = new Map<string, { stationId: string; challenge: RitualChallenge; roundId: number; openedAt: number }>();
+  private ritualRetryAt = new Map<string, number>();
+  private pairedRituals = new PairedRituals();
+  layoutSeed = 0;
+  stations = [...STATIONS];
+  obstacles = createMatchLayout(0).obstacles.slice(0, 8);
+  private startingWardens = 0;
+  private startingHollows = 1;
+  private pendingWardDelta = 0;
+  private restorationLedger = new RestorationLedger();
+  private wardSettleTimer = 0;
+  private strikeSpent = new Set<string>();
+  private stealthUntil = new Map<string, number>();
+  private stealthOrdeal = new Map<string, number>();
+  private ordealNumber = 0;
+  emergency = initialEmergencyState();
+  private pendingBodies: { body: NetBody; at: number }[] = [];
   clients = new Map<string, IWebSocketClient>();
   players = new Map<string, NetPlayer>();
 
   phase: Phase = "CALM";
-  phaseTime: number = 15;
+  phaseTime: number = CALM_SECONDS;
   hazard: Hazard = "BLACKOUT";
   taskProgress: number = 0;
   bodies: NetBody[] = [];
   flares: NetFlare[] = [];
   killCooldownUntil: number = 0;
   killUsedThisOrdeal: boolean = false;
+  ordealSeed = 1;
+  abilityUsed = new Set<string>();
+  sightUntil = new Map<string, number>();
+  private echoes: { x: number; y: number; angle: number; until: number; nextAt: number }[] = [];
+  private footsteps = new Map<string, { x: number; y: number; at: number }>();
+  private soundSequence = 0;
   sealedStations = new Set<string>();
+  private publicSeals = new Set<string>();
   roundId = 1;
   private stationCompletionSequence = 0;
   completedStations = new Map<string, Set<string>>();
   itemCharges = new Map<string, Record<ItemKind, number>>();
+  trueColors = new Map<string, string>();
+  private mirrorBumpCooldowns = new Map<string, number>();
+  private botRituals = new Map<string, { stationId: string; route: WorldPoint[]; dwell: number }>();
+  private botLightUntil = new Map<string, number>();
 
   meetingReason: string = "";
   meetingReporter: string = "";
+  private votingOpensAt = 0;
+  private meetingBodyReporterId: string | null = null;
+  private voteReceipts = new Map<string, VoteReceipt>();
   meetingTally: NetVoteTally[] | null = null;
   votes = new Map<string, string | null>();
   chatHistory: NetChatMessage[] = [];
@@ -138,9 +150,10 @@ export class GameRoom {
     this.code = code;
   }
 
-  addClient(playerId: string, client: IWebSocketClient, name: string, color: string, hat: Hat): NetPlayer {
+  addClient(playerId: string, client: IWebSocketClient, name: string, color: string, hat: Hat, eyeStyle?: EyeStyle): NetPlayer {
     const assignedColor = availablePlayerColor(color, Array.from(this.players.values(), (p) => p.color));
     if (!assignedColor || this.players.size >= COLORS.length) throw new Error("The room is full.");
+    const assignedName = availablePlayerName(name, Array.from(this.players.values(), (p) => p.name));
     const isFirst = this.clients.size === 0;
     if (isFirst) this.hostId = playerId;
     this.clients.set(playerId, client);
@@ -148,12 +161,13 @@ export class GameRoom {
     const isHost = this.hostId === playerId;
     const player: NetPlayer = {
       id: playerId,
-      name: name.trim().slice(0, 16) || `Warden-${this.clients.size}`,
+      name: assignedName,
       color: assignedColor,
       hat: HATS.includes(hat) ? hat : choose(HATS),
+      eyeStyle: normalizeEyeStyle(eyeStyle),
       alive: true,
-      x: 640 + (Math.random() - 0.5) * 160,
-      y: 380 + (Math.random() - 0.5) * 100,
+      x: CENTER.x + (Math.random() - 0.5) * 240,
+      y: CENTER.y + (Math.random() - 0.5) * 150,
       vx: 0,
       vy: 0,
       angle: 0,
@@ -162,6 +176,7 @@ export class GameRoom {
       ready: isHost,
     };
     this.players.set(playerId, player);
+    this.trueColors.set(playerId, assignedColor);
     this.completedStations.set(playerId, new Set());
     this.itemCharges.set(playerId, { FLASHLIGHT: 0, FLARE: 0, SONAR: 0 });
 
@@ -175,8 +190,12 @@ export class GameRoom {
       state: this.state,
       targetPlayers: this.targetPlayers,
       botFill: this.botFill,
+      hollowCount: this.hollowCount,
+      chaosMoonsway: this.chaosMoonsway,
       chatHistory: this.chatHistory,
     });
+    this.sendTo(client, { type: "RITUAL_SETTINGS", difficulty: this.puzzleDifficulty, meetingSeconds: this.meetingSeconds });
+    this.syncUtility(playerId);
 
     // Broadcast to others
     this.broadcastExcept(playerId, {
@@ -188,14 +207,30 @@ export class GameRoom {
   }
 
   removeClient(playerId: string) {
+    this.ritualChallenges.delete(playerId); this.ritualRetryAt.delete(playerId);
+    this.utilities.choices.delete(playerId); this.utilities.charges.delete(playerId); this.utilities.cooldowns.delete(playerId);
     if (!this.players.has(playerId)) return;
     this.clients.delete(playerId);
     this.players.delete(playerId);
+    this.trueColors.delete(playerId);
     this.completedStations.delete(playerId);
     this.itemCharges.delete(playerId);
+    this.botRituals.delete(playerId);
+    this.botLightUntil.delete(playerId);
+    this.footsteps.delete(playerId);
+    this.abilityUsed.delete(playerId);
+    this.sightUntil.delete(playerId);
     this.votes.delete(playerId);
+    this.voteReceipts.delete(playerId);
+    if (this.meetingBodyReporterId === playerId) this.meetingBodyReporterId = null;
     for (const [voter, target] of this.votes) {
-      if (target === playerId) this.votes.set(voter, null);
+      if (target === playerId) {
+        this.votes.set(voter, null);
+        const receipt = { targetId: null, shifted: false };
+        this.voteReceipts.set(voter, receipt);
+        const client = this.clients.get(voter);
+        if (client) this.sendTo(client, { type: "VOTE_RECEIPT", accepted: true, ...receipt });
+      }
     }
 
     let newHostId: string | undefined;
@@ -217,6 +252,9 @@ export class GameRoom {
 
     if (this.clients.size === 0) {
       this.destroy();
+    } else if (this.state === "LOBBY") {
+      this.hollowCount = clampHollowCount(this.hollowCount, this.botFill ? this.targetPlayers : this.players.size);
+      this.broadcastLobbyUpdate();
     } else if (this.state === "PLAYING") {
       if (!this.checkWinConditions() && this.phase === "DISCUSSION" && !this.meetingTally) this.checkVotesComplete();
     }
@@ -228,6 +266,8 @@ export class GameRoom {
       players: Array.from(this.players.values()),
       targetPlayers: this.targetPlayers,
       botFill: this.botFill,
+      hollowCount: this.hollowCount,
+      chaosMoonsway: this.chaosMoonsway,
       hostId: this.hostId,
     });
   }
@@ -237,14 +277,37 @@ export class GameRoom {
     if (!player) return;
 
     switch (msg.type) {
+      case "SET_MEETING_DURATION":
+        if (player.isHost && this.state === "LOBBY" && [60, 75, 90].includes(msg.seconds)) {
+          this.meetingSeconds = msg.seconds;
+          this.broadcast({ type: "RITUAL_SETTINGS", difficulty: this.puzzleDifficulty, meetingSeconds: this.meetingSeconds });
+        }
+        break;
       case "UPDATE_PROFILE":
         if (this.state === "LOBBY") {
-          player.name = msg.playerName.trim().slice(0, 16) || player.name;
+          const requestedName = msg.playerName.trim().slice(0, 16);
+          if (requestedName && requestedName.toLowerCase() !== "warden") {
+            const nameTaken = Array.from(this.players.values()).some(
+              (p) => p.id !== player.id && p.name.toLowerCase() === requestedName.toLowerCase(),
+            );
+            if (!nameTaken) {
+              player.name = requestedName;
+            } else if (player.name.toLowerCase() !== requestedName.toLowerCase()) {
+              this.sendTo(this.clients.get(playerId)!, {
+                type: "ERROR_ALERT",
+                message: "That callsign is already taken. Choose another name.",
+              });
+            }
+          }
           const color = msg.color.toLowerCase();
           const taken = Array.from(this.players.values()).some((p) => p.id !== player.id && p.color === color);
-          if (COLORS.includes(color) && !taken) player.color = color;
+          if (COLORS.includes(color) && !taken) {
+            player.color = color;
+            this.trueColors.set(player.id, color);
+          }
           else if (taken && player.color !== color) this.sendTo(this.clients.get(playerId)!, { type: "ERROR_ALERT", message: "That slime color is already taken. Choose an available color." });
           if (HATS.includes(msg.hat)) player.hat = msg.hat;
+          if (isEyeStyle(msg.eyeStyle)) player.eyeStyle = msg.eyeStyle;
           this.broadcastLobbyUpdate();
         }
         break;
@@ -260,6 +323,8 @@ export class GameRoom {
         if (player.isHost && this.state === "LOBBY") {
           this.targetPlayers = Math.max(this.players.size, 4, Math.min(8, Math.round(msg.targetPlayers)));
           this.botFill = Boolean(msg.botFill);
+          if (typeof msg.chaosMoonsway === "boolean") this.chaosMoonsway = msg.chaosMoonsway;
+          this.hollowCount = clampHollowCount(msg.hollowCount ?? this.hollowCount, this.botFill ? this.targetPlayers : this.players.size);
           this.broadcastLobbyUpdate();
         }
         break;
@@ -267,27 +332,59 @@ export class GameRoom {
       case "START_MATCH":
         if (player.isHost && this.state === "LOBBY") {
           this.botFill = msg.botFill ?? this.botFill;
+          if (typeof msg.chaosMoonsway === "boolean") this.chaosMoonsway = msg.chaosMoonsway;
           this.targetPlayers = Math.max(this.players.size, 4, Math.min(8, Math.round(msg.targetPlayers ?? this.targetPlayers)));
+          this.hollowCount = clampHollowCount(msg.hollowCount ?? this.hollowCount, this.botFill ? this.targetPlayers : this.players.size);
           this.startMatch(this.botFill, this.targetPlayers);
         }
         break;
+
+      case "PAIR_RUNE": {
+        const station = this.stations.find(s => s.id === msg.stationId);
+        if (this.state === "PLAYING" && this.phase !== "DISCUSSION" && player.alive && station
+          && dist(player, station) <= PAIR_RITUAL_RANGE && Math.hypot(player.vx, player.vy) < 12)
+          this.pairedRituals.pulse(player.id, station.id, msg.rune, msg.roundId, Date.now());
+        break;
+      }
+      case "PAIR_RITUAL": {
+        if (msg.roundId !== this.roundId) break;
+        const station = this.stations.find(station => station.id === msg.stationId);
+        if (!msg.active) {
+          this.pairedRituals.release(player.id);
+          player.working = false;
+          this.sendTo(this.clients.get(player.id)!, { type: "PAIR_RITUAL_STATE", ritual: { stationId: msg.stationId, progress: 0, participants: 0, roundId: this.roundId } });
+        } else if (this.state === "PLAYING" && this.phase !== "DISCUSSION" && player.alive && station
+          && dist(player, station) <= PAIR_RITUAL_RANGE && !this.completedStations.get(player.id)?.has(station.id)) {
+          this.pairedRituals.hold(player.id, station.id, this.roundId, Date.now());
+        }
+        break;
+      }
 
       case "PLAYER_INPUT":
         if (this.state === "PLAYING" && player.alive && this.phase !== "DISCUSSION") {
           if (![msg.x, msg.y, msg.vx, msg.vy, msg.angle].every(Number.isFinite)) break;
           if (msg.seq !== undefined && (!Number.isSafeInteger(msg.seq) || msg.seq <= (player.inputSeq ?? -1))) break;
-          const nextX = Math.max(ROOM.left + 36, Math.min(ROOM.right - 36, msg.x));
-          const nextY = Math.max(ROOM.top + 48, Math.min(ROOM.bottom - 32, msg.y));
-          const next = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72
-            ? keepInRootCell(player, { x: nextX, y: nextY })
+          const { x: nextX, y: nextY } = clampWorldPoint(msg.x, msg.y);
+          const impostorPhasing = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && player.role === "IMPOSTOR";
+          const rootChecked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && !impostorPhasing
+            ? rootwakeMove(player, { x: nextX, y: nextY }, this.phaseTime)
             : { x: nextX, y: nextY };
+          const velocityX = rootChecked.x !== nextX || nextX !== msg.x ? 0 : msg.vx;
+          const velocityY = rootChecked.y !== nextY || nextY !== msg.y ? 0 : msg.vy;
+          const inputSpeed = Math.hypot(velocityX, velocityY);
+          const speedScale = inputSpeed > 184 ? 184 / inputSpeed : 1;
+          const next = resolveObstacleMovement(rootChecked.x, rootChecked.y, velocityX * speedScale, velocityY * speedScale, 22, this.obstacles);
+          if (impostorPhasing && !sharesRootCell(player, next)) this.soundAt(next.x, next.y, "ROOT_RIPPLE");
           player.x = next.x;
           player.y = next.y;
-          player.vx = next.x !== nextX ? 0 : Math.max(-184, Math.min(184, msg.vx));
-          player.vy = next.y !== nextY ? 0 : Math.max(-184, Math.min(184, msg.vy));
+          player.vx = next.vx;
+          player.vy = next.vy;
           player.inputSeq = msg.seq;
           player.angle = msg.angle;
           player.flashlight = msg.flashlight;
+          player.working = Boolean(msg.working);
+          this.maybeFootstep(player);
+          this.checkMirrorPoolBumps();
         }
         break;
 
@@ -309,68 +406,120 @@ export class GameRoom {
         break;
       }
 
+      case "USE_ABILITY": {
+        const valid = this.state === "PLAYING" && player.alive && player.role === "IMPOSTOR"
+          && this.phase === "ORDEAL" && msg.roundId === this.roundId && !this.abilityUsed.has(playerId)
+          && ["MOON_SIGHT", "ECHO_LURE"].includes(msg.ability) && [msg.x, msg.y].every(Number.isFinite);
+        if (valid) {
+          this.abilityUsed.add(playerId);
+          if (msg.ability === "MOON_SIGHT") this.sightUntil.set(playerId, Date.now() + Math.min(MOON_SIGHT_SECONDS, this.phaseTime) * 1000);
+          else {
+            const distance = Math.max(1, dist(player, msg));
+            const scale = Math.min(1, ECHO_RANGE / distance);
+            let point = clampWorldPoint(player.x + (msg.x - player.x) * scale, player.y + (msg.y - player.y) * scale);
+            if (this.hazard === "ROOTWAKE") point = keepInRootCell(player, point);
+            this.echoes.push({ ...point, angle: Math.atan2(msg.y - player.y, msg.x - player.x), until: Date.now() + ECHO_SECONDS * 1000, nextAt: 0 });
+          }
+        }
+        this.syncAbility(playerId, valid);
+        break;
+      }
+
       case "TRIGGER_KILL": {
         let accepted = false;
-        if (this.state === "PLAYING" && player.role === "IMPOSTOR" && player.alive && this.phase === "ORDEAL" && !this.killUsedThisOrdeal && Date.now() >= this.killCooldownUntil) {
+        const stealth = msg.style === "STEALTH";
+        const stealthReady = Date.now() >= (this.stealthUntil.get(playerId) ?? 0) && this.ordealNumber >= (this.stealthOrdeal.get(playerId) ?? 0);
+        if (this.state === "PLAYING" && player.role === "IMPOSTOR" && player.alive && this.phase === "ORDEAL" && !this.strikeSpent.has(playerId) && (!stealth || stealthReady)) {
           const victim = this.players.get(msg.victimId);
           if (
             victim
             && victim.alive
             && victim.role !== "IMPOSTOR"
             && dist(player, victim) < 84
-            && (this.hazard !== "ROOTWAKE" || sharesRootCell(player, victim))
           ) {
             accepted = true;
-            this.executeKill(victim, player);
+            this.executeKill(victim, player, stealth);
           }
         }
-        this.sendTo(this.clients.get(playerId)!, { type: "KILL_RESULT", accepted, spent: this.killUsedThisOrdeal });
+        this.sendTo(this.clients.get(playerId)!, { type: "KILL_RESULT", accepted, ...this.strikeState(playerId) });
         break;
       }
 
       case "TRIGGER_REPORT":
         if (this.state === "PLAYING" && player.alive && this.phase !== "DISCUSSION") {
-          const nearbyBody = this.bodies.find((b) => dist(player, b) < 96);
-          const atBell = dist(player, { x: 640, y: 382 }) < 92 && this.phase === "CALM";
+          const nearbyBody = this.bodies.find(b => (!msg.bodyId || b.id === msg.bodyId) && dist(player, b) < 96
+            && !isOccludedByObstacle(player, b, this.obstacles)
+            && (this.phase !== "ORDEAL" || this.hazard !== "ROOTWAKE" || sharesRootCell(player, b)));
+          const availability = reportAvailability({ emergency: this.emergency, phase: this.phase, alive: player.alive, nearbyBody: !!nearbyBody, nearBell: dist(player, CENTER) < 92 });
           if (nearbyBody) {
-            this.startMeeting(`${nearbyBody.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, player.name);
-          } else if (atBell) {
+            this.startMeeting(`${nearbyBody.name.toUpperCase()} WAS FOUND AS A JELLY PUDDLE`, player.name, player.id);
+          } else if (!msg.bodyId && availability.allowed) {
             this.startMeeting("EMERGENCY MEETING CALLED", player.name);
+          } else {
+            this.sendTo(this.clients.get(playerId)!, { type: "ERROR_ALERT", message: msg.bodyId ? "That puddle is no longer visible within reporting reach." : availability.hint });
           }
         }
         break;
 
+      case "CANCEL_RITUAL":
+        this.ritualChallenges.delete(playerId);
+        break;
+      case "SET_DIFFICULTY":
+        if (this.state === "LOBBY" && player.isHost) { this.puzzleDifficulty = normalizeDifficulty(msg.difficulty); this.broadcast({ type: "RITUAL_SETTINGS", difficulty: this.puzzleDifficulty }); }
+        break;
+      case "SET_UTILITY":
+        if (this.state === "LOBBY") { this.utilities.select(playerId, msg.utility); this.syncUtility(playerId); }
+        break;
+      case "OPEN_RITUAL": {
+        const station = this.stations.find(value => value.id === msg.stationId);
+        if (this.state !== "PLAYING" || !player.alive || this.phase === "DISCUSSION" || msg.roundId !== this.roundId || !station
+          || !["ROOT", "MOON", "FIREFLY"].includes(station.puzzle ?? "") || dist(player, station) > 84 || this.completedStations.get(playerId)?.has(station.id)
+          || Date.now() < (this.ritualRetryAt.get(playerId) ?? 0)) {
+          this.sendTo(this.clients.get(playerId)!, { type: "RITUAL_CHALLENGE", stationId: msg.stationId, roundId: this.roundId, challenge: null, error: "Approach an available shrine and try again." }); break;
+        }
+        const key = `${playerId}:${station.id}`, attempt = (this.ritualAttempts.get(key) ?? 0) + 1;
+        this.ritualRetryAt.set(playerId, Date.now() + 250);
+        this.ritualAttempts.set(key, attempt);
+        const challenge = createRitual(station.puzzle as "ROOT" | "MOON" | "FIREFLY", this.puzzleDifficulty, this.layoutSeed + this.stations.indexOf(station), attempt);
+        if (this.phase === "ORDEAL" && this.stations[overgrownStationIndex(this.roundId, this.layoutSeed, this.stations.length)]?.id === station.id) {
+          challenge.minimumMs = 3000;
+          this.soundAt(station.x, station.y, "RITUAL");
+        }
+        this.ritualChallenges.set(playerId, { stationId: station.id, challenge, roundId: this.roundId, openedAt: Date.now() });
+        this.pairedRituals.release(playerId);
+        this.sendTo(this.clients.get(playerId)!, { type: "RITUAL_CHALLENGE", stationId: station.id, roundId: this.roundId, challenge });
+        break;
+      }
+      case "ANSWER_RITUAL": {
+        const entry = this.ritualChallenges.get(playerId);
+        if (!entry || entry.challenge.id !== msg.challengeId) break;
+        this.ritualChallenges.delete(playerId); // Every submitted answer spends the attempt, including incorrect answers.
+        const station = this.stations.find(value => value.id === entry.stationId)!;
+        if (msg.roundId !== this.roundId || entry.roundId !== this.roundId || Date.now() - entry.openedAt < (entry.challenge.minimumMs ?? 400) || !ritualAnswerIsCorrect(entry.challenge, msg.answer)
+          || !this.completeRitual(player, station.id, station.reward, msg.roundId)) {
+          this.ritualRetryAt.set(playerId, Date.now() + 1500);
+          this.sendTo(this.clients.get(playerId)!, { type: "RITUAL_FAILED", stationId: entry.stationId, roundId: this.roundId });
+        }
+        break;
+      }
+      case "USE_UTILITY": {
+        if (this.state !== "PLAYING" || !player.alive || this.phase !== "ORDEAL" || msg.roundId !== this.roundId || this.ritualChallenges.has(playerId)) { this.syncUtility(playerId, false); break; }
+        const from = { x: player.x, y: player.y };
+        const effect = this.utilities.use(playerId, player, msg.angle, Date.now(), this.obstacles, rootwakeStrength(this.phase, this.hazard, this.phaseTime) > .72, this.phaseTime);
+        if (effect?.kind === "WISP_STEP") {
+          player.x = effect.destination.x; player.y = effect.destination.y; player.vx = 0; player.vy = 0;
+          for (const [id, client] of this.clients) {
+            const viewer = this.players.get(id);
+            if (viewer?.alive && dist(viewer, from) <= HEARING_RANGE && !isOccludedByObstacle(viewer, from, this.obstacles) && (this.hazard !== "ROOTWAKE" || sharesRootCell(viewer, from))) this.sendTo(client, { type: "UTILITY_TRAIL", from, to: effect.destination });
+          }
+        }
+        this.syncUtility(playerId, !!effect, effect?.kind === "WISP_STEP" ? effect.destination : undefined);
+        break;
+      }
       case "TASK_UPDATE":
-        if (this.state === "PLAYING" && player.alive && this.phase === "CALM") {
-          const expectedReward = STATION_REWARDS.get(msg.stationId);
-          const completed = this.completedStations.get(player.id);
-          const charges = this.itemCharges.get(player.id);
-          if (
-            !expectedReward
-            || expectedReward !== msg.reward
-            || !completed
-            || !charges
-            || completed.has(msg.stationId)
-            || this.sealedStations.has(msg.stationId)
-            || (msg.roundId !== undefined && msg.roundId !== this.roundId)
-          ) {
-            this.syncGear(playerId, false, { stationId: msg.stationId });
-            break;
-          }
-          completed.add(msg.stationId);
-          charges[msg.reward] = Math.min(3, charges[msg.reward] + 1);
-          this.syncGear(playerId, true, { stationId: msg.stationId });
-          // No role, reward, or fake-task flag: a completion cue must not expose the Impostor.
-          this.broadcast({ type: "STATION_COMPLETED", stationId: msg.stationId, roundId: this.roundId, sequence: ++this.stationCompletionSequence });
-          if (player.role === "CREWMATE") {
-            this.sealedStations.add(msg.stationId);
-            this.taskProgress = Math.min(100, this.taskProgress + TASK_PROGRESS_REWARD);
-            this.broadcastWorld();
-            if (this.taskProgress >= 100) {
-              this.endMatch("CREW VICTORY — ALL MOON WARDS RESTORED");
-            }
-          }
-        } else this.syncGear(playerId, false, { stationId: msg.stationId });
+        // New interactive rituals must be answered through their issued challenge.
+        if (["ROOT", "MOON", "FIREFLY"].includes(this.stations.find(s => s.id === msg.stationId)?.puzzle ?? "")) this.syncGear(player.id, false, { stationId: msg.stationId });
+        else this.completeRitual(player, msg.stationId, msg.reward, msg.roundId);
         break;
 
       case "SEND_CHAT":
@@ -389,12 +538,7 @@ export class GameRoom {
         break;
 
       case "CAST_VOTE":
-        if (this.phase === "DISCUSSION" && player.alive && !this.meetingTally) {
-          if (this.votes.has(player.id) || (msg.targetId !== null && !this.players.get(msg.targetId)?.alive)) break;
-          this.votes.set(player.id, msg.targetId);
-          this.broadcast({ type: "VOTE_CAST_ACK", voterId: player.id });
-          this.checkVotesComplete();
-        }
+        this.castVote(player.id, msg.targetId);
         break;
 
       case "RESOLVE_MEETING":
@@ -409,30 +553,112 @@ export class GameRoom {
     }
   }
 
-  private syncGear(playerId: string, accepted: boolean, detail: { item?: ItemKind; stationId?: string }) {
+  private completeRitual(player: NetPlayer, stationId: string, reward: ItemKind, roundId = this.roundId) {
+    player.working = false;
+    const station = this.stations.find(station => station.id === stationId);
+    const completed = this.completedStations.get(player.id);
+    const charges = this.itemCharges.get(player.id);
+    if (this.state !== "PLAYING" || !player.alive || this.phase === "DISCUSSION" || roundId !== this.roundId
+      || !station || station.reward !== reward || dist(player, station) > STATION_INTERACTION_RANGE
+      || !completed || !charges || completed.has(stationId)) {
+      this.syncGear(player.id, false, { stationId });
+      return false;
+    }
+
+    completed.add(stationId);
+    this.publicSeals.add(stationId);
+    charges[reward] = Math.min(3, charges[reward] + 1);
+    this.utilities.earn(player.id);
+    this.syncUtility(player.id);
+    // A shared seal advances the ward only once, but never takes another player's personal rite away.
+    const hollow = player.role === "IMPOSTOR";
+    const wardens = [...this.players.values()].filter(p => p.alive && p.role === "CREWMATE").length;
+    const overgrown = this.stations[overgrownStationIndex(this.roundId, this.layoutSeed, this.stations.length)]?.id === stationId;
+    const progressGain = this.restorationLedger.claim(stationId, wardens, this.phase === "ORDEAL", hollow, this.startingHollows, overgrown);
+    if (progressGain) {
+      if (!hollow) this.sealedStations.add(stationId);
+      this.pendingWardDelta += progressGain;
+    }
+    this.syncGear(player.id, true, { stationId, wardProgressGain: progressGain });
+    // No player identity, role, reward, or fake-task flag in the public completion cue.
+    this.broadcast({ type: "STATION_COMPLETED", stationId, roundId: this.roundId, sequence: ++this.stationCompletionSequence });
+    // The public gauge changes on the same clock for every role, not at the
+    // instant a visible player finishes a shrine. No false progress is shown.
+    return true;
+  }
+
+  private syncGear(playerId: string, accepted: boolean, detail: { item?: ItemKind; stationId?: string; wardProgressGain?: number }) {
     const charges = this.itemCharges.get(playerId);
     const client = this.clients.get(playerId);
     if (!charges || !client) return;
     this.sendTo(client, {
       type: "GEAR_SYNC", charges: { ...charges }, accepted, roundId: this.roundId, ...detail,
-      stationCompleted: detail.stationId ? this.sealedStations.has(detail.stationId) || this.completedStations.get(playerId)?.has(detail.stationId) : undefined,
+      completedStations: Array.from(this.completedStations.get(playerId) ?? []),
+      stationCompleted: detail.stationId ? this.completedStations.get(playerId)?.has(detail.stationId) : undefined,
     });
   }
 
+  private syncAbility(playerId: string, accepted = true) {
+    const client = this.clients.get(playerId);
+    if (client) this.sendTo(client, { type: "ABILITY_STATE", accepted, used: this.abilityUsed.has(playerId), sightRemainingMs: this.phase === "ORDEAL" ? Math.max(0, (this.sightUntil.get(playerId) ?? 0) - Date.now()) : 0, roundId: this.roundId });
+  }
+
+  private syncUtility(playerId: string, accepted?: boolean, destination?: { x: number; y: number }) {
+    const client = this.clients.get(playerId);
+    if (client) this.sendTo(client, { type: "UTILITY_STATE", ...this.utilities.state(playerId, Date.now()), accepted, destination });
+  }
+
+  private soundAt(x: number, y: number, kind?: "RITUAL" | "WATCHROOT" | "ROOT_RIPPLE") {
+    // Real footsteps and lures deliberately have the same public payload. No role/source leak.
+    const cue = { id: `${this.roundId}-${++this.soundSequence}`, x, y, expiresAt: Date.now() + 1000, ...(kind ? { kind } : {}) };
+    for (const [id, client] of this.clients) {
+      const listener = this.players.get(id);
+      if (listener?.alive && dist(listener, cue) <= HEARING_RANGE && (this.phase !== "ORDEAL" || this.hazard !== "ROOTWAKE" || sharesRootCell(listener, cue))) this.sendTo(client, { type: "SOUND_CUE", cue });
+    }
+  }
+
+  private maybeFootstep(player: NetPlayer) {
+    if (this.phase !== "ORDEAL" || !player.alive) return;
+    const previous = this.footsteps.get(player.id);
+    if (!previous) { this.footsteps.set(player.id, { x: player.x, y: player.y, at: Date.now() }); return; }
+    if (Date.now() - previous.at < 500 || dist(previous, player) < 34) return;
+    this.footsteps.set(player.id, { x: player.x, y: player.y, at: Date.now() });
+    this.soundAt(player.x, player.y);
+  }
+
   private startMatch(botFill: boolean, targetCount: number) {
+    this.utilities.reset(); this.ritualChallenges.clear(); this.ritualAttempts.clear(); this.ritualRetryAt.clear();
+    this.pairedRituals.clear();
     this.state = "PLAYING";
     this.phase = "CALM";
-    this.phaseTime = 15;
+    this.phaseTime = CALM_SECONDS;
+    this.announceNextOrdeal();
     this.taskProgress = 0;
+    this.pendingWardDelta = 0;
+    this.restorationLedger.reset();
+    this.wardSettleTimer = 0;
+    this.emergency = initialEmergencyState();
+    this.strikeSpent.clear();
+    this.stealthUntil.clear(); this.stealthOrdeal.clear(); this.pendingBodies = []; this.ordealNumber = 0;
+    this.layoutSeed = Math.floor(Math.random() * 4294967296);
+    const layout = createMatchLayout(this.layoutSeed);
+    this.stations = layout.stations; this.obstacles = layout.obstacles;
     this.bodies = [];
     this.flares = [];
     this.killCooldownUntil = 0;
     this.killUsedThisOrdeal = false;
+    this.abilityUsed.clear();
+    this.sightUntil.clear();
+    this.echoes = [];
+    this.footsteps.clear();
     this.roundId = 1;
     this.stationCompletionSequence = 0;
     this.sealedStations.clear();
+    this.publicSeals.clear();
     this.completedStations.clear();
     this.itemCharges.clear();
+    this.botRituals.clear();
+    this.botLightUntil.clear();
     this.syncTimer = 0;
     this.worldSyncTimer = 0;
     for (const player of this.players.values()) {
@@ -448,12 +674,13 @@ export class GameRoom {
         const angle = (this.players.size / targetCount) * Math.PI * 2;
         this.players.set(botId, {
           id: botId,
-          name: BOT_NAMES[botIndex % BOT_NAMES.length],
+          name: availablePlayerName(BOT_NAMES[botIndex % BOT_NAMES.length], Array.from(this.players.values(), (p) => p.name)),
           color: availablePlayerColor("", Array.from(this.players.values(), (p) => p.color))!,
           hat: HATS[botIndex % HATS.length],
+          eyeStyle: EYE_STYLES[botIndex % EYE_STYLES.length],
           alive: true,
-          x: 640 + Math.cos(angle) * 160,
-          y: 384 + Math.sin(angle) * 100,
+          x: CENTER.x + Math.cos(angle) * 240,
+          y: CENTER.y + Math.sin(angle) * 150,
           vx: 0,
           vy: 0,
           angle: 0,
@@ -467,11 +694,19 @@ export class GameRoom {
       }
     }
 
-    // Assign roles secretly: exactly 1 Impostor
+    this.trueColors.clear();
+    this.mirrorBumpCooldowns.clear();
+    // Assign the configured Hollow team, then disclose allies only to that team.
     const playerList = Array.from(this.players.values());
-    const impostor = choose(playerList);
+    this.hollowCount = clampHollowCount(this.hollowCount, playerList.length);
+    const shuffled = [...playerList];
+    for (let i = shuffled.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]; }
+    const hollowIds = new Set(shuffled.slice(0, this.hollowCount).map(p => p.id));
+    this.startingHollows = this.hollowCount;
+    this.startingWardens = playerList.length - this.hollowCount;
     for (const p of playerList) {
-      p.role = p.id === impostor.id ? "IMPOSTOR" : "CREWMATE";
+      p.role = hollowIds.has(p.id) ? "IMPOSTOR" : "CREWMATE";
+      this.trueColors.set(p.id, p.color);
     }
 
     // Notify each human client privately with their assigned role
@@ -481,6 +716,10 @@ export class GameRoom {
       this.sendTo(client, {
         type: "MATCH_STARTED",
         role: p.role || "CREWMATE",
+        layoutSeed: this.layoutSeed,
+        hollowCount: this.hollowCount,
+        chaosMoonsway: this.chaosMoonsway,
+        ...(p.role === "IMPOSTOR" ? { hollowAllies: [...hollowIds] } : {}),
         players: playerList.map((player) => ({
           ...player,
           role: player.id === id ? player.role : undefined, // Keep role secret!
@@ -489,22 +728,87 @@ export class GameRoom {
     }
 
     this.lastTick = Date.now();
+    this.broadcastWorld();
     this.loopTimer = setInterval(() => this.tick(), 50); // 20Hz server tick
     this.loopTimer.unref?.();
   }
 
+  private restoreTrueColors() {
+    let changed = false;
+    for (const p of this.players.values()) {
+      const trueColor = this.trueColors.get(p.id);
+      if (trueColor && p.color !== trueColor) {
+        p.color = trueColor;
+        changed = true;
+      }
+    }
+    this.mirrorBumpCooldowns.clear();
+    if (changed) {
+      this.broadcast({
+        type: "SYNC_PLAYERS",
+        players: Array.from(this.players.values()).map((p) => ({ ...p, role: undefined })),
+      });
+    }
+  }
+
+  private checkMirrorPoolBumps(now = Date.now()) {
+    if (this.phase !== "ORDEAL" || this.hazard !== "MIRROR_POOL") return;
+    const living = Array.from(this.players.values()).filter((p) => p.alive);
+    let swapped = false;
+    for (let i = 0; i < living.length; i++) {
+      for (let j = i + 1; j < living.length; j++) {
+        const a = living[i];
+        const b = living[j];
+        if (dist(a, b) > MIRROR_BUMP_DISTANCE) continue;
+        const pairKey = a.id < b.id ? `${a.id}:${b.id}` : `${b.id}:${a.id}`;
+        if (now < (this.mirrorBumpCooldowns.get(pairKey) ?? 0)) continue;
+        this.mirrorBumpCooldowns.set(pairKey, now + MIRROR_BUMP_COOLDOWN_MS);
+        if (!this.trueColors.has(a.id)) this.trueColors.set(a.id, a.color);
+        if (!this.trueColors.has(b.id)) this.trueColors.set(b.id, b.color);
+        const temp = a.color;
+        a.color = b.color;
+        b.color = temp;
+        swapped = true;
+      }
+    }
+    if (swapped) {
+      this.broadcast({
+        type: "SYNC_PLAYERS",
+        players: Array.from(this.players.values()).map((p) => ({ ...p, role: undefined })),
+      });
+    }
+  }
+
   private resetStationsForRound() {
+    this.restorationLedger.reset();
+    this.ritualChallenges.clear(); this.utilities.roots = [];
+    this.pairedRituals.clear();
     this.roundId += 1;
     this.sealedStations.clear();
+    this.publicSeals.clear();
     for (const completed of this.completedStations.values()) completed.clear();
+    this.botRituals.clear();
+    for (const id of this.clients.keys()) this.syncGear(id, true, {});
     // Earned gear and team progress carry forward; only the shrine locks reset.
   }
 
-  private executeKill(victim: NetPlayer, killer: NetPlayer) {
+  private announceNextOrdeal() {
+    this.hazard = nextHazard(this.hazard);
+    this.ordealSeed = Math.floor(Math.random() * 4294967296);
+  }
+
+  private strikeState(id: string) {
+    return { spent: this.strikeSpent.has(id), stealthRemainingMs: Math.max(0, (this.stealthUntil.get(id) ?? 0) - Date.now()), stealthOrdealsLeft: Math.max(0, (this.stealthOrdeal.get(id) ?? 0) - this.ordealNumber) };
+  }
+
+  private executeKill(victim: NetPlayer, killer: NetPlayer, stealth = false) {
     victim.alive = false;
     victim.vx = 0;
     victim.vy = 0;
+    victim.working = false;
     this.killUsedThisOrdeal = true;
+    this.strikeSpent.add(killer.id);
+    if (stealth) { this.stealthUntil.set(killer.id, Date.now() + STEALTH_COOLDOWN_SECONDS * 1000); this.stealthOrdeal.set(killer.id, this.ordealNumber + STEALTH_ORDEAL_LOCKOUT); }
     this.killCooldownUntil = Date.now() + KILL_COOLDOWN_MS;
 
     const body: NetBody = {
@@ -515,9 +819,8 @@ export class GameRoom {
       name: victim.name,
       age: 0,
     };
-    this.bodies.push(body);
-
-    this.broadcast({ type: "BODY_SPAWNED", body });
+    if (stealth) this.pendingBodies.push({ body: { ...body, delayed: true }, at: Date.now() + STEALTH_BODY_DELAY_SECONDS * 1000 });
+    else { this.bodies.push(body); this.broadcast({ type: "BODY_SPAWNED", body }); }
 
     // Send private death reveal only to the victim
     const victimClient = this.clients.get(victim.id);
@@ -532,17 +835,26 @@ export class GameRoom {
     this.checkWinConditions();
   }
 
-  private startMeeting(reason: string, reporter: string) {
+  private startMeeting(reason: string, reporter: string, bodyReporterId: string | null = null) {
+    this.ritualChallenges.clear(); this.utilities.roots = [];
+    // A body report may end the first Ordeal early; it still counts as ended.
+    if (this.phase === "ORDEAL") this.emergency = finishFirstOrdeal(this.emergency);
+    this.pairedRituals.clear();
     this.clearMeetingTimers();
+    this.restoreTrueColors();
     this.phase = "DISCUSSION";
     this.meetingReason = reason;
     this.meetingReporter = reporter;
+    this.votingOpensAt = Date.now() + MEETING_DISCUSSION_MS;
+    this.meetingBodyReporterId = bodyReporterId;
     this.meetingTally = null;
     this.votes.clear();
+    this.voteReceipts.clear();
     for (const player of this.players.values()) {
       player.vx = 0;
       player.vy = 0;
       player.flashlight = false;
+      player.working = false;
     }
 
     const candidates = Array.from(this.players.values()).map((p) => ({
@@ -552,23 +864,24 @@ export class GameRoom {
 
     this.broadcast({
       type: "MEETING_CALLED",
+      discussionMs: MEETING_DISCUSSION_MS,
+      durationMs: this.meetingSeconds * 1000,
       reason,
       reporter,
+      bodyReporterId,
       candidates,
     });
 
-    // Simulate AI bot votes after 3–6 seconds
+    // Bots also wait for discussion, then take a little time to choose.
     const livingBots = Array.from(this.players.values()).filter((p) => p.alive && p.isAi);
     for (const bot of livingBots) {
       this.scheduleMeeting(() => {
         if (this.phase === "DISCUSSION" && !this.meetingTally) {
           const candidatesToVote = Array.from(this.players.values()).filter((p) => p.alive && p.id !== bot.id);
           const votePick = Math.random() < 0.25 ? null : choose(candidatesToVote)?.id || null;
-          this.votes.set(bot.id, votePick);
-          this.broadcast({ type: "VOTE_CAST_ACK", voterId: bot.id });
-          this.checkVotesComplete();
+          this.castVote(bot.id, votePick);
         }
-      }, 2500 + Math.random() * 3000);
+      }, MEETING_DISCUSSION_MS + 2500 + Math.random() * 3000);
     }
     this.scheduleMeeting(() => {
       if (this.phase !== "DISCUSSION" || this.meetingTally) return;
@@ -576,7 +889,35 @@ export class GameRoom {
         if (player.alive && !this.votes.has(player.id)) this.votes.set(player.id, null);
       }
       this.concludeMeeting();
-    }, 45_000);
+    }, this.meetingSeconds * 1000);
+  }
+
+  private castVote(playerId: string, targetId: string | null) {
+    const player = this.players.get(playerId);
+    const client = this.clients.get(playerId);
+    const reply = (accepted: boolean, receipt: VoteReceipt) => {
+      if (client) this.sendTo(client, { type: "VOTE_RECEIPT", accepted, ...receipt });
+    };
+    if (this.phase !== "DISCUSSION" || !player?.alive || this.meetingTally) return;
+    if (Date.now() < this.votingOpensAt) {
+      reply(false, { targetId: null, shifted: false });
+      return;
+    }
+    if (this.votes.has(playerId)) {
+      reply(true, this.voteReceipts.get(playerId) ?? { targetId: this.votes.get(playerId) ?? null, shifted: false });
+      return; // A repeated click or packet cannot reroll a ballot.
+    }
+    if (targetId !== null && !this.players.get(targetId)?.alive) {
+      reply(false, { targetId: null, shifted: false });
+      return;
+    }
+    const livingIds = [...this.players.values()].filter(candidate => candidate.alive).map(candidate => candidate.id);
+    const receipt = resolveReporterVote(playerId, targetId, livingIds, this.meetingBodyReporterId, Math.random, this.chaosMoonsway);
+    this.votes.set(playerId, receipt.targetId);
+    this.voteReceipts.set(playerId, receipt);
+    reply(true, receipt); // Private; public acknowledgements never disclose targets.
+    this.broadcast({ type: "VOTE_CAST_ACK", voterId: playerId });
+    this.checkVotesComplete();
   }
 
   private scheduleMeeting(callback: () => void, delay: number) {
@@ -619,6 +960,7 @@ export class GameRoom {
         targetId: p.id,
         targetName: p.name,
         targetColor: p.color,
+        targetEyeStyle: normalizeEyeStyle(p.eyeStyle),
         votes: tallyMap.get(p.id) || 0,
         isTop: (tallyMap.get(p.id) || 0) === maxVotes,
       })),
@@ -638,7 +980,7 @@ export class GameRoom {
       const ejected = this.players.get(ejectedId);
       if (ejected) {
         ejected.alive = false;
-        verdict = `${ejected.name} was ejected — ${ejected.role === "IMPOSTOR" ? "THE IMPOSTOR" : "CREWMATE"}`;
+        verdict = ejectionVerdict(ejected.name, ejected.role ?? "CREWMATE");
       }
     }
 
@@ -653,14 +995,20 @@ export class GameRoom {
   }
 
   private resolveMeeting() {
+    if (this.phase !== "DISCUSSION" || !this.meetingTally) return;
     this.clearMeetingTimers();
+    this.meetingBodyReporterId = null;
+    this.voteReceipts.clear();
     this.bodies = [];
+    this.pendingBodies = [];
     this.flares = [];
     this.meetingTally = null;
 
     if (!this.checkWinConditions()) {
+      this.emergency = afterMeeting(this.emergency);
       this.phase = "CALM";
-      this.phaseTime = 15;
+      this.phaseTime = CALM_SECONDS;
+      this.announceNextOrdeal();
       this.killCooldownUntil = 0;
       this.resetStationsForRound();
       this.broadcastWorld();
@@ -669,18 +1017,18 @@ export class GameRoom {
 
   private checkWinConditions(): boolean {
     if (this.state !== "PLAYING") return false;
-    const impostor = Array.from(this.players.values()).find((p) => p.role === "IMPOSTOR");
+    const hollows = Array.from(this.players.values()).filter((p) => p.role === "IMPOSTOR" && p.alive);
     const livingCrew = Array.from(this.players.values()).filter((p) => p.role === "CREWMATE" && p.alive).length;
 
-    if (!impostor?.alive) {
-      this.endMatch("CREW VICTORY — THE IMPOSTOR WAS EJECTED");
+    if (hollows.length === 0) {
+      this.endMatch("CREW VICTORY — ALL HOLLOWS WERE EXPOSED");
       return true;
     }
     if (this.taskProgress >= 100) {
       this.endMatch("CREW VICTORY — ALL MOON WARDS RESTORED");
       return true;
     }
-    if (livingCrew <= 1) {
+    if (hollowVictory(livingCrew, hollows.length, this.startingWardens, this.startingHollows)) {
       this.endMatch("IMPOSTOR VICTORY — CREW AT PARITY");
       return true;
     }
@@ -714,12 +1062,27 @@ export class GameRoom {
     const elapsed = Math.max(0, Math.min((now - this.lastTick) / 1000, 60));
     const dt = Math.min(elapsed, 0.1);
     this.lastTick = now;
+    this.emergency = advanceEmergency(this.emergency, elapsed, this.phase);
+    if (this.phase !== "DISCUSSION") {
+      this.wardSettleTimer += elapsed;
+      if (this.wardSettleTimer >= WARD_SETTLE_SECONDS) {
+        this.wardSettleTimer %= WARD_SETTLE_SECONDS;
+        if (this.settleWards()) return;
+      }
+      const due = this.pendingBodies.filter(entry => entry.at <= now);
+      this.pendingBodies = this.pendingBodies.filter(entry => entry.at > now);
+      for (const entry of due) { this.bodies.push(entry.body); this.broadcast({ type: "BODY_SPAWNED", body: entry.body }); }
+    }
 
     // AI Bots movement
     if (this.phase !== "DISCUSSION") {
       this.tickBots(dt);
+      this.tickPairedRituals(dt, now);
+      for (const root of this.utilities.tick([...this.players.values()], now)) this.soundAt(root.x, root.y, "WATCHROOT");
     }
     if (this.state !== "PLAYING") return;
+
+    this.checkMirrorPoolBumps(now);
 
     const previousPhase = this.phase;
     // World timer
@@ -730,20 +1093,35 @@ export class GameRoom {
           this.phase = "COUNTDOWN";
           this.phaseTime += 3;
         } else if (this.phase === "COUNTDOWN") {
+          this.restoreTrueColors();
           this.phase = "ORDEAL";
-          this.phaseTime += 10;
-          this.hazard = choose<Hazard>(["BLACKOUT", "FOG", "MOONGLARE", "ROOTWAKE", "PHANTOMS"]);
+          this.phaseTime += ordealDuration(this.hazard);
+          this.abilityUsed.clear();
+          this.sightUntil.clear();
+          this.footsteps.clear();
           this.killCooldownUntil = 0;
           this.killUsedThisOrdeal = false;
+          this.strikeSpent.clear(); this.ordealNumber += 1;
         } else if (this.phase === "ORDEAL") {
+          this.restoreTrueColors();
+          this.emergency = finishFirstOrdeal(this.emergency);
           this.phase = "CALM";
-          this.phaseTime += 15;
+          this.phaseTime += CALM_SECONDS;
+          this.announceNextOrdeal();
           this.resetStationsForRound();
         }
       }
     }
 
     // Flares
+    if (this.phase !== "ORDEAL") { this.echoes = []; this.sightUntil.clear(); }
+    this.echoes = this.echoes.filter(echo => echo.until > now);
+    for (const echo of this.echoes) {
+      if (now >= echo.nextAt) {
+        const point = lurePoint(echo, echo.angle, 1 - (echo.until - now) / (ECHO_SECONDS * 1000), this.hazard === "ROOTWAKE");
+        this.soundAt(point.x, point.y); echo.nextAt = now + 360;
+      }
+    }
     this.flares = this.flares.filter((f) => (f.life -= elapsed) > 0);
     for (const body of this.bodies) body.age += elapsed;
 
@@ -763,6 +1141,7 @@ export class GameRoom {
           vy: p.vy,
           angle: p.angle,
           flashlight: p.flashlight,
+          ...(p.working ? { working: true } : {}),
           inputSeq: p.inputSeq,
         })),
       });
@@ -771,49 +1150,143 @@ export class GameRoom {
     if (previousPhase !== this.phase || this.worldSyncTimer >= 0.2) this.broadcastWorld();
   }
 
+  private settleWards() {
+    this.taskProgress = Math.max(0, Math.min(100, Math.round((this.taskProgress + this.pendingWardDelta) * 10) / 10));
+    this.pendingWardDelta = 0;
+    return this.checkWinConditions();
+  }
+
   private broadcastWorld() {
     this.worldSyncTimer = 0;
-    this.broadcast({ type: "SYNC_WORLD", serverTime: Date.now(), roundId: this.roundId, phase: this.phase, time: Math.max(0, this.phaseTime), hazard: this.hazard, taskProgress: this.taskProgress, bodies: this.bodies, flares: this.flares, completedStations: Array.from(this.sealedStations) });
+    this.broadcast({ type: "SYNC_WORLD", watchroots: this.utilities.roots, emergency: { ...this.emergency }, serverTime: Date.now(), roundId: this.roundId, ordealSeed: this.ordealSeed, phase: this.phase, time: Math.max(0, this.phaseTime), hazard: this.hazard, taskProgress: this.taskProgress, bodies: this.bodies, flares: this.flares, completedStations: Array.from(this.publicSeals) });
+    for (const player of this.players.values()) if (player.role === "IMPOSTOR") { this.syncAbility(player.id); const client = this.clients.get(player.id); if (client) this.sendTo(client, { type: "STRIKE_STATE", ...this.strikeState(player.id) }); }
   }
 
   private tickBots(dt: number) {
     for (const bot of this.players.values()) {
       if (!bot.isAi || !bot.alive) continue;
-      // Basic smooth wander
-      if (Math.random() < dt * 0.4) {
+      // Calm is useful preparation: travel to a real shrine, stop, and finish a visible rite.
+      const preparing = this.phase === "CALM" || this.phase === "COUNTDOWN";
+      const doingRitual = preparing && this.tickBotRitual(bot, dt);
+      if (this.state !== "PLAYING") return;
+      if (!preparing) {
+        bot.working = false;
+        const ritual = this.botRituals.get(bot.id);
+        if (ritual) ritual.dwell = 0;
+      }
+      if (!doingRitual && (Math.hypot(bot.vx, bot.vy) < 1 || Math.random() < dt * 0.4)) {
         const angle = Math.random() * Math.PI * 2;
         const speed = this.phase === "ORDEAL" ? 140 : 100;
         bot.vx = Math.cos(angle) * speed;
         bot.vy = Math.sin(angle) * speed;
       }
-      const nextX = Math.max(ROOM.left + 36, Math.min(ROOM.right - 36, bot.x + bot.vx * dt));
-      const nextY = Math.max(ROOM.top + 48, Math.min(ROOM.bottom - 32, bot.y + bot.vy * dt));
-      const next = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72
-        ? keepInRootCell(bot, { x: nextX, y: nextY })
+      const { x: nextX, y: nextY } = clampWorldPoint(bot.x + bot.vx * dt, bot.y + bot.vy * dt);
+      const impostorPhasing = this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && bot.role === "IMPOSTOR";
+      const rootChecked = rootwakeStrength(this.phase, this.hazard, this.phaseTime) > 0.72 && !impostorPhasing
+        ? rootwakeMove(bot, { x: nextX, y: nextY }, this.phaseTime)
         : { x: nextX, y: nextY };
+      const next = resolveObstaclePosition(rootChecked.x, rootChecked.y, 22, this.obstacles);
+      if (impostorPhasing && !sharesRootCell(bot, next)) this.soundAt(next.x, next.y, "ROOT_RIPPLE");
       if (next.x !== nextX) bot.vx *= -0.2;
       if (next.y !== nextY) bot.vy *= -0.2;
       bot.x = next.x;
       bot.y = next.y;
-
-      // Bot auto-repairs in Calm
-      if (this.phase === "CALM" && bot.role === "CREWMATE" && Math.random() < dt * 0.08) {
-        this.taskProgress = Math.min(100, this.taskProgress + 1.2);
-        this.checkWinConditions();
-      }
+      if (Math.hypot(bot.vx, bot.vy) > 1) bot.angle = Math.atan2(bot.vy, bot.vx);
+      this.maybeFootstep(bot);
+      this.tickBotGear(bot);
 
       // Bot Impostor hunting
-      if (this.phase === "ORDEAL" && bot.role === "IMPOSTOR" && !this.killUsedThisOrdeal && Date.now() >= this.killCooldownUntil && this.phaseTime < 8.5) {
+      if (this.phase === "ORDEAL" && bot.role === "IMPOSTOR" && !this.strikeSpent.has(bot.id) && this.phaseTime < ordealDuration(this.hazard) - 1.5) {
         const victim = Array.from(this.players.values()).find((p) =>
           p.alive
           && p.role === "CREWMATE"
           && dist(bot, p) < 65
-          && (this.hazard !== "ROOTWAKE" || sharesRootCell(bot, p))
         );
         if (victim) {
           this.executeKill(victim, bot);
         }
       }
+    }
+  }
+
+  private tickBotRitual(bot: NetPlayer, dt: number) {
+    const completed = this.completedStations.get(bot.id);
+    if (!completed) return false;
+    let ritual = this.botRituals.get(bot.id);
+    if (!ritual || completed.has(ritual.stationId)) {
+      const target = this.stations.filter(station => !completed.has(station.id)).sort((a, b) =>
+        Number(this.sealedStations.has(a.id)) - Number(this.sealedStations.has(b.id)) || dist(bot, a) - dist(bot, b))[0];
+      if (!target) { bot.working = false; return false; }
+      ritual = { stationId: target.id, route: planRoute(bot, target, false, this.obstacles), dwell: 0 };
+      this.botRituals.set(bot.id, ritual);
+    }
+    const station = this.stations.find(station => station.id === ritual.stationId)!;
+    if (dist(bot, station) <= 82) {
+      bot.vx = 0;
+      bot.vy = 0;
+      bot.working = true;
+      if ([...this.pairedRituals.intents].some(([id, intent]) => id !== bot.id && intent.stationId === station.id && intent.until > Date.now())) {
+        this.pairedRituals.hold(bot.id, station.id, this.roundId, Date.now());
+        return true;
+      }
+      ritual.dwell += Math.min(dt, 0.1);
+      if (ritual.dwell >= BOT_RITUAL_SECONDS) {
+        this.completeRitual(bot, station.id, station.reward);
+        this.botRituals.delete(bot.id);
+      }
+      return true;
+    }
+    ritual.dwell = 0;
+    bot.working = false;
+    while (ritual.route.length > 1 && dist(bot, ritual.route[0]) < 12) ritual.route.shift();
+    const next = ritual.route[0];
+    if (!next) { bot.vx = 0; bot.vy = 0; return true; }
+    const distance = Math.max(1, dist(bot, next));
+    const speed = Math.min(130, distance / Math.max(dt, 0.001));
+    bot.vx = (next.x - bot.x) / distance * speed;
+    bot.vy = (next.y - bot.y) / distance * speed;
+    return true;
+  }
+
+  private tickPairedRituals(dt: number, now: number) {
+    const actors = [...this.players.values()].filter(player => player.isAi || this.clients.get(player.id)?.readyState === 1);
+    const result = this.pairedRituals.tick(actors, this.stations, (id, stationId) => this.completedStations.get(id)?.has(stationId) ?? true, this.roundId, now, dt);
+    for (const [id, intent] of this.pairedRituals.intents) if (this.players.get(id)?.isAi)
+      this.pairedRituals.autoPulse(id, intent.stationId, this.roundId, now);
+    for (const { playerId, ...ritual } of result.updates) {
+      if (ritual.nextPlayerId && this.players.get(ritual.nextPlayerId)?.isAi)
+        this.pairedRituals.pulse(ritual.nextPlayerId, ritual.stationId, ritual.rune ?? 0, this.roundId, now);
+      const client = this.clients.get(playerId);
+      if (client) this.sendTo(client, { type: "PAIR_RITUAL_STATE", ritual });
+    }
+    for (const sound of result.sounds) this.soundAt(sound.x, sound.y, "RITUAL");
+    for (const completion of result.completions) {
+      const actor = this.players.get(completion.playerId), station = this.stations.find(station => station.id === completion.stationId);
+      if (actor && station) this.completeRitual(actor, station.id, station.reward);
+    }
+  }
+
+  private tickBotGear(bot: NetPlayer) {
+    const now = Date.now();
+    if (this.phase !== "ORDEAL") {
+      bot.flashlight = false;
+      this.botLightUntil.delete(bot.id);
+      return;
+    }
+    const charges = this.itemCharges.get(bot.id);
+    const usedLight = this.botLightUntil.has(bot.id);
+    bot.flashlight = now < (this.botLightUntil.get(bot.id) ?? 0);
+    if (!charges || usedLight || this.phaseTime > ordealDuration(this.hazard) - 1.5) return;
+    if ((this.hazard === "BLACKOUT" || this.hazard === "FOG") && charges.FLASHLIGHT > 0) {
+      charges.FLASHLIGHT -= 1;
+      bot.flashlight = true;
+      this.botLightUntil.set(bot.id, now + 4000);
+    } else if (charges.FLARE > 0 && (this.hazard === "BLACKOUT" || this.hazard === "FOG" || this.hazard === "MOONGLARE")) {
+      charges.FLARE -= 1;
+      this.botLightUntil.set(bot.id, now);
+      const flare = { x: bot.x, y: bot.y, life: 5, owner: bot.id };
+      this.flares.push(flare);
+      this.broadcast({ type: "FLARE_SPAWNED", flare });
     }
   }
 
@@ -903,9 +1376,12 @@ export class GameServerRegistry {
           hostName: host?.name || "Warden",
           hostColor: host?.color || COLORS[0],
           hostHat: host?.hat || "antlers",
+          hostEyeStyle: normalizeEyeStyle(host?.eyeStyle),
           playerCount: room.players.size,
           targetPlayers: room.targetPlayers,
           botFill: room.botFill,
+          hollowCount: room.hollowCount,
+          chaosMoonsway: room.chaosMoonsway,
         });
       }
     }

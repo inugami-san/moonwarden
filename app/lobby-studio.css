@@ -77,10 +77,19 @@
 .moon-studio .preview-name { color: #7c8e75; font-size: 7px; }
 .moon-studio .preview-warden.is-you .preview-name { color: #54704d; background: #e5eddd; }
 .moon-studio .preview-warden[aria-pressed="true"] .preview-name { color: #365b3d; }
-.moon-studio .studio-view-warden .preview-warden:not(.is-you) { display: none; }
-.moon-studio .studio-view-warden .preview-warden.is-you { flex: none; width: 100%; height: 100%; justify-content: center; }
-.moon-studio .studio-view-warden .is-you .slime-avatar { width: clamp(225px, 32vh, 306px); height: clamp(250px, 36vh, 340px); }
-.moon-studio .studio-view-warden .is-you .preview-name { display: none; }
+.moon-studio .studio-view-warden .preview-warden:not(.is-you) {
+  flex: 0 0 0%;
+  max-width: 0;
+  padding: 0;
+  margin: 0;
+  opacity: 0;
+  transform: scale(0.45) translateY(22px);
+  pointer-events: none;
+  overflow: hidden;
+}
+.moon-studio .studio-view-warden .preview-warden.is-you { flex: 1 1 100%; max-width: 100%; width: 100%; height: 100%; justify-content: center; }
+.moon-studio .studio-view-warden .is-you .slime-avatar { width: clamp(220px, 31vh, 296px); height: clamp(244px, 35vh, 330px); }
+.moon-studio .studio-view-warden .is-you .preview-name { opacity: 0; transform: translateY(6px) scale(0.85); pointer-events: none; height: 0; margin: 0; padding: 0; overflow: hidden; }
 .moon-studio .preview-dialogue { position: absolute; top: auto; bottom: 98px; left: 50%; translate: -50% 0; margin: 0; max-width: 96%; min-height: 0; padding: 9px 13px; border: 1px solid #e0e7d9; border-radius: 11px 11px 11px 3px; color: #6c7f65; background: #fbfdf8ed; font-size: 10px; box-shadow: 0 5px 15px #49644306; }
 .moon-studio .preview-dialogue b { color: #52704c; }
 .moon-studio .preview-weather { position: absolute; left: 0; right: 0; bottom: 47px; gap: 5px; margin: 0; }
@@ -115,23 +124,30 @@
 .moon-studio .mp-field::placeholder { color: #a3b095; }
 .moon-studio .mp-field:focus { border-color: #93b18b; box-shadow: 0 0 0 3px #93b18b15; }
 .moon-studio .mp-code-entry-form .mp-code-input { min-height: 36px; margin: 0; border-color: #dae2cf; background: #fff; color: #48674d; font-size: 11px; }
-.moon-studio .home-wardrobe { border-color: #e0e7d8; border-radius: 11px; background: #fdfefb; }
-.moon-studio .home-wardrobe summary { gap: 8px; padding: 11px 10px; }
-.moon-studio .home-wardrobe summary small { color: #95a189; font-size: 6px; }
-.moon-studio .home-wardrobe summary strong { color: #4d6348; font-size: 12px; }
-.moon-studio .home-wardrobe summary em { color: #91a086; font-size: 8px; }
-.moon-studio .home-wardrobe summary > b { color: #819373; font-size: 7px; white-space: nowrap; }
-.moon-studio .home-wardrobe .mp-customizer-card { display: block; margin: 0; padding: 0 11px 12px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.moon-studio .field-label { color: #6c805d; font-size: 8px; letter-spacing: .04em; }
-.moon-studio .field-label span { color: #91a183; font-size: 8px; }
-.moon-studio .mp-palette { gap: 6px; margin: 9px 0 15px; }
-.moon-studio .mp-color-btn { width: 25px; height: 25px; border: 3px solid #fdfefb; box-shadow: 0 0 0 1px #dce5d5; }
-.moon-studio .mp-color-btn.active { box-shadow: 0 0 0 2px #83a272; }
-.moon-studio .mp-hat-btn { background: #f4f6ef; border-color: #e4e9dc; color: #93a085; font-size: 6px; padding: 8px 3px 6px; gap: 6px; }
-.moon-studio .mp-hat-btn.active { background: #edf3e1; border-color: #acbf92; color: #64834b; box-shadow: none; }
-.moon-studio .mp-hat-btn .hat-btn-preview { width: 31px; height: 19px; }
-.moon-studio .mp-random-btn { margin-top: 11px; background: #f6f8f0; border-color: #dbe5ce; color: #789063; font-size: 8px; padding: 8px; }
-.moon-studio .mp-random-btn:hover { background: #e6efdb; border-color: #b7cba1; color: #526a44; }
+.moon-studio .home-wardrobe { border: 1px solid #d5e2c6; border-radius: 13px; background: #f8fbf4; box-shadow: 0 4px 12px #4c64420a; overflow: hidden; }
+.moon-studio .solo-wardrobe { margin: 12px 0 16px; }
+.moon-studio .home-wardrobe summary, .moon-studio .wardrobe-summary-bar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 11px 12px; background: #eff5e7; border-bottom: 1px solid #dde8d0; }
+.moon-studio .wardrobe-summary-bar > span { display: grid; gap: 2px; min-width: 0; }
+.moon-studio .home-wardrobe summary small, .moon-studio .wardrobe-summary-bar small { color: #687e58; font: 700 8px var(--font-geist-mono), monospace; letter-spacing: .08em; }
+.moon-studio .home-wardrobe summary strong, .moon-studio .wardrobe-summary-bar strong { color: #355034; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.moon-studio .home-wardrobe summary em, .moon-studio .wardrobe-summary-bar em { color: #5f7550; font-size: 10px; font-style: normal; }
+.moon-studio .home-wardrobe summary > b { color: #6b8057; font-size: 8px; white-space: nowrap; }
+.moon-studio .wardrobe-surprise-pill { padding: 7px 10px; border: 1px solid #c3d6b0; border-radius: 8px; background: #fff; color: #466639; font: 700 9px var(--font-geist-mono), monospace; letter-spacing: .04em; cursor: pointer; white-space: nowrap; transition: background .15s, border-color .15s, transform .12s; }
+.moon-studio .wardrobe-surprise-pill:hover { background: #e5f0d6; border-color: #9bb980; transform: translateY(-1px); }
+.moon-studio .home-wardrobe .mp-customizer-card { display: block; margin: 0; padding: 4px 12px 13px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.moon-studio .field-label { color: #526944; font-size: 9px; font-weight: 700; letter-spacing: .05em; }
+.moon-studio .field-label span { color: #6a8059; font-size: 9px; }
+.moon-studio .mp-palette { gap: 7px; margin: 8px 0 14px; }
+.moon-studio .mp-color-btn { position: relative; display: grid; place-items: center; width: 29px; height: 29px; border: 2.5px solid #fdfefb; box-shadow: 0 0 0 1px #c9d6be, 0 2px 5px #2e422914; cursor: pointer; }
+.moon-studio .mp-color-btn:hover:not(:disabled) { transform: scale(1.08); }
+.moon-studio .mp-color-btn.active { transform: scale(1.1); border-color: #fff; box-shadow: 0 0 0 2.5px #4c723c, 0 4px 8px #33522726; }
+.moon-studio .mp-color-btn .color-check { color: #16231a; font-size: 12px; font-weight: 900; line-height: 1; text-shadow: 0 0 4px #fff, 0 0 2px #fff; pointer-events: none; }
+.moon-studio .mp-hat-btn { background: #f1f5ea; border-color: #d6e1c9; color: #5b6f4c; font-size: 8px; padding: 8px 4px 7px; gap: 6px; }
+.moon-studio .mp-hat-btn:hover { background: #e8f0dc; border-color: #b8cca3; color: #3d5432; }
+.moon-studio .mp-hat-btn.active { background: #e2eed1; border-color: #7ea362; color: #365428; box-shadow: 0 0 0 1px #7ea36244; }
+.moon-studio .mp-hat-btn .hat-btn-preview { width: min(72px, 100%); height: 54px; }
+.moon-studio .mp-random-btn { margin-top: 11px; background: #eff5e6; border-color: #c8d9b5; color: #4e6b3d; font-size: 9px; font-weight: 700; padding: 9px; }
+.moon-studio .mp-random-btn:hover { background: #e1eed0; border-color: #9ebc82; color: #354f27; }
 .moon-studio .mp-open-rooms { padding: 11px; background: #f5f7ef; border-color: #e1e7d8; }
 .moon-studio .mp-open-rooms .field-label { font-size: 7px; }
 .moon-studio .mp-open-rooms .field-label span { font-size: 6px; color: #8b9c7c; margin-left: 6px; }
@@ -144,12 +160,12 @@
 .moon-studio .open-room-join-btn { border-color: #c5d7b0; background: #eaf2dd; color: #63814b; font-size: 8px; }
 .moon-studio .lobby-footer { justify-content: center; flex-wrap: wrap; min-height: 0; gap: 16px; padding: 0 10px; border: 0; background: transparent; color: #99a58d; font-size: 6px; letter-spacing: .04em; }
 .moon-studio button:focus-visible, .moon-studio summary:focus-visible, .moon-studio input:focus-visible { outline: 2px solid #7b9d65; outline-offset: 3px; }
-.moon-studio .solo-practice-note, .moon-studio .role-note { color: #829476; font-size: 11px; }
+.moon-studio .solo-practice-note, .moon-studio .role-note { color: #687b5c; font-size: 11px; }
 .moon-studio .role-switch { background: #f1f5e9; border-color: #dce7cf; }
-.moon-studio .role-switch button { color: #7e916e; font-size: 8px; }
+.moon-studio .role-switch button { color: #687c59; font-size: 8px; }
 .moon-studio .role-switch button.active { color: #fff; background: #5e8052; box-shadow: none; }
 .moon-studio .role-switch button:last-child.active { background: #b57b75; }
-.moon-studio .console-log, .moon-studio .range-labels { color: #92a37f; }
+.moon-studio .console-log, .moon-studio .range-labels { color: #7c8e69; }
 .moon-studio .player-range { accent-color: #7c9d64; }
 .moon-studio .puzzle-feedback.error { color: #a45249; background: #fff1e9; border-color: #ebd0c1; }
 .moon-studio .lobby-reconnect { background: #fff6e8; color: #9b6d44; border-color: #e4cfaa; }
@@ -158,9 +174,11 @@
 .moon-studio .room-code-banner { background: #eff5e6; border-color: #d9e5cb; }
 .moon-studio .room-code-display small { color: #7a9464; }
 .moon-studio .room-code-row strong { color: #466837; text-shadow: none; }
-.moon-studio .inroom-profile-bar, .moon-studio .inroom-editor { background: #f5f8f0; border-color: #dce8ce; }
-.moon-studio .inroom-profile-summary strong { color: #4c6742; }
-.moon-studio .inroom-profile-summary small, .moon-studio .inroom-profile-summary span { color: #889d76; }
+.moon-studio .inroom-profile-bar, .moon-studio .inroom-wardrobe-drawer { background: #f5f8f0; border-color: #cfe0be; color: #3d553e; box-shadow: 0 4px 12px #4c64420a; }
+.moon-studio .inroom-wardrobe-drawer .mp-field { margin-top: 0; background: #fff; border-color: #cfe0be; color: #355034; }
+.moon-studio .inroom-wardrobe-drawer .mp-random-btn { margin-top: 0; }
+.moon-studio .inroom-profile-summary strong { color: #355034; font-size: 14px; }
+.moon-studio .inroom-profile-summary small, .moon-studio .inroom-profile-summary span { color: #657c54; }
 .moon-studio .warden-slot-card { background: #f3f7ec; border-color: #dae5ce; }
 .moon-studio .warden-slot-card.is-you { background: #eaf2de; border-color: #a9c28d; }
 .moon-studio .slot-card-meta .roster-name { color: #536e46; }
@@ -189,12 +207,12 @@
 .moon-studio .home-gateway-intro p, .moon-studio .mp-actions-grid .mp-card-desc { font-size: 11px; color: #6f8061; }
 .moon-studio .mp-card-header small { font-size: 7px; color: #728363; }
 .moon-studio .mp-btn-primary, .moon-studio .mp-btn-secondary { font-size: 10px; }
-.moon-studio .field-label, .moon-studio .field-label span { font-size: 9px; color: #6b8057; }
-.moon-studio .home-wardrobe summary small { font-size: 7px; color: #7b8d69; }
-.moon-studio .home-wardrobe summary em { font-size: 9px; color: #7a8b68; }
+.moon-studio .field-label, .moon-studio .field-label span { font-size: 9px; color: #526944; }
+.moon-studio .home-wardrobe summary small, .moon-studio .wardrobe-summary-bar small { font-size: 8px; color: #687e58; }
+.moon-studio .home-wardrobe summary em, .moon-studio .wardrobe-summary-bar em { font-size: 10px; color: #5f7550; }
 .moon-studio .home-wardrobe summary > b { font-size: 8px; color: #6b8057; }
-.moon-studio .mp-hat-btn { font-size: 7px; color: #738462; }
-.moon-studio .mp-random-btn { font-size: 9px; color: #647d4e; }
+.moon-studio .mp-hat-btn { font-size: 8px; color: #5b6f4c; }
+.moon-studio .mp-random-btn { font-size: 9px; color: #4e6b3d; }
 .moon-studio .mp-open-rooms .field-label { font-size: 8px; }
 .moon-studio .mp-open-rooms .field-label span, .moon-studio .mp-refresh-btn { font-size: 7px; color: #6d8157; }
 .moon-studio .mp-open-rooms-empty { font-size: 10px; color: #71835e; }
@@ -205,11 +223,493 @@
 .moon-studio .roster-badge.you, .moon-studio .slot-ready-pill.ready { color: #5a7b45; background: #e4efd8; border-color: #c8d9b6; }
 .moon-studio .roster-badge.bot, .moon-studio .roster-badge.empty { color: #7b8e70; background: #eef3e7; border-color: #d9e4ce; }
 .moon-studio .room-ping-pill { color: #658854; background: #e4efd9; border-color: #c6dcb6; }
-.moon-studio .copy-code-btn, .moon-studio .wardrobe-toggle-btn, .moon-studio .ghost-code-btn { color: #617c4f; background: #eaf1df; border-color: #cbdcba; box-shadow: none; }
+.moon-studio .copy-code-btn, .moon-studio .wardrobe-toggle-btn, .moon-studio .ghost-code-btn { color: #486437; background: #e6f0d8; border-color: #bdd3a8; box-shadow: none; font-weight: 700; }
+.moon-studio .wardrobe-toggle-btn.active { color: #365428; background: #d8ebc3; border-color: #93b874; }
 .moon-studio .lobby-comms-line.system { color: #73866a; }
 .moon-studio .lobby-comms-form button { color: #fff; background: #527347; border-color: #527347; }
 .moon-studio .slot-Count-pills button { color: #7a8f66; background: #f7faf2; border-color: #d3e0c3; }
 .moon-studio .slot-Count-pills button.active { color: #fff; background: #73965b; border-color: #73965b; }
+
+/* ==========================================================================
+   INTERACTIVE HOME SCREEN STAGE & SMOOTH TRANSITIONS
+   ========================================================================== */
+
+@keyframes studioColumnIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes stageTitleSwap {
+  from {
+    opacity: 0;
+    transform: translateY(-7px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes dialoguePopIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.94);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.015);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes consoleStageIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes wardenBoopBounce {
+  0% {
+    transform: scale(1, 1) translateY(0) rotate(0deg);
+  }
+  18% {
+    transform: translateY(1px) rotate(-1deg);
+  }
+  45% {
+    transform: translateY(-3px) rotate(2deg);
+  }
+  70% {
+    transform: translateY(0) rotate(-1deg);
+  }
+  86% {
+    transform: translateY(-1px) rotate(.5deg);
+  }
+  100% {
+    transform: scale(1, 1) translateY(0) rotate(0deg);
+  }
+}
+
+@keyframes wardenEmoteFloat {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 8px) scale(0.45);
+  }
+  28% {
+    opacity: 1;
+    transform: translate(-50%, -10px) scale(1.15);
+  }
+  75% {
+    opacity: 1;
+    transform: translate(-50%, -22px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -32px) scale(0.85);
+  }
+}
+
+@keyframes moonBlessingPulse {
+  0% {
+    box-shadow: 0 0 45px #d5dbb64d, 0 0 0 0 #e6f2c2aa;
+    transform: scale(1);
+  }
+  40% {
+    box-shadow: 0 0 65px #eef5d0aa, 0 0 0 22px #e6f2c200;
+    transform: scale(1.14);
+  }
+  100% {
+    box-shadow: 0 0 45px #d5dbb64d, 0 0 0 34px #e6f2c200;
+    transform: scale(1);
+  }
+}
+
+@keyframes shootingStarArc {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) rotate(-24deg) scaleX(0.3);
+  }
+  20% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-290px, 125px) rotate(-24deg) scaleX(1.25);
+  }
+}
+
+@keyframes fogDriftSlow {
+  0%, 100% {
+    transform: translateX(-4%) translateY(0);
+  }
+  50% {
+    transform: translateX(4%) translateY(-4px);
+  }
+}
+
+@keyframes portalLaunchExpand {
+  0% {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+/* Staggered column entrance */
+.moon-studio .studio-guide {
+  animation: studioColumnIn 0.52s cubic-bezier(0.22, 1, 0.36, 1) 0.02s both;
+}
+.moon-studio .lobby-copy.studio-stage {
+  animation: studioColumnIn 0.56s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
+}
+.moon-studio .lobby-console {
+  animation: studioColumnIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) 0.14s both;
+}
+
+/* Console tab / waiting room content transition */
+.moon-studio .console-panel-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: consoleStageIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Smooth stage & weather transitions */
+.moon-studio .sanctuary-preview {
+  position: relative;
+  transition:
+    background 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.4s ease;
+}
+
+.moon-studio .studio-stage-title {
+  z-index: 3;
+  pointer-events: none;
+  animation: stageTitleSwap 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform: translate(calc(var(--gaze-x, 0px) * -0.45), calc(var(--gaze-y, 0px) * -0.35));
+  transition: transform 0.2s ease-out;
+}
+.moon-studio .studio-stage-title h2,
+.moon-studio .studio-stage-title small,
+.moon-studio .studio-stage-title p,
+.moon-studio .preview-caption {
+  transition: color 0.4s ease;
+}
+
+/* Interactive Moon & Shooting Star */
+.moon-studio .preview-moon {
+  z-index: 3;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease, opacity 0.35s ease, background 0.35s ease;
+}
+.moon-studio .preview-moon:hover {
+  transform: scale(1.12);
+  opacity: 0.92;
+  box-shadow: 0 0 55px #e8f0c899;
+}
+.moon-studio .preview-moon.is-pulsing {
+  animation: moonBlessingPulse 0.75s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.moon-studio .preview-shooting-star {
+  position: absolute;
+  top: 66px;
+  right: 11%;
+  width: 78px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #fffef4, #d7ecc1aa 45%, transparent);
+  box-shadow: 0 0 12px #eff8d4;
+  pointer-events: none;
+  z-index: 2;
+  animation: shootingStarArc 0.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Interactive Cursor Lantern Spotlight & Drifting Fog Layer */
+.moon-studio .preview-lantern-beam {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  background: radial-gradient(
+    210px circle at var(--cursor-x, 50%) var(--cursor-y, 52%),
+    #e9f7d638 0%,
+    #88d4bd1c 42%,
+    transparent 74%
+  );
+}
+.moon-studio .preview-blackout .preview-lantern-beam {
+  opacity: 1;
+  background: radial-gradient(
+    220px circle at var(--cursor-x, 50%) var(--cursor-y, 52%),
+    #f2f9d83b 0%,
+    #66c7b424 38%,
+    #0e1d2775 74%,
+    #0a151dcc 100%
+  );
+}
+.moon-studio .preview-fog.has-pointer .preview-lantern-beam {
+  opacity: 0.85;
+  background: radial-gradient(
+    185px circle at var(--cursor-x, 50%) var(--cursor-y, 52%),
+    #ffffff55 0%,
+    #dcebe424 48%,
+    transparent 75%
+  );
+}
+
+.moon-studio .preview-fog-layer {
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  top: 22%;
+  bottom: 20%;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  background:
+    radial-gradient(ellipse 46% 24% at 32% 48%, #e2ece899, transparent 72%),
+    radial-gradient(ellipse 52% 26% at 70% 62%, #d5e4df99, transparent 74%);
+  filter: blur(8px);
+}
+.moon-studio .preview-fog .preview-fog-layer {
+  opacity: 0.85;
+  animation: fogDriftSlow 8s ease-in-out infinite;
+}
+
+/* Stage Quick-Customize Pill Bar */
+.moon-studio .stage-quick-bar {
+  position: absolute;
+  top: 98px;
+  left: 50%;
+  translate: -50% 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 999px;
+  border: 1px solid #dce5d4cc;
+  background: #fbfcf8d9;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 14px #455c420d;
+  transition: background 0.35s ease, border-color 0.35s ease;
+}
+.moon-studio .stage-quick-bar button {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #556d4c;
+  font: 650 9px var(--font-geist-mono), monospace;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+.moon-studio .stage-quick-bar button:hover {
+  background: #eaf2df;
+  border-color: #c7d9b7;
+  color: #354f2d;
+  transform: translateY(-1.5px) scale(1.04);
+}
+.moon-studio .stage-quick-bar button:active {
+  transform: translateY(0.5px) scale(0.96);
+}
+.moon-studio .preview-blackout .stage-quick-bar {
+  background: #1f3542d9;
+  border-color: #385868;
+}
+.moon-studio .preview-blackout .stage-quick-bar button {
+  color: #c6dcd0;
+}
+.moon-studio .preview-blackout .stage-quick-bar button:hover {
+  background: #2c4a59;
+  border-color: #548294;
+  color: #eef9f2;
+}
+
+/* Smooth Morphing & Interactive Slimes on Stage */
+.moon-studio .preview-circle {
+  z-index: 3;
+  top: 126px;
+  transition: top 0.4s ease, bottom 0.4s ease;
+}
+.moon-studio .preview-warden {
+  position: relative;
+  transition:
+    flex 0.46s cubic-bezier(0.22, 1, 0.36, 1),
+    max-width 0.46s cubic-bezier(0.22, 1, 0.36, 1),
+    padding 0.4s ease,
+    opacity 0.36s ease,
+    transform 0.38s cubic-bezier(0.34, 1.56, 0.64, 1),
+    filter 0.36s ease;
+}
+.moon-studio .preview-warden:hover {
+  transform: translateY(-6px) scale(1.04);
+}
+.moon-studio .preview-warden:active {
+  transform: translateY(1px) scale(0.96);
+}
+.moon-studio .preview-warden .slime-avatar {
+  transition:
+    width 0.46s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.46s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    filter 0.35s ease;
+}
+.moon-studio .preview-warden .slime-avatar-body,
+.moon-studio .preview-warden .slime-hat-svg {
+  transition: background 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease, filter 0.35s ease;
+}
+
+/* Eye-gaze tracking toward user cursor */
+.moon-studio .preview-warden .eye-group {
+  transform: translate(var(--gaze-x, 0px), var(--gaze-y, 0px));
+  transition: transform 0.14s ease-out;
+}
+.moon-studio .preview-orbit {
+  transform: translate(calc(var(--gaze-x, 0px) * -1.3), calc(var(--gaze-y, 0px) * -0.7));
+  transition: transform 0.25s ease-out, border-color 0.45s ease, background 0.45s ease;
+}
+
+/* Boop squish-hop & group wave animations */
+.moon-studio .preview-warden.is-booped .slime-avatar {
+  animation: wardenBoopBounce 0.56s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.moon-studio .preview-warden.is-waving .slime-avatar {
+  animation: none;
+}
+.moon-studio .preview-warden.is-waving:nth-child(1) .slime-avatar { animation-delay: 0s; }
+.moon-studio .preview-warden.is-waving:nth-child(2) .slime-avatar { animation-delay: 0.055s; }
+.moon-studio .preview-warden.is-waving:nth-child(3) .slime-avatar { animation-delay: 0.11s; }
+.moon-studio .preview-warden.is-waving:nth-child(4) .slime-avatar { animation-delay: 0.165s; }
+.moon-studio .preview-warden.is-waving:nth-child(5) .slime-avatar { animation-delay: 0.22s; }
+
+/* Floating emote badge on boop */
+.moon-studio .warden-emote-pop {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  z-index: 6;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid #d5e4c7;
+  background: #ffffffef;
+  color: #426339;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.1;
+  box-shadow: 0 6px 14px #334f2c1f;
+  pointer-events: none;
+  animation: wardenEmoteFloat 0.72s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Interactive lantern reveal in Blackout & Fog */
+.moon-studio .preview-blackout .preview-warden:not(.is-you).is-cursor-lit,
+.moon-studio .preview-blackout .preview-warden:not(.is-you):hover {
+  opacity: 0.95;
+  filter: brightness(1.04) drop-shadow(0 0 18px #9be7d855);
+}
+.moon-studio .preview-fog .preview-warden.is-cursor-lit .slime-avatar,
+.moon-studio .preview-fog .preview-warden:hover .slime-avatar {
+  filter: saturate(0.75) contrast(0.98) brightness(1.04);
+}
+
+/* Dialogue & Weather button micro-transitions */
+.moon-studio .preview-dialogue {
+  z-index: 4;
+  animation: dialoguePopIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  transition: background 0.35s ease, border-color 0.35s ease, color 0.35s ease;
+}
+.moon-studio .preview-blackout .preview-dialogue {
+  background: #1d3340f0;
+  border-color: #365666;
+  color: #cbe0d4;
+}
+.moon-studio .preview-blackout .preview-dialogue b {
+  color: #9be7c4;
+}
+.moon-studio .preview-weather {
+  z-index: 4;
+}
+.moon-studio .preview-weather button,
+.moon-studio .studio-view-switch button,
+.moon-studio .lobby-mode-switch button,
+.moon-studio .mp-hat-btn,
+.moon-studio .mp-color-btn,
+.moon-studio .mp-btn-primary,
+.moon-studio .mp-btn-secondary,
+.moon-studio .launch-button {
+  transition:
+    transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.moon-studio .preview-weather button:hover,
+.moon-studio .studio-view-switch button:hover {
+  transform: translateY(-1.5px);
+}
+.moon-studio .mp-btn-primary:hover:not(:disabled),
+.moon-studio .launch-button:hover:not(:disabled) {
+  transform: translateY(-1.5px);
+  box-shadow: 0 7px 16px #2d523b26;
+}
+.moon-studio .mp-btn-primary:active:not(:disabled),
+.moon-studio .launch-button:active:not(:disabled) {
+  transform: translateY(0.5px) scale(0.99);
+}
+
+/* Smooth Portal Launch Transition Overlay */
+.moon-studio.studio-launching .studio-frame {
+  transform: scale(0.975);
+  filter: brightness(0.92) blur(2px);
+  transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1), filter 0.38s ease;
+}
+.studio-launch-portal {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 50%, #1c352ee6 0%, #0b1714f8 75%);
+  color: #e4f2dc;
+  font: 700 12px var(--font-geist-mono), monospace;
+  letter-spacing: 0.22em;
+  pointer-events: none;
+  animation: portalLaunchExpand 0.38s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.launch-portal-ring {
+  position: absolute;
+  width: 240px;
+  height: 240px;
+  border-radius: 999px;
+  border: 2px solid #9be7c466;
+  box-shadow: 0 0 60px #68c5a044, inset 0 0 40px #68c5a033;
+  animation: portalLaunchExpand 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
 
 @media (max-width: 1120px) {
   .moon-studio .lobby-grid { grid-template-columns: 182px minmax(0, 1fr) 296px; gap: 12px; padding-inline: 12px; }
@@ -234,7 +734,7 @@
   .moon-studio .lobby-copy.studio-stage { grid-row: 2; grid-column: 1; height: 600px; }
   .moon-studio .lobby-copy > .sanctuary-preview { width: 100%; margin-top: 12px; }
   .moon-studio .lobby-console { grid-column: 2; grid-row: 2; height: auto; overflow: visible; }
-  .moon-studio .studio-view-warden .is-you .slime-avatar { width: 235px; height: 262px; }
+  .moon-studio .studio-view-warden .is-you .slime-avatar { width: 225px; height: 250px; }
   .moon-studio .preview-warden .slime-avatar-lg { width: 70px; height: 80px; }
   .moon-studio.studio-in-room .lobby-console { grid-column: 1 / 3; }
 }
@@ -250,10 +750,12 @@
   .studio-guide .lede { font-size: 11px; margin-bottom: 16px; }
   .studio-guide .lobby-mode-switch { flex-direction: row; }
   .moon-studio .lobby-mode-switch button { font-size: 7px; padding: 9px 7px; }
-  .moon-studio .lobby-copy.studio-stage { grid-column: 1; grid-row: 3; height: 530px; }
+  .moon-studio .lobby-copy.studio-stage { grid-column: 1; grid-row: 3; height: 540px; }
   .moon-studio .lobby-console, .moon-studio.studio-in-room .lobby-console { grid-column: 1; grid-row: 2; }
   .moon-studio .console-body { padding: 16px; }
   .moon-studio .preview-moon { right: 5%; }
+  .moon-studio .stage-quick-bar { top: 92px; gap: 4px; padding: 3px 5px; }
+  .moon-studio .stage-quick-bar button { font-size: 8px; padding: 4px 8px; }
   .moon-studio .preview-weather button { font-size: 9px; padding: 9px; }
   .moon-studio .lobby-footer { display: flex; gap: 9px; padding: 8px; }
 }

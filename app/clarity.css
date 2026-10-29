@@ -1,0 +1,33 @@
+.game-menu-shell.moon-studio .guide-replay-intro { min-height: 44px; margin-top: 14px; padding: 9px 16px; border: 1px solid #e4d2aa; border-radius: 12px; color: #192b3d; background: #dfbd7c; font-size: 12px; font-weight: 750; }
+.playful-game .objective-strip { translate: 0 var(--floating-nav-height); }
+.playful-game .forest-map-dock, .playful-game .forest-map-dock:not(.is-open), .playful-game .notebook-open { top: 168px; }
+.playful-game .objective-strip:has(details[open]), .playful-game .earned-gear-dock:has(details[open]) { z-index: 14; }
+.playful-game .game-footer > span:not(.latency) { display: none; }
+.playful-game .game-footer { justify-content: space-between; }
+.playful-game .action-dock .hollow-tricks { position: relative; }
+.playful-game .hollow-tricks > summary { display: grid; place-items: center; align-content: center; gap: 5px; width: 66px; min-height: 78px; padding: 8px; border: 1px solid #7185a1; border-radius: 17px; color: #dfd5e8; background: #2f3a53; list-style: none; cursor: pointer; font-size: 11px; font-weight: 750; }
+.playful-game .hollow-tricks > summary::-webkit-details-marker { display: none; }
+.playful-game .hollow-tricks[open] > summary { border-color: #d6b9c6; background: #4a435d; }
+.playful-game .hollow-tricks-panel { position: absolute; right: 0; bottom: calc(100% + 10px); z-index: 12; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 262px; padding: 12px; border: 1px solid #9b879e; border-radius: 17px; background: #1c2940fc; box-shadow: 0 10px 30px #050b17aa; }
+.playful-game .hollow-tricks-panel > small { grid-column: 1/-1; color: #d2bfd7; font-size: 11px; line-height: 1.5; }
+.playful-game .hollow-tricks-panel .action { width: 100%; min-width: 0; }
+.playful-game .duet-controls { max-width: min(360px, calc(100% - 32px)); }
+.playful-game .task-backdrop { background: #08101b70; backdrop-filter: none; }
+.playful-game .task-backdrop .task-puzzle-card { width: min(520px, 92vw); }
+.playful-game .report-action-wrap { position: relative; }
+.playful-game .action[aria-disabled="true"] { opacity: .6; cursor: help; filter: saturate(.45); }
+.playful-game .report-action-hint { position: absolute; right: 0; bottom: calc(100% + 10px); width: min(244px, 65vw); padding: 12px; border: 1px solid #8da0b6; border-radius: 13px; background: #1c2940fc; color: #e2eaf3; box-shadow: 0 8px 24px #050b1777; font: 11px/1.55 var(--font-geist-sans), sans-serif; pointer-events: none; }
+.playful-game .action.use[data-first-gear="true"] { animation: first-gear-ready .8s ease-in-out 3; outline: 2px solid #e4c58a; outline-offset: 3px; }
+@keyframes first-gear-ready { 50% { box-shadow: 0 0 0 5px #e4c58a55, 0 0 24px #e4c58a44; } }
+@media (prefers-reduced-motion: reduce) { .playful-game .action.use[data-first-gear="true"] { animation: none; } }
+@media (max-width: 760px) {
+  .playful-game .forest-map-dock, .playful-game .forest-map-dock:not(.is-open), .playful-game .notebook-open { top: 170px; }
+  .playful-game .hollow-tricks > summary { width: 52px; min-height: 68px; padding: 6px; font-size: 10px; }
+}
+@media (orientation: landscape) and (max-height: 540px) {
+  .playful-game .forest-map-dock, .playful-game .forest-map-dock:not(.is-open), .playful-game .notebook-open { top: 135px; }
+  .playful-game .action-dock .hollow-tricks > summary { width: 48px; min-height: 58px; padding: 6px 3px; border-radius: 15px; font-size: 9px; }
+  .playful-game .hollow-tricks-panel { width: 250px; gap: 6px; padding: 8px; }
+  .playful-game .hollow-tricks-panel .action { width: 100%; }
+  .playful-game .duet-controls { bottom: 92px; max-width: 280px; }
+}
