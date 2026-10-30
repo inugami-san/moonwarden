@@ -2,7 +2,22 @@
 
 Updated: 2026-10-30 (Asia/Manila).
 
-## Current work: v0.7.1 quiet HUD — release requested
+## Current frontend: v0.7.1 quiet HUD — LIVE and verified
+
+Released 2026-10-30 to <https://moonwarden-two.vercel.app/>. Public
+`/api/version` confirms `0.7.1` / `silverpine-trust-v8`; homepage returns 200
+and `/dev/victory` returns 404. Deployment
+`dpl_BM1Wh1xVPh68EBaVRBC1piiEnJR2` is READY. Authenticated version check on
+<https://moonwarden-cd62bt7ue-christainj.vercel.app> passed before promoting
+that exact production build. Source commit:
+`c3698cf90db730a193813061650112877fc8065d`, pushed to the existing release
+branch; tag `v0.7.1` identifies this source. Target is still
+`christainj/moonwarden` / `prj_fnsKcfgCYjBI3vzBDBB5O6r4Njb9`.
+
+Next.js 16.2.6 production compilation and TypeScript passed. Vercel selected
+Node 26 automatically because the existing engines range is `>=22.13.0`;
+local checks used Node 24.15.0. No engines, plans, credentials or backend
+settings were changed. Consider pinning the intended Node major separately.
 
 User requested fewer gameplay labels, direct skill taps without extra menus or
 tooltips, then immediate Vercel production deployment. `clarity.css` owns the
@@ -27,10 +42,9 @@ No full multiplayer playtest is claimed. Protocol
 stays `silverpine-trust-v8`; existing Render backend does not need a redeploy.
 Unrelated `prototypes/` remains excluded from Git/deployment.
 
-The previous verified production release is recorded below. Replace this
-section's pending status with the exact source/deployment proof after promotion.
+The previous verified production release is recorded below for history.
 
-## Current frontend: v0.7.0 — LIVE and verified
+## Previous frontend: v0.7.0 — released and verified
 
 User explicitly approved production release, including the earlier onboarding
 work and subsequent cat/wardrobe/cinematic polish. Released 2026-10-29 to
