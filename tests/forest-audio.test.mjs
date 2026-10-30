@@ -193,6 +193,33 @@ test("unsupported or blocked WebAudio remains silent without throwing", async t 
   audio.destroy();
 });
 
+test("private role responses need gesture unlock, stay non-positional and obey mute/cooldown cleanup", async t => {
+  install(t);
+  const audio = new ForestAudio();
+  audio.enabled = true;
+  assert.equal(audio.roleReveal("HOLLOW"), false);
+  assert.equal(FakeAudioContext.instances.length, 0);
+  await audio.unlock();
+  const context = FakeAudioContext.instances[0];
+  for (const role of ["WARDEN", "HOLLOW"]) {
+    const start = context.nodes.length;
+    assert.equal(audio.roleReveal(role), true);
+    assert.equal(audio.roleReveal(role), false);
+    const voices = context.nodes.slice(start);
+    assert.ok(voices.some(node => node.kind === "oscillator"));
+    assert.ok(!voices.some(node => node.kind === "panner"), "role accents are never broadcast or spatial evidence");
+    assert.ok(voices.filter(node => node instanceof FakeSource).every(node => node.stops[0] - context.currentTime < .8));
+    context.finish();
+    assert.ok(voices.every(node => node.disconnected));
+  }
+  assert.equal(audio.roleReveal("OTHER"), false);
+  audio.roleReveal("HOLLOW");
+  audio.enabled = false;
+  assert.equal(audio.roleReveal("WARDEN"), false);
+  assert.ok(context.nodes.slice(1).every(node => node.disconnected));
+  audio.destroy();
+});
+
 test("restored forest ambience grows with the public tier and respects mute and cooldown", async t => {
   install(t);
   const audio = new ForestAudio();

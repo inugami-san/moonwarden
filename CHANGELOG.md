@@ -6,6 +6,26 @@ source releases, not proof that a particular server has been deployed.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-30
+
+### Living Rootwake and dramatic role entrances
+
+- Restored a more dramatic role entrance: staged shadow-to-cat reveal, opening
+  forest curtains, moon crest, distinct Warden/Hollow title impacts, warm Warden
+  light and a crimson Hollow eclipse. Tapping the cat triggers a responsive hop
+  or shadow pulse with a private, gesture-unlocked sound accent. The existing
+  4.9s reveal, role assignment, cosmetics and skip action remain unchanged;
+  keyboard focus and reduced-motion support cover both controls.
+
+- Reworked Rootwake's neon grid into world-anchored braided roots with shaded
+  bark, subdued moonlit veins, branching warning fissures, staggered eruption,
+  short earth particles, curling doorway tendrils and a smoother final retreat.
+  Cached eight material variants and culled offscreen knots; reduced motion
+  removes lift, dust and drifting particles. Existing wall geometry, collision
+  timing, halfway door opening and chamber privacy are unchanged.
+- Added a development-only `/dev/rootwake` replay/scrubber using the same live
+  renderer, with Warden chamber and reduced-motion review options.
+
 ## [0.7.1] - 2026-10-30
 
 ### Quiet gameplay HUD

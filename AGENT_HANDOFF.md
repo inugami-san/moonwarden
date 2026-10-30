@@ -2,6 +2,67 @@
 
 Updated: 2026-10-30 (Asia/Manila).
 
+## Release in progress: v0.7.2
+
+User approved Vercel production deployment of both local revisions below.
+Package/lockfile/changelog now identify v0.7.2. Same project, production domain,
+release branch and v8 protocol; no Render/backend update is needed. Earlier
+93 UI/audio and 58 Rootwake-focused checks remain the verification baseline;
+only release metadata is changing before the production build. Exclude the
+unrelated `prototypes/` directory. Record exact source/deployment proof here
+after promotion; v0.7.1 below is the last verified live release until then.
+
+## Local, unreleased: dramatic interactive role reveal
+
+User said the opening Warden/Hollow scene felt static and wanted the earlier
+intensity back. `role-reveal.tsx/.css` now stage curtains, silhouetted cat,
+moonlit materialization, separate Warden/Hollow title impacts and finite motes.
+Warden uses warm moonlight; Hollow uses a crimson eclipse and darker response.
+The seated cat is an accessible button: tap/Enter/Space gives a brief hop or
+shadow pulse. Its Web Animation is cancelled before replay/unmount and when
+reduced motion is enabled. The portrait stays mounted through reactions and
+retains actual coat, eyes and accessory. Keyboard Tab/Shift-Tab traps both
+buttons; Escape still exits. The parent 4900ms timer and all role/match rules
+are untouched. No forced interaction or additional game-start delay.
+
+`ForestAudio.roleReveal` is a small, cooldown/mute-limited, non-positional local
+accent. It does NOT attempt autoplay at mount. `Game` unlocks it only after the
+cat gesture and rechecks `roleRevealActive` before playback. Preview uses the
+same reaction/sound wiring. Review at `/dev/victory` with the Warden/Hollow
+reveal buttons; the Reduced motion checkbox now covers role reveals too.
+This follows the unreleased Rootwake changes below and is NOT deployed/pushed.
+Verification: 83 UI tests, 10 audio tests, TypeScript, scoped ESLint and diff
+checks pass. Browser review covered both role layouts, Hollow cat reactions,
+and Warden reduced-motion rendering, with no console errors. Desktop preview
+was 1280x720; the browser viewport override did not apply, so do not claim a
+new phone-size browser check. No full multiplayer playtest was rerun.
+
+## Local, unreleased: Rootwake animation revision
+
+Latest user asked to improve Rootwake's animation. Implemented locally, NOT
+deployed or pushed. Production remains v0.7.1 below. `app/rootwake-art.ts` now
+owns decorative roots and the chamber veil; `page.tsx` delegates to it. The old
+stretching green rectangles, neon cell frame and rectangular door outlines are
+gone. Roots have fixed world anchors, eight cached shaded-bark variants,
+staggered thickening, brief earth particles, quiet spores, curled doorway ends
+and end-of-Ordeal retraction. No new art service or asset dependency.
+
+All knots reach full size before the existing .54s collision threshold. The
+128px gate cutouts still open at exactly six seconds remaining. Physical walls,
+movement authority, hidden players/chambers, Hollow privileges and protocol v8
+are unchanged. Warden mask keeps the same .985 opacity and own-cell evenodd hole,
+with a soft dark inner edge instead of the neon rectangle. Reduced motion has
+no root lift, dust, drifting particles or idle pulses. Offscreen knots are culled.
+
+Review locally at `http://localhost:3101/dev/rootwake`: Play/Pause, five phase
+presets, timeline scrubber, Whole grove toggle and Reduced motion. This uses
+the actual renderer and is guarded with production `notFound()`. Local server
+was started on port 3101 for review. Browser checked eruption, sealed walls,
+open doors and own-chamber masking, with no console errors. `npm run test:rootwake`
+passes 58 tests (eight new art tests plus existing movement/visibility/feedback
+regressions); TypeScript and scoped ESLint pass. No full multiplayer playtest
+or production release was requested for this follow-up.
+
 ## Current frontend: v0.7.1 quiet HUD — LIVE and verified
 
 Released 2026-10-30 to <https://moonwarden-two.vercel.app/>. Public

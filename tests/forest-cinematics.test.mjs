@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
+import { runInNewContext } from "node:vm";
 import { createElement } from "react";
+import * as React from "react";
+import ts from "typescript";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RoleReveal, ForestCinematicBackdrop, roleRevealPresentation } from "../app/role-reveal.tsx";
 
@@ -32,6 +35,66 @@ test("role scenes preserve chosen accessories/eyes and leave assignment and time
   assert.match(text, /previous\.isConnected/);
   assert.match(text, /event.key === "Escape"/);
   assert.doesNotMatch(text, /localStorage|sessionStorage|fetch\(|WebSocket|setInterval|setTimeout/);
+});
+
+test("role entrance is staged, role-distinct and interactive without another blocking step", async () => {
+  for (const role of ["CREWMATE", "IMPOSTOR"]) {
+    const html = renderToStaticMarkup(createElement(RoleReveal, { role, color: "#96cbd1", reducedMotion: true, onContinue() {} }));
+    assert.match(html, /is-reduced-motion/);
+    assert.match(html, /class="role-reveal-cat"/);
+    assert.match(html, role === "IMPOSTOR" ? /Stir the Hollow’s shadow/ : /Awaken your Warden’s moonlight/);
+    assert.match(html, /role-reveal-theatre/);
+    assert.match(html, /role-reveal-crest/);
+    assert.doesNotMatch(html, /cat-portrait-concealed/);
+  }
+  const css = await source("role-reveal.css");
+  for (const name of ["role-forest-part", "role-cat-materialize", "role-title-claim", "role-title-hunt", "role-hollow-unveil", "role-moon-response"]) assert.ok(css.includes(`@keyframes ${name}`));
+  assert.match(css, /is-reduced-motion.*animation: none !important/);
+  const page = await source("page.tsx");
+  assert.match(page, /\}, 4900\)/, "the existing parent reveal deadline stays intact");
+  assert.match(page, /if \(!soundEnabled \|\| !engine\?\.roleRevealActive\) return/);
+});
+
+test("cat taps respond only to input, cancel old motion, trap both focus targets and respect still mode", async () => {
+  const code = ts.transpileModule(await source("role-reveal.tsx"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.React } }).outputText;
+  for (const reducedMotion of [false, true]) {
+    const refs = [], effects = [], poses = [], accents = [], responses = [];
+    let cancelled = 0, continued = 0;
+    const document = { activeElement: null };
+    class Button { isConnected = true; focus() { document.activeElement = this; } }
+    const previous = new Button(); previous.focus();
+    const hooks = {
+      useRef(value) { const ref = { current: value }; refs.push(ref); return ref; },
+      useEffect(effect) { effects.push(effect); },
+      useState(value) { return [value, update => responses.push(typeof update === "function" ? update(value) : update)]; },
+    };
+    const exports = {};
+    runInNewContext(code, { exports, React, document, HTMLElement: Button, window: { matchMedia: () => ({ matches: reducedMotion }) }, require(name) {
+      if (name === "react") return hooks;
+      if (name === "./cat-portrait") return { SlimePortrait() {} };
+      throw new Error(`Unexpected import: ${name}`);
+    } });
+    const tree = exports.RoleReveal({ role: "IMPOSTOR", color: "#96cbd1", reducedMotion, onAwaken: kind => accents.push(kind), onContinue: () => continued++ });
+    refs[0].current = new Button(); refs[1].current = new Button();
+    refs[2].current = { animate(frames, options) { poses.push({ frames, options }); return { cancel() { cancelled++; } }; } };
+    const cleanup = effects[0]();
+    assert.equal(document.activeElement, refs[0].current);
+    assert.equal(accents.length, 0, "mounting the scene never attempts autoplay audio");
+    const walk = element => element && typeof element === "object" ? [element, ...React.Children.toArray(element.props?.children).flatMap(walk)] : [];
+    const cat = walk(tree).find(element => element.props?.className === "role-reveal-cat");
+    cat.props.onClick(); cat.props.onClick();
+    assert.deepEqual(accents, ["HOLLOW", "HOLLOW"]);
+    assert.equal(poses.length, reducedMotion ? 0 : 2);
+    assert.equal(responses.length, reducedMotion ? 0 : 2);
+    if (!reducedMotion) assert.equal(poses[0].options.duration, 620);
+    const key = (name, shiftKey = false) => tree.props.onKeyDown({ key: name, shiftKey, stopPropagation() {}, preventDefault() {} });
+    key("Tab"); assert.equal(document.activeElement, refs[1].current);
+    key("Tab", true); assert.equal(document.activeElement, refs[0].current);
+    key("Escape"); assert.equal(continued, 1);
+    cleanup();
+    assert.equal(document.activeElement, previous);
+    assert.equal(cancelled, reducedMotion ? 0 : 2);
+  }
 });
 
 test("banishment remains neutral before authoritative reveal and never invents a role", async () => {

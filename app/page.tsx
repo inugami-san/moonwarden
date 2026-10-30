@@ -63,7 +63,8 @@ import { ReportAction } from "./report-action";
 import { TallyRoster, VoteRoster, useDiscussionCountdown } from "./meeting-roster";
 import { MEETING_DISCUSSION_MS } from "../server/match-rules";
 import { RestorationLedger } from "../server/match-rules";
-import { rootwakeEnvelope, rootwakeMove, rootGatesOpen, ROOT_GATES, ROOT_GATE_Y, SHADE_POCKETS, SHADE_RADIUS, overgrownStationIndex, lurePoint } from "../server/sanctuary-design";
+import { rootwakeEnvelope, rootwakeMove, SHADE_POCKETS, SHADE_RADIUS, overgrownStationIndex, lurePoint } from "../server/sanctuary-design";
+import { drawRootwakeWalls, drawRootwakeChamber } from "./rootwake-art";
 import { createRitual, ritualAnswerIsCorrect, RITUAL_LABELS, type RitualChallenge, type RitualDifficulty, type RitualKind } from "../server/forest-rituals";
 import { ForestUtilities, UTILITY_LABELS, type UtilityKind } from "../server/forest-utilities";
 import { ForestRitual } from "./forest-ritual";
@@ -77,7 +78,7 @@ import { GameGlyph, GameplaySettings } from "./gameplay-controls";
 import { LandscapeGuard, useLandscapeRequired } from "./gameplay-orientation";
 import { TaskHoldGauge } from "./task-hold-gauge";
 import { holdTaskProgress, TASK_HOLD_SECONDS } from "./task-hold";
-import { WORLD_WIDTH, WORLD_HEIGHT, VIEW_WIDTH, VIEW_HEIGHT, ROOM, PLAYER_BOUNDS, CENTER, CALM_SECONDS, ROOT_BARRIERS, STATIONS, getRootCell, sharesRootCell, clampWorldPoint } from "../server/sanctuary-map";
+import { WORLD_WIDTH, WORLD_HEIGHT, VIEW_WIDTH, VIEW_HEIGHT, ROOM, PLAYER_BOUNDS, CENTER, CALM_SECONDS, STATIONS, getRootCell, sharesRootCell, clampWorldPoint } from "../server/sanctuary-map";
 import { planRoute } from "../server/sanctuary-paths";
 import { cameraViewport, cameraTarget, followCamera, viewportToWorld } from "./world-camera";
 import { sightAt, type Sight, type SightPoint, type SightKind } from "../server/visibility";
@@ -2649,25 +2650,10 @@ class OrdealEngine {
     this.drawSonarEchoes(ctx);
     if (rootwakeActive) {
       this.drawRootwakeOcclusion(ctx);
-      this.drawRootwake(ctx);
     }
+    if (rootwakeActive || (this.phase === "COUNTDOWN" && this.hazard === "ROOTWAKE")) this.drawRootwake(ctx);
     if (moonSightActive) {
       this.drawMoonSightOverlay(ctx);
-    }
-    if (this.phase === "COUNTDOWN" && this.hazard === "ROOTWAKE") {
-      ctx.save(); ctx.strokeStyle = "#d8edb6b0"; ctx.lineWidth = 3; ctx.setLineDash([10, 9]);
-      for (const wall of ROOT_BARRIERS) ctx.strokeRect(wall.x, wall.y, wall.w, wall.h);
-      ctx.restore();
-    }
-    if ((this.phase === "COUNTDOWN" || rootwakeActive) && this.hazard === "ROOTWAKE") {
-      const open = this.phase === "ORDEAL" && rootGatesOpen(this.phaseTime);
-      ctx.save(); ctx.strokeStyle = open ? "#dfefb7" : "#a1b8ee"; ctx.lineWidth = 4; ctx.textAlign = "center"; ctx.font = "800 10px sans-serif";
-      for (const x of ROOT_GATES) {
-        ctx.strokeRect(x - 64, ROOT_GATE_Y - 28, 128, 56);
-        ctx.fillStyle = open ? "#dfefb7" : "#bacff8";
-        if (dist(this.human, { x, y: ROOT_GATE_Y }) < 110) ctx.fillText(open ? "Open" : "Sealed", x, ROOT_GATE_Y - 38);
-      }
-      ctx.restore();
     }
     ctx.restore();
   }
@@ -2733,114 +2719,14 @@ class OrdealEngine {
   }
 
   drawRootwakeOcclusion(ctx: CanvasRenderingContext2D) {
-    const strength = rootwakeStrength(this.phase, this.hazard, this.phaseTime);
-    if (strength <= 0) return;
-    const cell = getRootCell(this.human.x, this.human.y);
-    const pulse = 0.5 + Math.sin(this.elapsed * 4.8) * 0.5;
-    ctx.save();
-    if (this.human.role !== "IMPOSTOR") {
-      ctx.fillStyle = `rgba(1,4,10,${0.985 * strength})`;
-      ctx.beginPath();
-      ctx.rect(0, 0, W, H);
-      ctx.rect(cell.x, cell.y, cell.w, cell.h);
-      ctx.fill("evenodd");
-
-      ctx.strokeStyle = `rgba(108,255,181,${strength * (0.14 + pulse * 0.12)})`;
-      ctx.lineWidth = 9;
-      ctx.strokeRect(cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6);
-      ctx.strokeStyle = `rgba(139,247,181,${strength * (0.5 + pulse * 0.22)})`;
-      ctx.lineWidth = 2.5;
-      ctx.strokeRect(cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6);
-      ctx.fillStyle = `rgba(205,255,222,${strength * 0.82})`;
-      ctx.font = "900 11px ui-monospace, monospace";
-      ctx.textAlign = "left";
-    } else {
-      // Impostor sees the entire map during Root Cage and phases through root barriers
-      ctx.strokeStyle = `rgba(108,255,181,${strength * (0.28 + pulse * 0.18)})`;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(cell.x + 3, cell.y + 3, cell.w - 6, cell.h - 6);
-      ctx.fillStyle = `rgba(205,255,222,${strength * 0.9})`;
-      ctx.font = "900 11px ui-monospace, monospace";
-      ctx.textAlign = "left";
-    }
-    ctx.restore();
+    if (this.phase === "ORDEAL" && this.hazard === "ROOTWAKE" && this.human.role !== "IMPOSTOR") drawRootwakeChamber(ctx, this.human, this.phaseTime);
   }
 
   drawRootwake(ctx: CanvasRenderingContext2D) {
-    const strength = rootwakeStrength(this.phase, this.hazard, this.phaseTime);
-    if (strength <= 0) return;
-    ctx.save();
-    if (this.human.role === "IMPOSTOR") {
-      ctx.globalAlpha = 0.55;
-    }
-    for (const [barrierIndex, barrier] of ROOT_BARRIERS.entries()) {
-      const horizontal = barrier.w > barrier.h;
-      const rootWidth = horizontal ? barrier.h : barrier.w;
-      const rootLength = horizontal ? barrier.w : barrier.h;
-      const centerX = barrier.x + barrier.w / 2;
-      const centerY = barrier.y + barrier.h / 2;
-      const pulse = 0.5 + Math.sin(this.elapsed * 6 + barrierIndex) * 0.5;
-      ctx.save();
-      if (horizontal && rootGatesOpen(this.phaseTime)) {
-        ctx.beginPath(); ctx.rect(0, 0, W, H);
-        for (const x of ROOT_GATES) ctx.rect(x - 64, ROOT_GATE_Y - 60, 128, 120);
-        ctx.clip("evenodd");
-      }
-      ctx.translate(centerX, centerY);
-      if (horizontal) ctx.rotate(Math.PI / 2);
-      ctx.scale(0.75 + strength * 0.25, 0.08 + strength * 0.92);
-      const rootGradient = ctx.createLinearGradient(-rootWidth / 2, 0, rootWidth / 2, 0);
-      rootGradient.addColorStop(0, "#13291f");
-      rootGradient.addColorStop(0.45, "#3c744c");
-      rootGradient.addColorStop(0.7, "#203d2b");
-      rootGradient.addColorStop(1, "#091a13");
-      ctx.fillStyle = rootGradient;
-      ctx.beginPath();
-      ctx.roundRect(-rootWidth / 2, -rootLength / 2, rootWidth, rootLength, 18);
-      ctx.fill();
-      ctx.strokeStyle = `rgba(111,255,181,${0.14 + pulse * 0.14})`;
-      ctx.lineWidth = 11;
-      ctx.stroke();
-      ctx.strokeStyle = "rgba(139,238,172,.72)";
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      for (let strand = -1; strand <= 1; strand += 1) {
-        ctx.strokeStyle = strand === 0 ? "rgba(204,255,199,.5)" : "rgba(72,123,78,.9)";
-        ctx.lineWidth = strand === 0 ? 3 : 5;
-        ctx.beginPath();
-        ctx.moveTo(strand * 9, -rootLength / 2);
-        for (let y = -rootLength / 2; y <= rootLength / 2; y += 28) {
-          ctx.lineTo(strand * 9 + Math.sin(y * 0.065 + barrierIndex) * 8, y);
-        }
-        ctx.stroke();
-      }
-      ctx.fillStyle = "rgba(188,244,147,.72)";
-      ctx.beginPath();
-      for (let y = -rootLength / 2 + 22; y < rootLength / 2; y += 43) {
-        const side = (Math.floor(y / 43) + barrierIndex) % 2 ? 1 : -1;
-        ctx.moveTo(side * rootWidth * 0.34, y);
-        ctx.lineTo(side * (rootWidth * 0.5 + 13), y - 7);
-        ctx.lineTo(side * rootWidth * 0.43, y + 8);
-        ctx.closePath();
-      }
-      ctx.fill();
-      ctx.restore();
-    }
-    ctx.globalCompositeOperation = "lighter";
-    ctx.fillStyle = `rgba(83,222,143,${0.05 + strength * 0.05})`;
-    ctx.beginPath();
-    for (let i = 0; i < 24; i += 1) {
-      const barrier = ROOT_BARRIERS[i % ROOT_BARRIERS.length];
-      const horizontal = barrier.w > barrier.h;
-      const travel = ((i * 0.173 + this.elapsed * 0.035) % 1) - 0.5;
-      const x = barrier.x + barrier.w / 2 + (horizontal ? travel * barrier.w : Math.sin(this.elapsed * 1.8 + i) * 30);
-      const y = barrier.y + barrier.h / 2 + (horizontal ? Math.sin(this.elapsed * 1.8 + i) * 30 : travel * barrier.h);
-      const r = 2 + (i % 3);
-      ctx.moveTo(x + r, y);
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-    }
-    ctx.fill();
-    ctx.restore();
+    drawRootwakeWalls(ctx, {
+      phase: this.phase, remaining: this.phaseTime, reducedMotion: this.reducedMotion, hollow: this.human.role === "IMPOSTOR",
+      view: { ...this.camera, width: this.viewWidth, height: this.viewHeight },
+    });
   }
 
   drawPhantomMarker(ctx: CanvasRenderingContext2D, phantom: Player) {
@@ -5336,6 +5222,11 @@ function Game({
         <RoleReveal role={roleReveal} color={networkState?.players.find(player => player.id === snapshot.localPlayerId)?.color ?? soloProfile?.color ?? COLORS[0]}
           accessory={networkState?.players.find(player => player.id === snapshot.localPlayerId)?.hat ?? soloProfile?.hat ?? "moonbell"}
           eyeStyle={networkState?.players.find(player => player.id === snapshot.localPlayerId)?.eyeStyle ?? soloProfile?.eyeStyle ?? "FIERCE"}
+          reducedMotion={reducedMotion} onAwaken={kind => {
+            const engine = engineRef.current;
+            if (!soundEnabled || !engine?.roleRevealActive) return;
+            void engine.audio.unlock().then(ready => { if (ready && engine.roleRevealActive) engine.audio.roleReveal(kind); });
+          }}
           onContinue={dismissRoleReveal} />
       )}
 

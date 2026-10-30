@@ -19,6 +19,7 @@ export function VictoryPreview() {
   const [still, setStill] = useState(false);
   const [sound, setSound] = useState(true);
   const audio = useRef<ForestAudio | null>(null);
+  const activeRole = useRef<Role | null>(null);
   useEffect(() => () => { audio.current?.destroy(); }, []);
   const play = (hollow: boolean) => {
     audio.current ??= new ForestAudio();
@@ -39,19 +40,25 @@ export function VictoryPreview() {
         <small>LOCAL ART REVIEW · NO MATCH IS STARTED</small>
         <h1>The forest remembers.</h1>
         <p>Review role reveals, vote-outs and endings without starting a match.</p>
-        <label><input type="checkbox" checked={still} onChange={event => setStill(event.target.checked)} /> Still / reduced-motion ending</label>
+        <label><input type="checkbox" checked={still} onChange={event => setStill(event.target.checked)} /> Reduced motion</label>
         <label><input type="checkbox" checked={sound} onChange={event => setSound(event.target.checked)} /> Sound effects</label>
         <button type="button" onClick={() => play(false)}>Preview Warden victory</button>
         <button type="button" onClick={() => play(true)}>Preview Hollow victory</button>
-        <button type="button" onClick={() => setRole("CREWMATE")}>Preview Warden reveal</button>
-        <button type="button" onClick={() => setRole("IMPOSTOR")}>Preview Hollow reveal</button>
+        <button type="button" onClick={() => { activeRole.current = "CREWMATE"; setRole("CREWMATE"); }}>Preview Warden reveal</button>
+        <button type="button" onClick={() => { activeRole.current = "IMPOSTOR"; setRole("IMPOSTOR"); }}>Preview Hollow reveal</button>
         <button type="button" onClick={() => previewVote(false)}>Preview Warden farewell</button>
         <button type="button" onClick={() => previewVote(true)}>Preview Hollow banishment</button>
         <Link href="/">Back to Moonwarden</Link>
       </div>
       {victory && <VictoryOverlay victory={victory} reducedMotion={still}
         onCelebrate={kind => { audio.current?.celebration(kind); }} onExit={() => setVictory(null)} />}
-      {role && <RoleReveal role={role} color="#83d7d3" onContinue={() => setRole(null)} />}
+      {role && <RoleReveal role={role} color="#83d7d3" accessory="moonbell" reducedMotion={still}
+        onAwaken={kind => {
+          audio.current ??= new ForestAudio();
+          audio.current.enabled = sound;
+          const player = audio.current;
+          void player.unlock().then(ready => { if (ready && activeRole.current === role) player.roleReveal(kind); });
+        }} onContinue={() => { activeRole.current = null; setRole(null); }} />}
       {banishment && <BanishmentOverlay outcome={banishment} reducedMotion={still} onComplete={() => setBanishment(null)} />}
     </main>
   );

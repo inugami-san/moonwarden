@@ -190,6 +190,23 @@ export class ForestAudio {
     return true;
   }
 
+  /** Private role-response accents, only through an already gesture-unlocked context. */
+  roleReveal(kind: "WARDEN" | "HOLLOW") {
+    if (kind !== "WARDEN" && kind !== "HOLLOW") return false;
+    const voice = this.voice(`role-response:${kind}`, .85, .24);
+    if (!voice) return false;
+    if (kind === "HOLLOW") {
+      this.tone(voice, 0, .3, 98, 49, .42, "triangle");
+      this.tone(voice, .14, .48, 146.83, 73.42, .28);
+      this.bell(voice, .2, 293.66, .5, .18);
+      this.leaves(voice, .04, .22, 520, .23);
+    } else {
+      [523.25, 659.25, 1046.5].forEach((note, index) => this.bell(voice, index * .09, note, .5, .25));
+      this.leaves(voice, .03, .18, 1700, .12);
+    }
+    return true;
+  }
+
   /** Local movement only; callers can use stone at the central moon dais, moss elsewhere. */
   step(speed = 1, surface: "moss" | "stone" = "moss") {
     if (!Number.isFinite(speed) || speed <= .1) return false;
