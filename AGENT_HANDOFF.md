@@ -2,17 +2,29 @@
 
 Updated: 2026-10-30 (Asia/Manila).
 
-## Release in progress: v0.7.2
+## Current frontend: v0.7.2 — LIVE and verified
 
-User approved Vercel production deployment of both local revisions below.
-Package/lockfile/changelog now identify v0.7.2. Same project, production domain,
-release branch and v8 protocol; no Render/backend update is needed. Earlier
-93 UI/audio and 58 Rootwake-focused checks remain the verification baseline;
-only release metadata is changing before the production build. Exclude the
-unrelated `prototypes/` directory. Record exact source/deployment proof here
-after promotion; v0.7.1 below is the last verified live release until then.
+User approved production release of the Rootwake and role-reveal revisions.
+Released 2026-10-30 to <https://moonwarden-two.vercel.app/>. Public
+`/api/version` confirms `0.7.2` / `silverpine-trust-v8`; homepage returns 200,
+and both `/dev/rootwake` and `/dev/victory` return 404.
 
-## Local, unreleased: dramatic interactive role reveal
+Deployment `dpl_6d4MZn8vebCUUMFmn8LZa2Tuwpaq` is READY. The authenticated
+version check on <https://moonwarden-3nh6wzpd2-christainj.vercel.app> passed
+before promoting that exact production build. Next.js 16.2.6 production build
+completed in 22s, including TypeScript. Source commit:
+`711ecdaaed6a9bf9625316f822632c7fa87945f3`, pushed to the existing
+`codex/moonwarden-release-2026-10-19` branch; tag `v0.7.2` identifies it.
+Same target: `christainj/moonwarden` / `prj_fnsKcfgCYjBI3vzBDBB5O6r4Njb9`.
+
+Earlier 93 UI/audio and 58 Rootwake-focused checks were the verification
+baseline; five release metadata checks also pass. The full multiplayer suite
+was not rerun. Initial deployment-scoped ten-minute error scan returned zero
+records with no excluded intervals. Drains and continuous monitoring were not
+assessed or changed. The existing v8 Render server remains compatible and was
+not redeployed. Unrelated `prototypes/` was excluded from Git and deployment.
+
+## Included in v0.7.2: dramatic interactive role reveal
 
 User said the opening Warden/Hollow scene felt static and wanted the earlier
 intensity back. `role-reveal.tsx/.css` now stage curtains, silhouetted cat,
@@ -30,17 +42,16 @@ accent. It does NOT attempt autoplay at mount. `Game` unlocks it only after the
 cat gesture and rechecks `roleRevealActive` before playback. Preview uses the
 same reaction/sound wiring. Review at `/dev/victory` with the Warden/Hollow
 reveal buttons; the Reduced motion checkbox now covers role reveals too.
-This follows the unreleased Rootwake changes below and is NOT deployed/pushed.
+This shipped together with the Rootwake revision below in v0.7.2.
 Verification: 83 UI tests, 10 audio tests, TypeScript, scoped ESLint and diff
 checks pass. Browser review covered both role layouts, Hollow cat reactions,
 and Warden reduced-motion rendering, with no console errors. Desktop preview
 was 1280x720; the browser viewport override did not apply, so do not claim a
 new phone-size browser check. No full multiplayer playtest was rerun.
 
-## Local, unreleased: Rootwake animation revision
+## Included in v0.7.2: Rootwake animation revision
 
-Latest user asked to improve Rootwake's animation. Implemented locally, NOT
-deployed or pushed. Production remains v0.7.1 below. `app/rootwake-art.ts` now
+User asked to improve Rootwake's animation. `app/rootwake-art.ts` now
 owns decorative roots and the chamber veil; `page.tsx` delegates to it. The old
 stretching green rectangles, neon cell frame and rectangular door outlines are
 gone. Roots have fixed world anchors, eight cached shaded-bark variants,
@@ -60,10 +71,11 @@ the actual renderer and is guarded with production `notFound()`. Local server
 was started on port 3101 for review. Browser checked eruption, sealed walls,
 open doors and own-chamber masking, with no console errors. `npm run test:rootwake`
 passes 58 tests (eight new art tests plus existing movement/visibility/feedback
-regressions); TypeScript and scoped ESLint pass. No full multiplayer playtest
-or production release was requested for this follow-up.
+regressions); TypeScript and scoped ESLint pass. These local reviews preceded
+the user-approved production release recorded above; no full multiplayer
+playtest was rerun.
 
-## Current frontend: v0.7.1 quiet HUD — LIVE and verified
+## Previous frontend: v0.7.1 quiet HUD — released and verified
 
 Released 2026-10-30 to <https://moonwarden-two.vercel.app/>. Public
 `/api/version` confirms `0.7.1` / `silverpine-trust-v8`; homepage returns 200
