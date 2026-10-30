@@ -2,6 +2,36 @@
 
 Updated: 2026-10-30 (Asia/Manila).
 
+## v0.8.0 — directional wardrobe release in progress
+
+User approved fixing accessory fit in all directions, adding accessories and
+deploying to production. All eleven IDs/labels/validation now live in
+`server/cosmetics.ts`; new IDs are `dewdrop`, `fernwrap`, `mushroom`. Both lobby
+wardrobes, solo setup, network commands and authoritative room validation share
+this catalog. Existing IDs/order and Moonbell default are preserved.
+
+`accessory-art.ts` registers separate neck/crown attachments against the painted
+cat atlas, mirrors left views, caches five perspective variants and splits
+BACK/FRONT passes. Pendants stay upright with very slight stride sway; rear cats
+have no front charm. Nightveil is a fitted cowl with a face opening. The seated
+cat has its own anchors. `cat-character.ts` shares BACK/body/FRONT composition
+across gameplay, portraits and Hollow devour; partial-alpha characters compose
+once to prevent rear accessories bleeding through fog. Concealed cats omit all
+accessories. This does not change gameplay, collisions or anonymity rules.
+
+Review `/dev/cats`: all eleven choices, eight directions with idle/walk pairs,
+seated/lobby poses, actual-size/vector comparisons, selected-accessory devour and
+anonymous mode. It remains development-only. Preview sleeps hidden/paused and
+respects reduced motion. Browser review covered collars, mushroom cap, scarf,
+cowl and anonymous silhouettes; no full human multiplayer playtest is claimed.
+116 focused art/wardrobe/network/multiplayer/compatibility/release checks passed.
+
+Frontend and existing Render server BOTH require `silverpine-wardrobe-v9`.
+This protects cached v8 clients from unknown cosmetic IDs (old wardrobe metadata
+was not defensive). Update existing Render service only; no new service or plan
+changes. Production deployment evidence will be added after release. Unrelated
+`prototypes/` remains excluded.
+
 ## Current frontend: v0.7.2 — LIVE and verified
 
 User approved production release of the Rootwake and role-reveal revisions.

@@ -7,6 +7,7 @@ import { SLIME_CORE_PATH, SLIME_EYE_SCALE, SLIME_EYE_SHADE, SLIME_MATERIAL, SLIM
 import { type EyeStyle } from "../server/appearance";
 import { eyePath } from "./cat-eyes";
 import { drawWornAccessory } from "./accessory-art";
+import { drawCatCharacter } from "./cat-character";
 import type { Hat } from "../server/game-types";
 import { drawSeatedCat, loadSeatedCat } from "./seated-cat-art";
 
@@ -75,12 +76,20 @@ export function SlimePortrait({ color, eyeStyle = "FIERCE", accessory, greeting 
         const hello = animate ? Math.sin(progress * Math.PI) * -.045 : 0;
         context.translate(0, 30); context.rotate(Math.sin(t * .7) * .004 + hello);
         context.scale(1, 1 + Math.sin(t * 1.7) * .005); context.translate(0, -30);
-        const seated = drawSeatedCat(context, color, eyeStyle, t > 0 && t % 5.8 < .14, concealed);
-        if (!seated) drawMooncat(context, { color, eyeStyle, direction: "SOUTH", stridePhase: 0, strideAmount: 0, blink: false, concealed });
-        if (accessory && !concealed) drawWornAccessory(context, accessory, "SOUTH", false, 0, 0, "SEATED");
+        drawCatCharacter(context, {
+          concealed,
+          drawAccessory: accessory ? (target, layer) => drawWornAccessory(target, accessory, "SOUTH", false, 0, 0, "SEATED", 0, layer) : undefined,
+          drawBody: (context) => {
+            const seated = drawSeatedCat(context, color, eyeStyle, t > 0 && t % 5.8 < .14, concealed);
+            if (!seated) drawMooncat(context, { color, eyeStyle, direction: "SOUTH", stridePhase: 0, strideAmount: 0, blink: false, concealed });
+          },
+        });
       } else {
-      drawMooncat(context, { color, eyeStyle, direction: "SE", stridePhase: phase, strideAmount: animate ? 1 : 0, blink: false, concealed, walkStyle: "FRAMES" });
-      if (accessory && !concealed) drawWornAccessory(context, accessory, "SE");
+        drawCatCharacter(context, {
+          concealed,
+          drawAccessory: accessory ? (target, layer) => drawWornAccessory(target, accessory, "SE", false, phase, animate ? 1 : 0, "GAMEPLAY", 0, layer) : undefined,
+          drawBody: (context) => drawMooncat(context, { color, eyeStyle, direction: "SE", stridePhase: phase, strideAmount: animate ? 1 : 0, blink: false, concealed, walkStyle: "FRAMES" }),
+        });
       }
     }
     shapeDirty = false;

@@ -1,5 +1,6 @@
 import { resolveCatDirection, type CatDirection } from "./cat-art";
 import { drawMooncat } from "./mooncat-renderer";
+import { drawCatCharacter, type CatAccessoryPass } from "./cat-character";
 import type { EyeStyle } from "../server/appearance";
 
 export const DEVOUR_SECONDS = 1.6;
@@ -41,7 +42,7 @@ export function consumptionLayout(event: DevourVisual, progress: number, anchor 
 export function drawCatConsumption(ctx: CanvasRenderingContext2D, event: DevourVisual, progress: number, options: {
   concealed?: boolean; muted?: boolean; reducedMotion?: boolean; alpha?: number;
   returnTo?: { x: number; y: number }; eyes?: EyeStyle;
-  direction?: CatDirection; drawHat?: (ctx: CanvasRenderingContext2D, direction: CatDirection, phase: number, amount: number) => void;
+  direction?: CatDirection; drawHat?: (ctx: CanvasRenderingContext2D, direction: CatDirection, phase: number, amount: number, layer?: CatAccessoryPass) => void;
 } = {}) {
   const pose = devourPose(progress, options.reducedMotion);
   const layout = consumptionLayout(event, options.reducedMotion ? 0 : pose.progress, options.returnTo);
@@ -89,10 +90,13 @@ export function drawCatConsumption(ctx: CanvasRenderingContext2D, event: DevourV
   ctx.save(); ctx.translate(x, y + pose.crouch + 29);
   ctx.rotate((direction === "WEST" || direction === "SW" || direction === "NW" ? -1 : 1) * pose.swipe * .045);
   ctx.translate(0, -29);
-  drawMooncat(ctx, { color: event.killerColor, direction, stridePhase: pose.swipe * Math.PI / 2,
-    strideAmount: pose.swipe * .45, blink: false, eyeStyle: options.eyes ?? "FIERCE",
-    concealed: hidden, muted: options.muted });
-  if (!hidden) options.drawHat?.(ctx, direction, pose.swipe * Math.PI / 2, pose.swipe * .45);
+  drawCatCharacter(ctx, {
+    concealed: hidden,
+    drawAccessory: options.drawHat ? (target, layer) => options.drawHat?.(target, direction, pose.swipe * Math.PI / 2, pose.swipe * .45, layer) : undefined,
+    drawBody: (ctx) => drawMooncat(ctx, { color: event.killerColor, direction, stridePhase: pose.swipe * Math.PI / 2,
+      strideAmount: pose.swipe * .45, blink: false, eyeStyle: options.eyes ?? "FIERCE",
+      concealed: hidden, muted: options.muted }),
+  });
   ctx.restore();
 
   if (!options.reducedMotion) {

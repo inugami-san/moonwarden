@@ -7,6 +7,7 @@ import { renderToStaticMarkup as render } from "react-dom/server";
 import ts from "typescript";
 import { WardrobePreview } from "../app/wardrobe-preview.tsx";
 import { portraitPixelSize } from "../app/cat-portrait.tsx";
+import { drawCatCharacter } from "../app/cat-character.ts";
 import { GameMenu } from "../app/game-menu.tsx";
 import { GameGlyph } from "../app/gameplay-controls.tsx";
 
@@ -79,6 +80,7 @@ async function portraitHarness({ animated = false, concealment = true } = {}) {
       if (name === "./mooncat-sprites") return { loadMooncatSprites() { loads++; return Promise.resolve(true); } };
       if (name === "./mooncat-renderer") return { drawMooncat() { assert.fail("a loaded seated cat must not flicker through a gameplay fallback"); } };
       if (name === "./accessory-art") return { drawWornAccessory(context, accessory) { accessories.push(accessory); } };
+      if (name === "./cat-character") return { drawCatCharacter };
       return {};
     },
   });

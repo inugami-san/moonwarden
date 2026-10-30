@@ -6,6 +6,23 @@ source releases, not proof that a particular server has been deployed.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-30
+
+### Direction-aware cat wardrobe
+
+- Refit all eleven accessories for front, diagonal, side and rear headings,
+  with separate back/body/front layers shared by gameplay, lobby portraits and
+  Hollow capture. Partially visible cats fade as one assembled character;
+  anonymous silhouettes still hide every accessory.
+- Added Dewdrop Pendant, Fern Scarf and Mushroom Cap, and a single shared
+  cosmetic catalog for wardrobe choices, labels, client validation and the room
+  server. Existing accessory IDs and the default Moonbell Collar are preserved.
+- Added a development-only accessory inspection mode with direction, animation,
+  reduced-motion and worn-vs-icon review controls.
+- Multiplayer now requires `silverpine-wardrobe-v9` on both the frontend and
+  existing room server so cached clients cannot misrender the new cosmetic IDs.
+  No gameplay, collision, visibility, role or reward rules changed.
+
 ## [0.7.2] - 2026-10-30
 
 ### Living Rootwake and dramatic role entrances

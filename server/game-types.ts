@@ -1,4 +1,5 @@
 import type { EyeStyle } from "./appearance";
+import type { Hat } from "./cosmetics";
 import type { EmergencyMeetingState } from "./report-rules";
 import type { RitualChallenge, RitualDifficulty } from "./forest-rituals";
 import type { UtilityKind, Watchroot } from "./forest-utilities";
@@ -8,7 +9,7 @@ export type RoleChoice = Role | "RANDOM";
 export type Phase = "CALM" | "COUNTDOWN" | "ORDEAL" | "DISCUSSION";
 export type Hazard = "BLACKOUT" | "FOG" | "MOONGLARE" | "ROOTWAKE" | "PHANTOMS" | "MIRROR_POOL";
 export type ItemKind = "FLASHLIGHT" | "FLARE" | "SONAR";
-export type Hat = "antlers" | "hood" | "moth" | "mooncap" | "moonbell" | "leafband" | "starlock" | "mothbow";
+export type { Hat } from "./cosmetics";
 export type OrdealAbility = "MOON_SIGHT" | "ECHO_LURE";
 export type KillStyle = "NORMAL" | "STEALTH";
 export type SoundCue = { id: string; x: number; y: number; expiresAt: number; kind?: "RITUAL" | "WATCHROOT" | "ROOT_RIPPLE" };

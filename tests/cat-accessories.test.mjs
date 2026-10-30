@@ -21,11 +21,11 @@ test("all four new collars survive room creation, profile update and match start
 });
 
 test("collars sit at the neck and mirror without using a head-height anchor", () => {
-  for (const value of ["moonbell", "leafband", "starlock", "mothbow"]) assert.equal(isCollar(value), true);
+  for (const value of ["moonbell", "leafband", "starlock", "mothbow", "dewdrop", "fernwrap"]) assert.equal(isCollar(value), true);
   assert.equal(isCollar("hood"), false);
-  assert.deepEqual(collarAnchor("SE"), { x: 23, y: 0 });
-  assert.deepEqual(collarAnchor("SW"), { x: -23, y: 0 });
-  assert.equal(collarAnchor("NORTH").y, -15);
+  assert.deepEqual(collarAnchor("SE"), { x: 15, y: -2 });
+  assert.deepEqual(collarAnchor("SW"), { x: -15, y: -2 });
+  assert.equal(collarAnchor("NORTH").y, -14);
 });
 
 test("cat accessories fit front, side, rear and the separate seated home pose", () => {
@@ -37,7 +37,7 @@ test("cat accessories fit front, side, rear and the separate seated home pose", 
   const seated = accessoryFit("moonbell", "SOUTH", "SEATED");
   assert.equal(seated.x, 0); assert.ok(seated.y >= 0 && seated.y < 12);
   assert.ok(accessoryFit("mooncap", "SOUTH", "SEATED").y < -30, "headwear cannot cover the seated face");
-  for (const hat of ["antlers", "hood", "moth", "mooncap", "moonbell", "leafband", "starlock", "mothbow"]) {
+  for (const hat of ["antlers", "hood", "moth", "mooncap", "moonbell", "leafband", "starlock", "mothbow", "dewdrop", "fernwrap", "mushroom"]) {
     for (const direction of ["NORTH", "NE", "EAST", "SE", "SOUTH", "SW", "WEST", "NW"]) {
       const fit = accessoryFit(hat, direction);
       for (const value of Object.values(fit)) if (typeof value === "number") assert.ok(Number.isFinite(value));
@@ -60,8 +60,28 @@ test("rear collar renders no hanging charm and live fitting balances canvas stat
   }, set: () => true });
   drawWornAccessory(target, "moonbell", "NORTH", false, 1, .8);
   assert.equal(blits, 1, "rear view draws only the neckband"); assert.equal(depth, 0);
-  drawWornAccessory(target, "moonbell", "EAST", false, 1, .8);
-  assert.equal(blits, 3, "front/side view draws independent band and upright pendant"); assert.equal(depth, 0);
+  drawWornAccessory(target, "moonbell", "EAST", false, 1, .8, "GAMEPLAY", 0, "BACK");
+  assert.equal(blits, 2, "near neck's rear band is drawn before the body");
+  drawWornAccessory(target, "moonbell", "EAST", false, 1, .8, "GAMEPLAY", 0, "FRONT");
+  assert.equal(blits, 4, "front pass draws only the independent band and upright pendant"); assert.equal(depth, 0);
+});
+
+test("directional artwork caches perspective and layers, sharing mirrored views across walking phases", t => {
+  const original = globalThis.document;
+  let allocated = 0;
+  const paint = new Proxy({}, { get: (_, key) => key === "createLinearGradient" ? () => ({ addColorStop() {} }) : () => {}, set: () => true });
+  globalThis.document = { createElement: () => ({ id: ++allocated, width: 0, height: 0, getContext: () => paint }) };
+  t.after(() => { if (original === undefined) delete globalThis.document; else globalThis.document = original; });
+  const images = [];
+  const target = new Proxy({}, { get: (_, key) => key === "drawImage" ? sprite => images.push(sprite) : () => {}, set: () => true });
+  const draw = (direction, phase) => drawWornAccessory(target, "dewdrop", direction, true, phase, .8, "GAMEPLAY", .7, "FRONT");
+  draw("EAST", .1); draw("WEST", 2); draw("SE", .5); draw("SW", 3);
+  assert.equal(allocated, 4, "side and front-diagonal each cache their own band and charm");
+  assert.equal(images[0], images[2]); assert.equal(images[1], images[3]);
+  assert.equal(images[4], images[6]); assert.equal(images[5], images[7]);
+  assert.notEqual(images[0], images[4], "profile geometry is not the frontal image squashed sideways");
+  for (const direction of ["NORTH", "NE", "NW", "SOUTH"]) draw(direction, 1);
+  assert.equal(allocated, 8, "rear and rear-diagonal have bands only, front has a band and pendant");
 });
 
 test("greeting lifts a paw twice and returns to contact without whole-body jelly scaling", async () => {
@@ -69,8 +89,9 @@ test("greeting lifts a paw twice and returns to contact without whole-body jelly
   const portrait = await readFile(new URL("../app/cat-portrait.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../app/lobby-studio.css", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(portrait, /if \(accessory && !concealed\) drawWornAccessory/);
-  assert.match(page, /drawWornAccessory\(ctx, player.hat, gait.direction, colorMuted, gait.stridePhase, gait.strideAmount, "GAMEPLAY", idlePhase\)/);
+  assert.match(portrait, /drawCatCharacter\(context, \{\s*concealed,/);
+  assert.match(portrait, /drawWornAccessory\(target, accessory, "SE", false, phase, animate \? 1 : 0, "GAMEPLAY", 0, layer\)/);
+  assert.match(page, /drawWornAccessory\(context, player.hat, gait.direction, colorMuted, gait.stridePhase, gait.strideAmount, "GAMEPLAY", idlePhase, layer\)/);
   assert.match(portrait, /cancelAnimationFrame\(frame\)/);
   assert.match(portrait, /!reduced.matches/);
   assert.doesNotMatch(css, /@keyframes wardenGroupWave/);

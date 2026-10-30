@@ -19,6 +19,7 @@ import { rootwakeEnvelope, rootwakeMove, overgrownStationIndex, lurePoint } from
 import { createRitual, normalizeDifficulty, ritualAnswerIsCorrect, type RitualChallenge, type RitualDifficulty } from "./forest-rituals";
 import { ForestUtilities } from "./forest-utilities";
 import { EYE_STYLES, isEyeStyle, normalizeEyeStyle, type EyeStyle } from "./appearance";
+import { HAT_IDS, isHat } from "./cosmetics";
 import {
   ECHO_RANGE,
   ECHO_SECONDS,
@@ -56,7 +57,6 @@ export interface IWebSocketClient {
 }
 
 const BOT_NAMES = ["Mochi", "Bubbles", "Gloop", "Pebble", "Nori", "Fizz", "Pip", "Wobble"];
-const HATS: readonly Hat[] = ["moonbell", "leafband", "starlock", "mothbow", "antlers", "hood", "moth", "mooncap"];
 const STATION_INTERACTION_RANGE = 104;
 const BOT_RITUAL_SECONDS = 2.6;
 const KILL_COOLDOWN_MS = 1500;
@@ -163,7 +163,7 @@ export class GameRoom {
       id: playerId,
       name: assignedName,
       color: assignedColor,
-      hat: HATS.includes(hat) ? hat : choose(HATS),
+      hat: isHat(hat) ? hat : choose(HAT_IDS),
       eyeStyle: normalizeEyeStyle(eyeStyle),
       alive: true,
       x: CENTER.x + (Math.random() - 0.5) * 240,
@@ -306,7 +306,7 @@ export class GameRoom {
             this.trueColors.set(player.id, color);
           }
           else if (taken && player.color !== color) this.sendTo(this.clients.get(playerId)!, { type: "ERROR_ALERT", message: "That slime color is already taken. Choose an available color." });
-          if (HATS.includes(msg.hat)) player.hat = msg.hat;
+          if (isHat(msg.hat)) player.hat = msg.hat;
           if (isEyeStyle(msg.eyeStyle)) player.eyeStyle = msg.eyeStyle;
           this.broadcastLobbyUpdate();
         }
@@ -676,7 +676,7 @@ export class GameRoom {
           id: botId,
           name: availablePlayerName(BOT_NAMES[botIndex % BOT_NAMES.length], Array.from(this.players.values(), (p) => p.name)),
           color: availablePlayerColor("", Array.from(this.players.values(), (p) => p.color))!,
-          hat: HATS[botIndex % HATS.length],
+          hat: HAT_IDS[botIndex % HAT_IDS.length],
           eyeStyle: EYE_STYLES[botIndex % EYE_STYLES.length],
           alive: true,
           x: CENTER.x + Math.cos(angle) * 240,

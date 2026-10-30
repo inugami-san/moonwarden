@@ -1,4 +1,5 @@
 import type { EyeStyle } from "../server/appearance";
+import { normalizeHat } from "../server/cosmetics";
 import type { RitualDifficulty } from "../server/forest-rituals";
 import type { UtilityKind } from "../server/forest-utilities";
 import { GAME_VERSION_MISMATCH, GAME_WORLD_VERSION, isCompatibleServerInfo } from "../server/game-version";
@@ -657,15 +658,15 @@ export class MultiplayerClient {
   }
 
   public createRoom(playerName: string, color: string, hat: Hat, eyeStyle: EyeStyle = "FIERCE") {
-    this.send({ type: "CREATE_ROOM", playerName, color, hat, eyeStyle });
+    this.send({ type: "CREATE_ROOM", playerName, color, hat: normalizeHat(hat), eyeStyle });
   }
 
   public joinRoom(roomCode: string, playerName: string, color: string, hat: Hat, eyeStyle: EyeStyle = "FIERCE") {
-    this.send({ type: "JOIN_ROOM", roomCode: roomCode.toUpperCase().trim(), playerName, color, hat, eyeStyle });
+    this.send({ type: "JOIN_ROOM", roomCode: roomCode.toUpperCase().trim(), playerName, color, hat: normalizeHat(hat), eyeStyle });
   }
 
   public updateProfile(playerName: string, color: string, hat: Hat, eyeStyle?: EyeStyle) {
-    this.send({ type: "UPDATE_PROFILE", playerName, color, hat, ...(eyeStyle ? { eyeStyle } : {}) });
+    this.send({ type: "UPDATE_PROFILE", playerName, color, hat: normalizeHat(hat), ...(eyeStyle ? { eyeStyle } : {}) });
   }
 
   public toggleReady(ready?: boolean) {

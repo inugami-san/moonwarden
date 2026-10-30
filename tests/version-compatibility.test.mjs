@@ -31,6 +31,13 @@ test("wrong-revision relay handshakes cannot be upgraded within a rejected sessi
   assert.equal(reply.messages.find(message => message.type === "SERVER_INFO").compatible, false);
 });
 
+test("the relay rejects the previous v8 wardrobe before discovery or room creation", async t => {
+  const reply = await api({ messages: [{ ...hello, worldVersion: "silverpine-trust-v8" }, { type: "LIST_ROOMS" }, create] });
+  t.after(() => api({ sessionId: reply.sessionId, disconnect: true }));
+  assert.equal(reply.messages.find(message => message.type === "SERVER_INFO")?.compatible, false);
+  assert.equal(reply.messages.some(message => message.type === "ROOM_STATE" || message.type === "ROOMS_LIST"), false);
+});
+
 function browser(t) {
   const previous = { window: globalThis.window, fetch: globalThis.fetch, ws: process.env.NEXT_PUBLIC_WS_URL };
   delete process.env.NEXT_PUBLIC_WS_URL;

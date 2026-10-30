@@ -51,3 +51,16 @@ test("different release numbers are compatible only when the gameplay protocol m
   assert.equal(isCompatibleServerInfo({ ...info, version: "99.0.0" }), true);
   assert.equal(isCompatibleServerInfo({ ...info, version: GAME_RELEASE_VERSION, worldVersion: "retired-map" }), false);
 });
+
+test("cached v8 clients cannot enter a room with accessory IDs their wardrobe cannot render", () => {
+  const messages = [];
+  const socket = { readyState: 1, send: data => messages.push(JSON.parse(data)), close() { this.readyState = 3; } };
+  const handler = handleSocketConnection(socket, "legacy-wardrobe-check");
+  handler.onMessage(JSON.stringify({ type: "CLIENT_HELLO", worldVersion: "silverpine-trust-v8" }));
+  handler.onMessage(JSON.stringify({ type: "CREATE_ROOM", playerName: "Old wardrobe", color: "#20d8ed", hat: "moonbell" }));
+  assert.equal(socket.readyState, 3);
+  assert.equal(messages.find(message => message.type === "SERVER_INFO")?.compatible, false);
+  assert.ok(messages.some(message => message.type === "ERROR_ALERT"));
+  assert.equal(messages.some(message => message.type === "ROOM_STATE"), false);
+  handler.onClose();
+});

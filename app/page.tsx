@@ -26,6 +26,8 @@ import { EyeStylePicker } from "./eye-style-picker";
 import { EYE_LABELS } from "./cat-eyes";
 import { SlimeAnimator } from "./cat-motion";
 import { ACCESSORY_FRAME, drawAccessory, drawWornAccessory, isCollar } from "./accessory-art";
+import { drawCatCharacter } from "./cat-character";
+import { DEFAULT_HAT, HAT_IDS, HAT_META, normalizeHat } from "../server/cosmetics";
 import { EYE_STYLES, normalizeEyeStyle, type EyeStyle } from "../server/appearance";
 import { drawForestSanctum, drawSanctumStatus } from "./sanctum-art";
 import { availablePlayerName, PLAYER_COLORS as COLORS, randomWardenCallsign, WARDEN_CALLSIGNS } from "../server/palette";
@@ -261,7 +263,6 @@ const W = WORLD_WIDTH;
 const H = WORLD_HEIGHT;
 const NAMES = ["Bubbles", "Mochi", "Gloop", "Pebble", "Nori", "Fizz", "Wobble", "Pip"];
 const WARDEN_ALIBIS = ["Cute hat. Very convincing alibi.", "My alibi? Excellent moon-gazing.", "I swear the fog followed me here."];
-const HATS: Hat[] = ["moonbell", "leafband", "starlock", "mothbow", "antlers", "hood", "moth", "mooncap"];
 const ITEM_LABELS: Record<ItemKind, string> = { FLASHLIGHT: "Glowing Mushroom", FLARE: "Moonblossom", SONAR: "Echo Bell" };
 const HAZARD_LABELS: Record<Hazard, string> = {
   BLACKOUT: "TOTAL BLACKOUT",
@@ -1157,7 +1158,7 @@ class OrdealEngine {
         vy: 0,
         color: colors[i % colors.length],
         trueColor: colors[i % colors.length],
-        hat: i === 0 && profile ? profile.hat : HATS[i % HATS.length],
+        hat: i === 0 && profile ? profile.hat : HAT_IDS[i % HAT_IDS.length],
         eyeStyle: i === 0 && profile ? profile.eyeStyle : EYE_STYLES[i % EYE_STYLES.length],
         alive: true,
         ai: i !== 0,
@@ -3070,17 +3071,20 @@ class OrdealEngine {
     const blink = !this.reducedMotion && (this.elapsed + seed * 0.037) % 6.3 < 0.16;
     const holdingLantern = player.flashlight || (player.id === this.localPlayerId && this.selectedItem === "FLASHLIGHT" && this.elapsed < this.itemActiveUntil);
     const activeEyeStyle = completedPulse > 0 ? "JOYFUL" : player.eyeStyle;
-    drawAnimatedCat(ctx, {
-      color: baseColor,
-      muted: colorMuted,
-      direction: gait.direction,
-      stridePhase: gait.stridePhase,
-      strideAmount: gait.strideAmount,
-      idlePhase,
-      blink,
-      eyeStyle: activeEyeStyle,
-      holdingLantern,
-      tailTilt: pose.sproutTilt,
+    drawCatCharacter(ctx, {
+      drawAccessory: (context, layer) => drawWornAccessory(context, player.hat, gait.direction, colorMuted, gait.stridePhase, gait.strideAmount, "GAMEPLAY", idlePhase, layer),
+      drawBody: (context) => drawAnimatedCat(context, {
+        color: baseColor,
+        muted: colorMuted,
+        direction: gait.direction,
+        stridePhase: gait.stridePhase,
+        strideAmount: gait.strideAmount,
+        idlePhase,
+        blink,
+        eyeStyle: activeEyeStyle,
+        holdingLantern,
+        tailTilt: pose.sproutTilt,
+      }),
     });
     // Task Complete!: celebratory sparkles around the bouncing 4-legged cat.
     if (completedPulse > 0 && !this.reducedMotion && !colorMuted) {
@@ -3097,7 +3101,6 @@ class OrdealEngine {
       }
       ctx.restore();
     }
-    drawWornAccessory(ctx, player.hat, gait.direction, colorMuted, gait.stridePhase, gait.strideAmount, "GAMEPLAY", idlePhase);
     ctx.restore();
     ctx.globalAlpha = visibilityAlpha * identityAlpha * identityAlpha;
     ctx.font = "900 12px ui-monospace, monospace";
@@ -3129,7 +3132,7 @@ class OrdealEngine {
       reducedMotion: this.reducedMotion,
       returnTo: killer,
       eyes: killer?.eyeStyle,
-      drawHat: killer ? (context, direction, phase, amount) => drawWornAccessory(context, killer.hat, direction, muted, phase, amount) : undefined,
+      drawHat: killer ? (context, direction, phase, amount, layer) => drawWornAccessory(context, killer.hat, direction, muted, phase, amount, "GAMEPLAY", 0, layer) : undefined,
     });
   }
 
@@ -3374,17 +3377,6 @@ const COLOR_NAMES: Record<string, string> = {
   "#48e0a4": "Sanctuary Mint",
 };
 
-const HAT_META: Record<Hat, { label: string; title: string }> = {
-  moonbell: { label: "MOONBELL", title: "Moonbell Collar" },
-  leafband: { label: "LEAF BAND", title: "Woodland Bandana" },
-  starlock: { label: "STARLOCK", title: "Starlight Collar" },
-  mothbow: { label: "MOTH BOW", title: "Moonmoth Bow" },
-  antlers: { label: "ANTLERS", title: "Elder Bough" },
-  hood: { label: "HOOD", title: "Nightveil" },
-  moth: { label: "MOTH", title: "Lunar Crest" },
-  mooncap: { label: "MOONCAP", title: "Star Point" },
-};
-
 function HatGraphic({ hat }: { hat: Hat }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -3627,7 +3619,7 @@ function Lobby({
   // Multiplayer form state (deterministic initial render, randomized callsign on mount)
   const [nickname, setNickname] = useState(WARDEN_CALLSIGNS[0]);
   const [selectedColor, setSelectedColor] = useState(COLORS[0]);
-  const [selectedHat, setSelectedHat] = useState<Hat>("moonbell");
+  const [selectedHat, setSelectedHat] = useState<Hat>(DEFAULT_HAT);
   const [selectedEyes, setSelectedEyes] = useState<EyeStyle>("FIERCE");
   const [joinCode, setJoinCode] = useState("");
   const [botFill, setBotFill] = useState(true);
@@ -3687,7 +3679,7 @@ function Lobby({
       if (own) {
         setNickname(own.name);
         setSelectedColor(own.color);
-        setSelectedHat(own.hat);
+        setSelectedHat(normalizeHat(own.hat));
         setSelectedEyes(normalizeEyeStyle(own.eyeStyle));
       }
     });
@@ -3771,8 +3763,8 @@ function Lobby({
   };
 
   const handleCycleHat = () => {
-    const nextIdx = (HATS.indexOf(selectedHat) + 1) % HATS.length;
-    const nextHat = HATS[nextIdx] ?? selectedHat;
+    const nextIdx = (HAT_IDS.indexOf(selectedHat) + 1) % HAT_IDS.length;
+    const nextHat = HAT_IDS[nextIdx] ?? selectedHat;
     playLobbySfx("customize", nextIdx + 2);
     triggerWardenBoop(2, "🐾");
     handleProfileChange(nickname, selectedColor, nextHat, selectedEyes);
@@ -3790,7 +3782,7 @@ function Lobby({
     const randomName = randomWardenCallsign([...occupiedNames, nickname]);
     const available = COLORS.filter((color) => !occupiedColors.has(color));
     const randomColor = available[Math.floor(Math.random() * available.length)] ?? selectedColor;
-    const randomHat = HATS[Math.floor(Math.random() * HATS.length)];
+    const randomHat = HAT_IDS[Math.floor(Math.random() * HAT_IDS.length)];
     const randomEyes = EYE_STYLES[Math.floor(Math.random() * EYE_STYLES.length)];
     playLobbySfx("wave");
     triggerWardenBoop(2, "🎲");
@@ -4032,7 +4024,7 @@ function Lobby({
             <div className="preview-circle" role="group" aria-label="Meet the preview wardens">
             {COLORS.slice(0, 5).map((color, index) => {
               const showcaseColor = index === 2 ? selectedColor : COLORS.filter((hue) => hue !== selectedColor)[index < 2 ? index : index - 1];
-              const showcaseHat = index === 2 ? selectedHat : HATS[index % HATS.length];
+              const showcaseHat = index === 2 ? selectedHat : HAT_IDS[index % HAT_IDS.length];
               const isBooped = boopedWarden?.index === index;
               const isCursorLit = cursorLitWarden === index;
               return (
@@ -4171,7 +4163,7 @@ function Lobby({
                         ACCESSORY <span>{HAT_META[selectedHat].title.toUpperCase()}</span>
                       </div>
                       <div className="mp-hat-row" role="group" aria-label="Accessory selection">
-                        {HATS.map((h, idx) => (
+                        {HAT_IDS.map((h, idx) => (
                           <button
                             key={h}
                             type="button"
@@ -4304,7 +4296,7 @@ function Lobby({
                       ACCESSORY <span>{HAT_META[selectedHat].title.toUpperCase()}</span>
                     </div>
                     <div className="mp-hat-row" role="group" aria-label="Accessory selection">
-                      {HATS.map((h) => (
+                      {HAT_IDS.map((h) => (
                         <button
                           key={h}
                           type="button"
@@ -4369,7 +4361,7 @@ function Lobby({
                     const botNum = slotIdx - mpState.players.length + 1;
                     if (activeBotFill) {
                       const botColor = COLORS[slotIdx % COLORS.length];
-                      const botHat = HATS[slotIdx % HATS.length];
+                      const botHat = HAT_IDS[slotIdx % HAT_IDS.length];
                       return (
                         <div className="warden-slot-card bot-slot" key={`bot-slot-${slotIdx}`} role="listitem">
                           <div className="slot-card-top">

@@ -19,6 +19,11 @@ at `/health` and in the `SERVER_INFO` handshake. These are public identifiers,
 not credentials. Compare the site and server metadata when diagnosing a stale
 deployment. The release channel remains beta until explicitly changed.
 
+The v0.8.0 wardrobe release uses `silverpine-wardrobe-v9`. Deploy the matching
+existing room server before the frontend. This compatibility bump protects the
+expanded eleven-accessory catalog: cached v8 pages do not understand the new
+IDs and must refresh, even though gameplay rules and packet shapes are unchanged.
+
 Use `MAJOR.MINOR.PATCH`: patch for fixes, minor for new gameplay/features, and
 major for a deliberately breaking public release. While the game is `0.x`,
 record breaking gameplay changes in a new minor release. Git already preserves
@@ -32,7 +37,8 @@ For every future release:
    [CHANGELOG.md](CHANGELOG.md). Do not invent historical release tags.
 3. Change `GAME_WORLD_VERSION` in `server/game-version.ts` **only** when clients
    and room servers would otherwise disagree about geometry, simulation, or
-   required protocol data. Release numbers alone never decide compatibility.
+   required protocol data (including cosmetic IDs that older clients cannot
+   render safely). Release numbers alone never decide compatibility.
 4. Run `npm run release:check` and the checks appropriate to the changes.
    `npm test` also runs the release check before building. It catches package/
    lockfile drift and missing release notes.
@@ -141,10 +147,10 @@ including during the first Ordeal or bell cooldown. The report button displays
 the lock/countdown and enables immediately for a reportable puddle. Keyboard
 `R` and multiplayer packets follow the same rules.
 
-This local gameplay update uses `silverpine-bell-v6`. Deploy both the frontend
+The current release uses `silverpine-wardrobe-v9`. Deploy both the frontend
 and matching persistent room server together; a frontend-only release must not
-connect to the previous `silverpine-harmony-v5` room server. `npm run test:report`
-runs the focused rule and authoritative-server checks.
+connect to a previous room-server protocol. `npm run test:report` runs the
+focused rule and authoritative-server checks.
 
 A standalone WebSocket server is also available via:
 ```bash
@@ -247,8 +253,9 @@ its destination privately to that voter. Repeated clicks/packets cannot reroll
 it. The same role-blind rule applies in solo play and to AI body reporters. The
 meeting explains the risk before voting; a small Moonsway confirmation names
 the actual destination, and the public tally counts that vote only once. Chat
-is preserved when a vote receipt arrives. Protocol `silverpine-harmony-v5`
-requires matching frontend and room-server deployments.
+is preserved when a vote receipt arrives. The current
+`silverpine-wardrobe-v9` protocol requires matching frontend and room-server
+deployments.
 
 ### Paired rites, field notes, and mobile movement (v0.3.0)
 

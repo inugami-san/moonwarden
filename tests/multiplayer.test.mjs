@@ -9,6 +9,7 @@ import { CALM_SECONDS, CENTER, PLAYER_BOUNDS, STATIONS, SANCTUARY_OBSTACLES, kee
 import { planRoute } from "../server/sanctuary-paths.ts";
 import { GAME_WORLD_VERSION } from "../server/game-version.ts";
 import { ritualProgress } from "../server/match-rules.ts";
+import { overgrownStationIndex } from "../server/sanctuary-design.ts";
 const wardGain = room => ritualProgress([...room.players.values()].filter(player => player.alive && player.role === "CREWMATE").length, room.phase === "ORDEAL");
 
 const hello = { type: "CLIENT_HELLO", worldVersion: GAME_WORLD_VERSION };
@@ -314,19 +315,26 @@ test("each player keeps a private shrine rite after the team seal, without dupli
   assert.deepEqual(rejected.completedStations, []);
 });
 
-test("fake rites award gear but leave the first real Warden restoration available", t => {
-  const { room } = preparedMatch(t);
-  for (const player of room.players.values()) atStation(room, player, "STAR ALTAR");
-  const request = { type: "TASK_UPDATE", stationId: "STAR ALTAR", reward: "SONAR", roundId: 1 };
-  finishTask(room, "rite-0", request);
-  assert.equal(room.taskProgress, 0);
-  assert.equal(room.sealedStations.has("STAR ALTAR"), false);
-  room.phase = "ORDEAL";
-  finishTask(room, "rite-1", request);
-  const expected = wardGain(room) + ritualProgress(3, false, true);
-  room.settleWards();
-  assert.equal(room.taskProgress, Math.round(expected * 10) / 10);
-  assert.equal(room.sealedStations.has("STAR ALTAR"), true);
+test("fake rites award gear but leave the first real Warden restoration available", async t => {
+  for (const [seed, overgrownBonus] of [[0, 0], [1, 1.5]]) await t.test(`overgrown bonus ${overgrownBonus}`, t => {
+    const { room } = preparedMatch(t);
+    // Pin overgrowth independently of the random layout: exercise both the
+    // ordinary first restoration and the marked shrine's Ordeal bonus.
+    room.layoutSeed = seed;
+    const overgrown = room.stations[overgrownStationIndex(room.roundId, seed, room.stations.length)]?.id === "STAR ALTAR";
+    assert.equal(overgrown, overgrownBonus > 0);
+    for (const player of room.players.values()) atStation(room, player, "STAR ALTAR");
+    const request = { type: "TASK_UPDATE", stationId: "STAR ALTAR", reward: "SONAR", roundId: room.roundId };
+    finishTask(room, "rite-0", request);
+    assert.equal(room.taskProgress, 0);
+    assert.equal(room.sealedStations.has("STAR ALTAR"), false);
+    room.phase = "ORDEAL";
+    finishTask(room, "rite-1", request);
+    const expected = wardGain(room) + ritualProgress(3, false, true) + overgrownBonus;
+    room.settleWards();
+    assert.equal(room.taskProgress, Math.round(expected * 10) / 10);
+    assert.equal(room.sealedStations.has("STAR ALTAR"), true);
+  });
 });
 
 test("rites reject distant, dead, discussion, wrong-reward and stale-round claims", t => {
