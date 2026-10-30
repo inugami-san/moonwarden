@@ -2,7 +2,7 @@
 
 Updated: 2026-10-30 (Asia/Manila).
 
-## v0.8.0 — directional wardrobe release in progress
+## Current frontend and room server: v0.8.0 — LIVE and verified
 
 User approved fixing accessory fit in all directions, adding accessories and
 deploying to production. All eleven IDs/labels/validation now live in
@@ -24,15 +24,38 @@ seated/lobby poses, actual-size/vector comparisons, selected-accessory devour an
 anonymous mode. It remains development-only. Preview sleeps hidden/paused and
 respects reduced motion. Browser review covered collars, mushroom cap, scarf,
 cowl and anonymous silhouettes; no full human multiplayer playtest is claimed.
-116 focused art/wardrobe/network/multiplayer/compatibility/release checks passed.
+Focused art/wardrobe/network/multiplayer/compatibility/release checks, TypeScript
+and scoped ESLint pass. The seeded restoration test now explicitly covers the
+ordinary and Overgrown bonuses instead of sometimes failing on a random seed;
+no gameplay rule changed to accommodate that test.
 
 Frontend and existing Render server BOTH require `silverpine-wardrobe-v9`.
 This protects cached v8 clients from unknown cosmetic IDs (old wardrobe metadata
 was not defensive). Update existing Render service only; no new service or plan
-changes. Production deployment evidence will be added after release. Unrelated
-`prototypes/` remains excluded.
+changes. Unrelated `prototypes/` remains excluded.
 
-## Current frontend: v0.7.2 — LIVE and verified
+Released 2026-10-30 to <https://moonwarden-two.vercel.app/>. Public `/api/version`
+confirms `0.8.0` / `silverpine-wardrobe-v9`; homepage returns 200 and `/dev/cats`
+returns 404. Vercel deployment `dpl_3iB7ufe6qn4bQy2ixwDWs8g5nKUr` is READY;
+Next.js 16.2.6 build took 26s including TypeScript. Authenticated version check
+on <https://moonwarden-qwyof05pq-christainj.vercel.app> passed before promoting
+that exact production build. Source commit `115ec9eff6cf2d16c9f08325c57b43920d39eeac`
+is pushed to both existing release/backend branches and tagged `v0.8.0`.
+
+Existing Render service `srv-db8u6cs9v7es73dt2dt0`, Christian's confirmed workspace
+`tea-db8t48jbc2fs73c3lr1g`, deploy `dep-dbi530942hec73cg0e8g` is LIVE at the same
+source commit. Its free Singapore plan and configuration are unchanged. Live
+health and three real production WebSocket clients verified v9 handshakes,
+discovery, joins, preservation of all three new accessories, unique colors and
+match start with one bot. All QA sockets disconnected afterward. Cached old
+pages must refresh and create/rejoin a new room after the server restart.
+
+Initial Vercel ten-minute error scan returned zero records and no excluded
+intervals; Render error scan since deployment also returned none. Continuous
+monitoring/drains were not assessed or changed. Screenshot of local fit review:
+`/private/tmp/moonwarden-v080-accessories.png`.
+
+## Previous frontend: v0.7.2 — LIVE and verified
 
 User approved production release of the Rootwake and role-reveal revisions.
 Released 2026-10-30 to <https://moonwarden-two.vercel.app/>. Public
