@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
+import { PAIR_RITUAL_SECONDS } from "../server/pair-ritual";
 
 type Glyph = "moon" | "settings" | "exit" | "report" | "sight" | "echo" | "bite" | "veil" | "spark" | "people" | "paw" | "collar";
 
@@ -26,6 +27,7 @@ type SettingsProps = {
   open: boolean; enabled: boolean; onOpenChange: (open: boolean) => void;
   musicEnabled: boolean; soundEnabled: boolean; lowGlare: boolean;
   onMusicToggle: () => void; onSoundToggle: () => void; onGlareToggle: () => void; onExit: () => void;
+  privacyControl?: ReactNode;
 };
 
 export function GameplaySettings(props: SettingsProps) {
@@ -57,7 +59,12 @@ export function GameplaySettings(props: SettingsProps) {
       <p>Touch: drag anywhere on the left to move. Tap gear to select it, then tap Use. Open the map to pick your next shrine.</p>
       <dl><div><dt>Move</dt><dd>WASD / arrows</dd></div><div><dt>Shrine / gear</dt><dd>E / F</dd></div><div><dt>Report / map / notes</dt><dd>R / M / N</dd></div><div><dt>Hollow only</dt><dd>Q bite · X veiled bite · V sight / C echo</dd></div></dl>
       <p>Complete shrine tasks for gear. Stay close enough to witness—but remember, the forest has plenty of cover.</p>
+      <p>Duet (H): take turns playing the lit Sun (J) or Moon (K) rune for at least {PAIR_RITUAL_SECONDS}s. Both earn gear faster, but must stay still and your chant is audible nearby; a Hollow can join too. Move or press H to leave.</p>
+      <p>During Ordeals: F uses selected gear. G uses your shrine-earned Dash or Watchroot charge in your movement direction (18s cooldown). Both roles can use these.</p>
+      <p>Hollow: choose Sight (V) to reveal living cats briefly or Echo (C) to plant a false rustle toward your aim. They share one special action per Ordeal. Bite (Q) and Veiled Bite (X) share one strike; a veiled fallen cat appears 8s later, with a 45s and two-Ordeal recovery.</p>
+      <p>Meetings: report a visible nearby fallen cat, or visit the central bell after the first Ordeal. Emergency meetings have a 60s cooldown; body reports bypass it.</p>
     </details>
+    {props.privacyControl}
     <footer><button type="button" className="play-exit" onClick={props.onExit}><GameGlyph name="exit" /> Leave match</button><button type="button" className="play-resume" onClick={() => onOpenChange(false)}>Back to the forest <span aria-hidden="true">↗</span></button></footer>
   </dialog>;
 }

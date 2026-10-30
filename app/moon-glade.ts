@@ -170,13 +170,9 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
   ctx.beginPath(); ctx.ellipse(CENTER.x, CENTER.y, 124, 84, 0, .15, Math.PI * 1.85); ctx.stroke();
   ellipse(CENTER.x - 5, CENTER.y - 4, 39, 32, "#71949288"); ellipse(CENTER.x + 8, CENTER.y - 14, 35, 29, "#53757c");
 
-  ctx.textAlign = "center"; ctx.font = "700 12px ui-monospace, monospace"; ctx.fillStyle = "#e5ecd19c";
-  for (const [label, x, y] of [
-    ["FROST HOLLOW", 375, 382], ["FALLEN SHRINE", 960, 405], ["OWL WATCH", 1536, 354],
-    ["WILLOW GROVE", 337, 710], ["MOONWELL", 1060, 946], ["SUNKEN CLOISTER", 1630, 766],
-  ] as const) ctx.fillText(label, x, y);
-  ctx.font = "600 10px ui-monospace, monospace"; ctx.fillStyle = "#e9ecd080";
-  ctx.fillText("WARDEN COURTYARD", CENTER.x, CENTER.y + 66); ctx.restore();
+  // Landmark names belong to the minimap. Their recognizable mosaics, paths
+  // and silhouettes remain on the floor without permanent text underneath.
+  ctx.restore();
 
   // Decorative canopy mushrooms stay outside the play boundary. Actual trunks are shared data.
   const pine = (x: number, y: number, height: number) => {
@@ -212,7 +208,5 @@ export function drawMoonGlade(ctx: CanvasRenderingContext2D) {
     ellipse(x - 1.2, y - .5, 1.4, .9, "#7ef9ff");
     ellipse(x + 1.3, y + .2, 1.1, .8, "#7ef9ff");
   }
-  ctx.textAlign = "center"; ctx.font = "600 12px Georgia, serif"; ctx.fillStyle = "#dce7d0b0";
-  ctx.fillText("SILVERPINE MOON GLADE  ·  A FOREST WORTH RESTORING", CENTER.x, 1105);
   ctx.restore();
 }

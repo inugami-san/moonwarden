@@ -10,6 +10,7 @@ export const GEAR_LABELS: Readonly<Record<ItemKind, string>> = {
   FLARE: "Moonblossom",
   SONAR: "Echo Bell",
 };
+const GEAR_SHORT_LABELS: Readonly<Record<ItemKind, string>> = { FLASHLIGHT: "Light", FLARE: "Bloom", SONAR: "Echo" };
 export const GEAR_DESCRIPTIONS: Readonly<Record<ItemKind, string>> = {
   FLASHLIGHT: "Aim its moonlit spores to light the path for seven seconds.",
   FLARE: "Plant a shared circle of soft light for five seconds.",
@@ -90,14 +91,16 @@ export function earnedGear(charges: GearCharges): { item: ItemKind; shortcut: nu
 export function ObjectiveStrip(props: GuidanceInput & { progress: number; allies?: string }) {
   const guidance = playerGuidance(props);
   const progress = Math.max(0, Math.min(100, Number.isFinite(props.progress) ? Math.floor(props.progress) : 0));
-  return <section className="objective-strip" data-role={props.role} data-no-joystick aria-label="Your objective">
-    <div className="objective-strip-heading">
-      <span>{props.alive ? props.role === "IMPOSTOR" ? "Hollow · private role" : "Warden" : "Spectator"}<span aria-hidden="true"> · </span>{PHASE_NAMES[props.phase]}</span>
-      <details className="objective-win"><summary>How to win</summary><p>{roleWinSummary(props.role)}{props.role === "IMPOSTOR" && props.allies ? <span className="objective-allies">Your fellow Hollows: {props.allies}</span> : null}</p></details>
+  return <details className="objective-strip" data-no-joystick aria-label="Your objective">
+    <summary className="objective-pill" aria-label={`Forest ${progress}% restored. Open your goal and help.`}>
+      <span>Forest</span><progress value={progress} max={100} aria-label="Forest restoration" /><b>{progress}%</b><span className="objective-chevron" aria-hidden="true">⌄</span>
+    </summary>
+    <div className="objective-goal-panel">
+      <small>{props.alive ? props.role === "IMPOSTOR" ? "Hollow · your secret role" : "Warden" : "Spectator"} · {PHASE_NAMES[props.phase]}</small>
+      <strong>{guidance.title}</strong><p>{guidance.detail}</p><p className="objective-win-goal">{roleWinSummary(props.role)}</p>
+      {props.role === "IMPOSTOR" && props.allies ? <p className="objective-allies">Your fellow Hollows: {props.allies}</p> : null}
     </div>
-    <div className="objective-next" role="status" aria-live="polite" aria-atomic="true"><strong>{guidance.title}</strong><p>{guidance.detail}</p></div>
-    <div className="objective-restoration"><span>Forest restored</span><progress value={progress} max={100} aria-label="Forest restoration" /><b>{progress}%</b></div>
-  </section>;
+  </details>;
 }
 
 export type EarnedGearDockProps = {
@@ -109,24 +112,24 @@ export type EarnedGearDockProps = {
   showSelectedDescription?: boolean;
 };
 
-export function EarnedGearDock({ charges, selectedItem, onSelect, renderIcon, disabled = false, showSelectedDescription = true }: EarnedGearDockProps) {
+export function EarnedGearDock({ charges, selectedItem, onSelect, renderIcon, disabled = false }: EarnedGearDockProps) {
   const available = earnedGear(charges);
+  if (!available.length) return null;
   return <section className="earned-gear-dock" data-no-joystick aria-label="Your earned gear">
-    <div className="earned-gear-heading"><strong>Earned gear</strong><details className="gear-catalog">
-      <summary>More gear</summary>
-      <div className="gear-catalog-panel"><p>Complete shrines to earn charges. Number keys keep the same gear slots.</p>{GEAR_ORDER.map((item, index) => <button type="button" key={item} disabled={disabled || charges[item] <= 0} onClick={() => onSelect(item)} aria-pressed={selectedItem === item} aria-label={`${GEAR_LABELS[item]}: ${charges[item] > 0 ? `equip, ${charges[item]} charges` : "earn at shrines"}. ${GEAR_DESCRIPTIONS[item]}`}>
+    <div className="earned-gear-choices" role="group" aria-label="Available gear">{available.map(({ item, shortcut, charges: count }) => <button type="button" key={item} className={selectedItem === item ? "is-selected" : undefined} onClick={() => onSelect(item)} disabled={disabled} aria-pressed={selectedItem === item} aria-keyshortcuts={String(shortcut)} aria-label={`Equip ${GEAR_LABELS[item]}, ${count} ${count === 1 ? "charge" : "charges"}, key ${shortcut}`} title={`${GEAR_LABELS[item]} · Key ${shortcut}. ${GEAR_DESCRIPTIONS[item]}`}>
+      <span className="earned-gear-icon" aria-hidden="true">{renderIcon(item)}</span><span className="earned-gear-label">{GEAR_SHORT_LABELS[item]}</span><span className="earned-gear-count"><kbd>{shortcut}</kbd><b>×{count}</b></span>
+    </button>)}</div>
+    <details className="gear-catalog">
+      <summary aria-label="Gear information and all items">Info</summary>
+      <div className="gear-catalog-panel">{GEAR_ORDER.map((item, index) => <button type="button" key={item} disabled={disabled || charges[item] <= 0} onClick={() => onSelect(item)} aria-pressed={selectedItem === item} title={GEAR_DESCRIPTIONS[item]} aria-label={`${GEAR_LABELS[item]}: ${charges[item] > 0 ? `equip, ${charges[item]} charges` : "earn at shrines"}. ${GEAR_DESCRIPTIONS[item]}`}>
         <span className="gear-catalog-icon" aria-hidden="true">{renderIcon(item)}</span><span><b><kbd>{index + 1}</kbd> {GEAR_LABELS[item]}</b><small>{GEAR_DESCRIPTIONS[item]}</small></span><em>{charges[item] > 0 ? `×${charges[item]}` : "At shrines"}</em>
       </button>)}</div>
-    </details></div>
-    {available.length ? <div className="earned-gear-choices" role="group" aria-label="Available gear">{available.map(({ item, shortcut, charges: count }) => <button type="button" key={item} className={selectedItem === item ? "is-selected" : undefined} onClick={() => onSelect(item)} disabled={disabled} aria-pressed={selectedItem === item} aria-keyshortcuts={String(shortcut)} aria-label={`Equip ${GEAR_LABELS[item]}, ${count} ${count === 1 ? "charge" : "charges"}, key ${shortcut}`} title={GEAR_DESCRIPTIONS[item]}>
-      <span className="earned-gear-icon" aria-hidden="true">{renderIcon(item)}</span><span className="earned-gear-label">{GEAR_LABELS[item]}</span><span className="earned-gear-count"><kbd>{shortcut}</kbd><b>×{count}</b></span>
-    </button>)}</div> : <p className="earned-gear-empty">Complete a shrine to earn your first gear.</p>}
-    {showSelectedDescription && charges[selectedItem] > 0 ? <p className="earned-gear-description"><b>Equipped:</b> {GEAR_DESCRIPTIONS[selectedItem]}</p> : null}
+    </details>
   </section>;
 }
 
-export function RewardHandoff({ item, station, role, icon, description = GEAR_DESCRIPTIONS[item] }: { item: ItemKind; station: string; role: Role; icon: ReactNode; description?: string }) {
-  return <aside className="reward-handoff" role="status" aria-live="polite" aria-atomic="true">
-    <span className="reward-handoff-icon" aria-hidden="true">{icon}</span><div><small>{station} · {role === "IMPOSTOR" ? "Fake ritual complete" : "Ritual complete"}</small><strong>{GEAR_LABELS[item]} earned</strong><p>{description}</p></div>
+export function RewardHandoff({ item, icon, description = GEAR_DESCRIPTIONS[item] }: { item: ItemKind; station: string; role: Role; icon: ReactNode; description?: string }) {
+  return <aside className="reward-handoff" role="status" aria-live="polite" aria-atomic="true" aria-label={`${GEAR_LABELS[item]}: one charge earned`} title={description}>
+    <span className="reward-handoff-icon" aria-hidden="true">{icon}</span><strong>{GEAR_LABELS[item]}</strong><b>+1</b>
   </aside>;
 }

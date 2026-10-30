@@ -428,8 +428,6 @@ export function drawSanctumStatus(ctx: CanvasRenderingContext2D, station: Sanctu
   if (!station.completed && !nearby) return;
   const sealed = station.completed;
   const personalRite = station.teamRestored === true && !sealed;
-  const label = sealed ? "SEALED" : locked ? "LOCKED" : personalRite ? "GEAR READY" : "TASK READY";
-  const width = sealed ? 85 : locked ? 85 : 111;
   // The top-left ward meter overlays the upper arena. Put north-shrine
   // badges on the approach side so the HUD cannot hide a completed state.
   const northShrine = station.y < 160;
@@ -437,71 +435,48 @@ export function drawSanctumStatus(ctx: CanvasRenderingContext2D, station: Sanctu
   const y = northShrine ? 58 : -67 - lift;
   ctx.save();
   ctx.translate(station.x, station.y);
-  ctx.lineCap = "round";
-  // A tether keeps this floating status attached to its shrine.
-  ctx.strokeStyle = sealed ? "rgba(235,216,171,.58)" : "rgba(176,205,201,.4)";
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  // A tiny carved-state token replaces the large repeated plaque and tether.
+  // A personal completion remains visible at distance, never a remote claim.
+  ctx.fillStyle = sealed ? "#303b3ae6" : "#1c2d36d9";
+  ctx.strokeStyle = sealed ? "#d4c49e" : locked ? "#8a999e" : "#a8c6b4";
   ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(0, northShrine ? y - 12 : y + 12);
-  ctx.lineTo(0, northShrine ? 30 : -48 - lift);
-  ctx.stroke();
-  ctx.fillStyle = sealed ? "#e8d9b6" : locked ? "#34434e" : "#233f46";
-  ctx.strokeStyle = sealed ? "#697888" : locked ? "#7f9197" : "#acd4c5";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(-width / 2 + 8, y - 12);
-  ctx.lineTo(width / 2 - 8, y - 12);
-  ctx.quadraticCurveTo(width / 2, y - 12, width / 2, y - 4);
-  ctx.lineTo(width / 2, y + 4);
-  ctx.quadraticCurveTo(width / 2, y + 12, width / 2 - 8, y + 12);
-  ctx.lineTo(-width / 2 + 8, y + 12);
-  ctx.quadraticCurveTo(-width / 2, y + 12, -width / 2, y + 4);
-  ctx.lineTo(-width / 2, y - 4);
-  ctx.quadraticCurveTo(-width / 2, y - 12, -width / 2 + 8, y - 12);
-  ctx.fill();
-  ctx.stroke();
-  ctx.strokeStyle = sealed ? "#405568" : locked ? "#b3c0c3" : "#d1ebd7";
+  ctx.beginPath(); ctx.arc(0, y, 10, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = sealed ? "#e7d8ae" : locked ? "#b3c0c3" : "#d1ebd7";
   ctx.lineWidth = 2;
-  const iconX = -width / 2 + 14;
   ctx.beginPath();
   if (sealed) {
-    ctx.moveTo(iconX - 4, y);
-    ctx.lineTo(iconX - 1, y + 3);
-    ctx.lineTo(iconX + 5, y - 4);
+    ctx.moveTo(-4, y);
+    ctx.lineTo(-1, y + 3);
+    ctx.lineTo(5, y - 4);
   } else if (locked) {
-    ctx.arc(iconX, y - 2, 3.5, Math.PI, Math.PI * 2);
-    ctx.moveTo(iconX - 4, y - 1);
-    ctx.lineTo(iconX + 4, y - 1);
-    ctx.lineTo(iconX + 4, y + 5);
-    ctx.lineTo(iconX - 4, y + 5);
+    ctx.arc(0, y - 2, 3.5, Math.PI, Math.PI * 2);
+    ctx.moveTo(-4, y - 1);
+    ctx.lineTo(4, y - 1);
+    ctx.lineTo(4, y + 5);
+    ctx.lineTo(-4, y + 5);
     ctx.closePath();
   } else {
     const pulse = 1 + Math.sin(time * 2.3 + station.pulse) * 0.15;
-    ctx.moveTo(iconX, y - 5 * pulse);
-    ctx.lineTo(iconX + 4 * pulse, y);
-    ctx.lineTo(iconX, y + 5 * pulse);
-    ctx.lineTo(iconX - 4 * pulse, y);
+    ctx.moveTo(0, y - 5 * pulse);
+    ctx.lineTo(4 * pulse, y);
+    ctx.lineTo(0, y + 5 * pulse);
+    ctx.lineTo(-4 * pulse, y);
     ctx.closePath();
   }
   ctx.stroke();
-  ctx.fillStyle = sealed ? "#34495c" : locked ? "#b3c0c3" : "#d7eee1";
-  ctx.textAlign = "center";
-  ctx.font = "800 11px ui-monospace, monospace";
-  ctx.fillText(label, 8, y + 3.5);
   if (nearby) {
+    // One short local caption is enough; the minimap and interaction HUD own
+    // station names, full task instructions, and reward descriptions.
+    const caption = sealed ? "Done · next Calm" : locked ? "Resting" : personalRite ? "E · Gear rite" : "E · Restore";
+    const captionY = northShrine ? y + 23 : y - 17;
+    ctx.textAlign = "center";
     ctx.lineWidth = 3;
     ctx.strokeStyle = "rgba(10,20,29,.95)";
-    ctx.font = "700 10px ui-monospace, monospace";
-    const nameY = northShrine ? y + 29 : -88 - lift;
-    ctx.strokeText(station.label, 0, nameY);
-    ctx.fillStyle = "#e2e9e4";
-    ctx.fillText(station.label, 0, nameY);
-    const hint = sealed ? "REOPENS NEXT CALM" : locked ? "SHRINE RESTING" : personalRite ? "E · PERSONAL RITE" : "E · INTERACT";
-    ctx.font = "700 8px ui-monospace, monospace";
-    const hintY = northShrine ? y + 42 : 48;
-    ctx.strokeText(hint, 0, hintY);
+    ctx.font = "600 9px ui-monospace, monospace";
+    ctx.strokeText(caption, 0, captionY);
     ctx.fillStyle = sealed ? "#eee0bc" : locked ? "#abb9b9" : "#d1e6d6";
-    ctx.fillText(hint, 0, hintY);
+    ctx.fillText(caption, 0, captionY);
   }
   ctx.restore();
 }

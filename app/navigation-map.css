@@ -58,6 +58,10 @@
 .forest-map-footer > span { color: #a9c0b4; font-size: 10px; line-height: 1.4; }
 .forest-map-footer button { display: flex; align-items: center; justify-content: center; gap: 13px; flex: 0 0 auto; min-height: 38px; padding: 8px 13px; border: 1px solid #cbbb8680; border-radius: 8px; color: #eee8cc; background: #bdc29612; font-size: 11px; }
 .forest-map-footer kbd { padding: 2px 4px; border: 1px solid #cbbc855e; border-radius: 4px; color: #c9c7a5; font-size: 9px; }
+.forest-map-options { margin-top: 16px; color: #c4d5cc; font-size: 11px; }
+.forest-map-options summary { display: inline-flex; align-items: center; min-height: 44px; padding: 7px 12px; border: 1px solid #a5bdac55; border-radius: 8px; color: #e3e0c4; cursor: pointer; }
+.forest-map-options label { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 5px 3px; cursor: pointer; }
+.forest-map-options input { width: 18px; height: 18px; accent-color: #d7c394; }
 @media (max-width: 760px), (pointer: coarse) {
   .forest-map-dock { top: 82px; left: 12px; width: 185px; }
   .forest-map-dock:not(.is-open) { width: 157px; }
@@ -81,3 +85,11 @@
   .forest-map-footer > span { text-align: center; }
 }
 @media (prefers-reduced-motion: reduce) { .forest-map-shrine { transition: none; } }
+
+/* The resting utility is one touch-sized icon, regardless of older HUD plate rules. */
+.forest-map-dock.forest-map-tools:not(.is-open), .playful-game .forest-map-dock.forest-map-tools:not(.is-open) { width: 44px; min-width: 44px; height: 44px; overflow: hidden; border-radius: 13px; }
+.forest-map-dock.forest-map-tools.is-open, .playful-game .forest-map-dock.forest-map-tools.is-open { width: 190px; }
+.forest-map-tools .forest-map-dock-header, .playful-game .forest-map-tools .forest-map-dock-header { justify-content: space-between; min-height: 44px; }
+.forest-map-tools .forest-map-icon, .playful-game .forest-map-tools .forest-map-icon { display: grid; place-items: center; flex: 0 0 44px; width: 44px; min-width: 44px; height: 44px; min-height: 44px; gap: 0; padding: 0; }
+.forest-map-tools .forest-map-icon svg { width: 21px; height: 21px; }
+.forest-map-tools .forest-map-collapse { display: grid; place-items: center; width: 44px; min-width: 44px; min-height: 44px; padding: 0; border-left: 0; background: transparent; }

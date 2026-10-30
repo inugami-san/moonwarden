@@ -50,7 +50,7 @@ export function FieldNotebook({ roster, notes, onRecord, enabled, open, onOpenCh
     return () => window.removeEventListener("keydown", key);
   }, [enabled, open, onOpenChange]);
   return <>
-    {enabled ? <button type="button" className="notebook-open" onClick={() => onOpenChange(true)} aria-haspopup="dialog">▤ Field notes <kbd>N</kbd></button> : null}
+    {enabled ? <button type="button" className="notebook-open notebook-icon" onClick={() => onOpenChange(true)} aria-label="Field notes" title="Field notes (N)" aria-keyshortcuts="N" aria-haspopup="dialog" aria-expanded={isOpen}><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 3h13v18H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Zm0 0v18M10 7h5M10 11h5M10 15h3" /></svg></button> : null}
     <dialog ref={dialogRef} className="field-notebook-dialog" aria-labelledby={`${id}-title`} onCancel={event => { event.preventDefault(); onOpenChange(false); }} onClose={() => onOpenChange(false)}>
       <header><div><small>PRIVATE · THIS MATCH ONLY</small><h2 id={`${id}-title`}>What did you see?</h2></div><button type="button" autoFocus onClick={() => onOpenChange(false)} aria-label="Close field notebook">×</button></header>
       <p>These are your own notes, not verified evidence. Nothing is tracked automatically or sent to other players. The forest keeps moving while you write.</p>

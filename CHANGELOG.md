@@ -6,6 +6,26 @@ source releases, not proof that a particular server has been deployed.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-30
+
+### Quiet gameplay HUD
+
+- Reduced the persistent objective to a small Forest progress pill. Role goals
+  and instructions open only on request; Map and Notes are compact icon controls.
+- Removed empty inventory panels, duplicate completed-shrine notices, scenery
+  captions and the bottom controls rail. Nearby shrines use one short action row;
+  the hold gauge appears while attuning, and duet runes only after joining.
+- Hollow skills now activate directly from the action bar, without the Tricks
+  menu or tap explanations. Gear and utilities appear when usable in an Ordeal;
+  cooldowns stay on the controls. Successful skill use no longer adds an
+  instruction toast over its visual effect.
+- Locked reporting no longer opens a tooltip. Body-report exceptions, the first
+  Ordeal unlock and the shared 60s emergency cooldown remain enforced.
+- Kept help, skill trade-offs and Privacy settings available inside Settings.
+  Compact landscape controls retain 44px touch targets and reduced-motion support.
+- No gameplay balance, collision, visibility or multiplayer protocol changes;
+  the existing v8 room server remains compatible.
+
 ## [0.7.0] - 2026-10-29
 
 ### First-time player clarity

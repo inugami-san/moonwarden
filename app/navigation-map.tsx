@@ -117,10 +117,10 @@ export function NavigationMap({ position, phase, hazard, stations, destinationId
   const destinationCopy = view.destination ? mapTitle(view.destination.label) : view.destinationHidden ? "Destination veiled by roots" : "Choose a shrine to follow";
 
   return <>
-    <aside className={`forest-map-dock${compactOpen ? " is-open" : ""}`} aria-label="Forest navigation" onPointerDown={event => event.stopPropagation()}>
+    <aside className={`forest-map-dock forest-map-tools${compactOpen ? " is-open" : ""}`} aria-label="Forest navigation" onPointerDown={event => event.stopPropagation()}>
       <div className="forest-map-dock-header">
-        <button type="button" className="forest-map-open" onClick={() => setExpanded(true)} aria-label="Open forest map" aria-haspopup="dialog"><MapIcon /><span>Forest map</span><kbd>M</kbd></button>
-        <button type="button" className="forest-map-collapse" onClick={() => setCompactOpen(open => !open)} aria-expanded={compactOpen} aria-controls={`${id}-compact`} aria-label={compactOpen ? "Collapse minimap" : "Show minimap"}>{compactOpen ? "−" : "+"}</button>
+        <button type="button" className="forest-map-open forest-map-icon" onClick={() => setExpanded(true)} aria-label="Open forest map" title="Forest map (M)" aria-keyshortcuts="M" aria-haspopup="dialog" aria-expanded={isOpen}><MapIcon /></button>
+        {compactOpen ? <button type="button" className="forest-map-collapse" onClick={() => setCompactOpen(false)} aria-expanded={compactOpen} aria-controls={`${id}-compact`} aria-label="Hide minimap" title="Hide minimap"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m7 7 10 10M7 17 17 7" /></svg></button> : null}
       </div>
       <div id={`${id}-compact`} className="forest-map-compact" hidden={!compactOpen}>
         <button type="button" className="forest-map-preview" onClick={() => setExpanded(true)} aria-label="Expand forest map to choose a shrine"><ForestDiagram view={view} id={`${id}-small`} /></button>
@@ -140,6 +140,7 @@ export function NavigationMap({ position, phase, hazard, stations, destinationId
             return <button key={station.id} type="button" className={`forest-map-shrine is-${state.kind}${selected ? " is-selected" : ""}`} aria-pressed={selected} disabled={station.personalCompleted} onClick={() => onDestinationChange(station.id)}><span className="forest-map-shrine-icon" aria-hidden="true">{station.personalCompleted ? "✓" : station.overgrown ? "✦" : station.teamRestored ? "✧" : "◇"}</span><span><b>{mapTitle(station.label)}</b><small>{station.overgrown && !station.personalCompleted ? "Overgrown · first Ordeal bloom +1.5%" : state.label}</small></span><span className="forest-map-shrine-select" aria-hidden="true">{station.personalCompleted ? "" : selected ? "◎" : "↗"}</span></button>;
           })}</div>{view.stations.length === 0 ? <p className="forest-map-empty">No shrine in this chamber. Stay alert until the roots recede.</p> : null}<div className="forest-map-selected"><span>YOUR BEARING</span><b>{destinationCopy}</b><small>{view.destination?.personalCompleted ? "You have already claimed this shrine’s reward this round." : view.destination ? "Close the map to continue toward your marked shrine." : "Choose any visible shrine above. Press M or Escape to return."}</small></div></div>
         </div>
+        <details className="forest-map-options"><summary>Map options</summary><label><input type="checkbox" checked={compactOpen} onChange={event => setCompactOpen(event.target.checked)} />Keep minimap open while exploring</label></details>
         <footer className="forest-map-footer"><span>The forest keeps its secrets. This map never reveals other wardens.</span><button type="button" onClick={() => setExpanded(false)}>Back to the forest <kbd>Esc</kbd></button></footer>
       </section>
     </dialog>

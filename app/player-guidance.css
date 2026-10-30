@@ -1,211 +1,111 @@
-/* Contextual guidance owns only its own surfaces, leaving the forest playable. */
+/* Quiet, edge-mounted controls. The parent HUD owns their outer positions. */
 .playful-game .objective-strip,
 .playful-game .earned-gear-dock,
 .playful-game .reward-handoff {
   position: absolute;
   box-sizing: border-box;
   z-index: 5;
-  border: 1px solid #62758e99;
-  border-radius: 17px;
   color: var(--play-ink, #e4ecf6);
-  background: var(--play-panel, #1c2940f5);
-  box-shadow: var(--play-shadow, 0 4px 0 #090f1b99);
   font-family: var(--font-geist-sans), sans-serif;
 }
-.playful-game .objective-strip {
-  top: 18px;
-  left: max(18px, env(safe-area-inset-left));
-  width: min(354px, calc(100% - 190px));
-  padding: 11px 13px;
-}
-.playful-game .objective-strip-heading,
-.playful-game .earned-gear-heading {
+.playful-game .objective-strip { width: 190px; height: 44px; }
+.playful-game .objective-strip[open],
+.playful-game .earned-gear-dock:has(.gear-catalog[open]) { z-index: 14; }
+.playful-game .objective-pill,
+.playful-game .gear-catalog > summary {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 9px;
-  min-width: 0;
-}
-.playful-game .objective-strip-heading > span { color: #b4c8d9; font-size: 10px; font-weight: 650; }
-.playful-game .objective-strip[data-role="IMPOSTOR"] .objective-strip-heading > span { color: #e7bdc6; }
-.playful-game .objective-next strong { display: block; margin-top: 7px; font-size: 14px; line-height: 1.25; text-wrap: balance; }
-.playful-game .objective-next p { margin: 5px 0 0; color: #bfd0e2; font-size: 11px; line-height: 1.4; }
-.playful-game .objective-win { position: relative; flex: 0 0 auto; }
-.playful-game .gear-catalog { position: static; flex: 0 0 auto; }
-.playful-game .objective-win summary,
-.playful-game .gear-catalog summary {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   box-sizing: border-box;
   min-width: 44px;
   min-height: 44px;
-  padding: 3px 8px;
-  border: 1px solid #667e9999;
-  border-radius: 8px;
-  color: #e9d3a8;
-  background: #314159;
+  height: 44px;
+  border: 1px solid #62758e99;
+  border-radius: 13px;
+  color: #d9e6f1;
+  background: var(--play-panel, #1c2940f5);
   list-style: none;
   cursor: pointer;
-  font-size: 10px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.playful-game .objective-win summary::after,
-.playful-game .gear-catalog summary::after { content: "+"; margin-left: 5px; }
-.playful-game .objective-win[open] summary::after,
-.playful-game .gear-catalog[open] summary::after { content: "−"; }
-.playful-game .objective-win > p {
-  position: absolute;
-  z-index: 10;
-  top: calc(100% + 6px);
-  right: 0;
-  width: 240px;
-  margin: 0;
-  padding: 12px;
-  border: 1px solid #8e7955;
-  border-radius: 12px;
-  color: #f2dfbd;
-  background: #222c3efc;
-  box-shadow: 0 8px 24px #050b17aa;
   font-size: 11px;
-  line-height: 1.55;
+  font-weight: 650;
 }
-.playful-game .objective-restoration { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: #b9cdde; font-size: 9px; }
-.playful-game .objective-restoration > span { flex-shrink: 0; white-space: nowrap; }
-.playful-game .objective-allies { display: block; margin-top: 8px; color: #ebc2c7; }
-.playful-game .objective-restoration progress { width: 100%; min-width: 0; height: 6px; border: 0; border-radius: 8px; background: #34465b; accent-color: #b3cfad; }
-.playful-game .objective-restoration progress::-webkit-progress-bar { background: #34465b; border-radius: 8px; }
-.playful-game .objective-restoration progress::-webkit-progress-value { background: #b3cfad; border-radius: 8px; }
-.playful-game .objective-restoration progress::-moz-progress-bar { background: #b3cfad; border-radius: 8px; }
-.playful-game .objective-restoration > b { min-width: 30px; color: #e4dfc4; font-variant-numeric: tabular-nums; text-align: right; }
-
-.playful-game .earned-gear-dock {
-  left: max(18px, env(safe-area-inset-left));
-  bottom: max(18px, env(safe-area-inset-bottom));
-  width: 294px;
-  padding: 10px;
-}
-.playful-game .earned-gear-heading > strong { font-size: 11px; }
-.playful-game .earned-gear-choices { display: flex; gap: 6px; margin-top: 7px; }
-.playful-game .earned-gear-choices > button {
-  display: grid;
-  flex: 1 1 0;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  min-height: 73px;
-  padding: 6px;
-  border: 1px solid #647b9699;
-  border-radius: 11px;
-  color: #e4ecf6;
-  background: #2c4059;
-  cursor: pointer;
-}
-.playful-game .earned-gear-choices > button.is-selected { border-color: #dec388; background: #3c4b5e; box-shadow: inset 0 0 0 1px #dec388; }
-.playful-game .earned-gear-icon { display: flex; align-items: center; justify-content: center; height: 26px; }
-.playful-game .earned-gear-icon > :is(svg, span),
-.playful-game .gear-catalog-icon > :is(svg, span),
-.playful-game .reward-handoff-icon > :is(svg, span) { max-width: 100%; max-height: 100%; }
-.playful-game .earned-gear-label { grid-column: 1 / -1; grid-row: 2; font-size: 10px; font-weight: 700; line-height: 1.25; text-align: center; }
-.playful-game .earned-gear-count { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.playful-game .earned-gear-count kbd { color: #b7cadc; font-size: 8px; }
-.playful-game .earned-gear-count b { font-size: 10px; }
-.playful-game .earned-gear-empty { margin: 8px 0 2px; max-width: 30ch; color: #b8ccdf; font-size: 11px; line-height: 1.4; }
-.playful-game .earned-gear-description { margin: 8px 2px 0; color: #bdcfe0; font-size: 10px; line-height: 1.4; }
+.playful-game .objective-pill { gap: 7px; width: 100%; padding: 0 10px; }
+.playful-game .objective-pill::-webkit-details-marker,
+.playful-game .gear-catalog > summary::-webkit-details-marker { display: none; }
+.playful-game .objective-pill > span { flex-shrink: 0; }
+.playful-game .objective-pill progress { flex: 1; width: 100%; min-width: 0; height: 6px; border: 0; border-radius: 8px; background: #34465b; accent-color: #b3cfad; }
+.playful-game .objective-pill progress::-webkit-progress-bar { background: #34465b; border-radius: 8px; }
+.playful-game .objective-pill progress::-webkit-progress-value { background: #b3cfad; border-radius: 8px; }
+.playful-game .objective-pill progress::-moz-progress-bar { background: #b3cfad; border-radius: 8px; }
+.playful-game .objective-pill > b { min-width: 29px; color: #e4dfc4; font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }
+.playful-game .objective-chevron { color: #b5c6d9; font-size: 13px; }
+.playful-game .objective-strip[open] .objective-chevron { rotate: 180deg; }
+.playful-game .objective-goal-panel,
 .playful-game .gear-catalog-panel {
   position: absolute;
-  z-index: 11;
-  left: -1px;
-  bottom: calc(100% + 8px);
-  width: 272px;
   box-sizing: border-box;
-  padding: 8px;
-  border: 1px solid #7e91ab;
-  border-radius: 14px;
-  background: #202e43fc;
-  box-shadow: 0 8px 24px #050b17aa;
+  left: 0;
+  width: min(260px, calc(100vw - max(12px, env(safe-area-inset-left)) - max(12px, env(safe-area-inset-right))));
+  padding: 10px;
+  border: 1px solid #7489a6;
+  border-radius: 13px;
+  color: #dbe7f2;
+  background: #1c2940fc;
+  box-shadow: 0 6px 20px #050b1770;
 }
-.playful-game .gear-catalog-panel > p { margin: 0 3px 6px; color: #bfcee0; font-size: 10px; line-height: 1.4; }
-.playful-game .gear-catalog-panel > button { display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 7px; width: 100%; min-height: 52px; padding: 7px 4px; border: 0; border-top: 1px solid #657b9644; border-radius: 5px; color: #e4ecf6; background: transparent; text-align: left; cursor: pointer; }
-.playful-game .gear-catalog-panel > button:disabled { color: #c0cbd9; opacity: 1; cursor: default; }
-.playful-game .gear-catalog-icon { display: flex; align-items: center; justify-content: center; width: 24px; height: 30px; }
-.playful-game .gear-catalog-panel b { display: block; font-size: 10px; line-height: 1.35; }
-.playful-game .gear-catalog-panel kbd { color: #e2c888; font-size: 8px; }
-.playful-game .gear-catalog-panel small { display: block; margin-top: 3px; color: #bbcce0; font-size: 9px; line-height: 1.35; }
-.playful-game .gear-catalog-panel em { max-width: 4ch; font-size: 9px; font-style: normal; text-align: center; }
-.playful-game .reward-handoff { display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 9px; left: max(18px, env(safe-area-inset-left)); bottom: 196px; width: 294px; padding: 11px; color: #f0d8ac; background: #302e2bf7; border-color: #9a8159; pointer-events: none; }
-.playful-game .reward-handoff-icon { display: flex; align-items: center; justify-content: center; width: 32px; height: 38px; }
-.playful-game .reward-handoff small { display: block; color: #dbc8a6; font-size: 9px; line-height: 1.3; }
-.playful-game .reward-handoff strong { display: block; margin-top: 4px; font-size: 12px; line-height: 1.3; }
-.playful-game .reward-handoff p { margin: 4px 0 0; color: #dfceae; font-size: 10px; line-height: 1.4; }
+.playful-game .objective-goal-panel { top: calc(100% + 6px); }
+.playful-game .objective-goal-panel > small { display: block; color: #b7cadc; font-size: 10px; line-height: 1.4; }
+.playful-game .objective-goal-panel > strong { display: block; margin-top: 6px; color: #eee1c3; font-size: 13px; line-height: 1.25; }
+.playful-game .objective-goal-panel > p { margin: 6px 0 0; color: #c4d4e4; font-size: 11px; line-height: 1.4; }
+.playful-game .objective-goal-panel > .objective-win-goal { margin-top: 9px; color: #d9d5bf; font-size: 10px; line-height: 1.4; }
+.playful-game .objective-goal-panel > .objective-allies { color: #e0bcc9; font-size: 10px; }
 
-@media (max-width: 760px) {
-  .playful-game .objective-strip { top: 12px; left: max(12px, env(safe-area-inset-left)); width: calc(100% - 128px); padding: 9px 10px; }
-  .playful-game .objective-next strong { font-size: 12px; }
-  .playful-game .objective-next p { font-size: 10px; }
-  .playful-game .objective-strip-heading { flex-wrap: wrap; gap: 2px 8px; }
-  .playful-game .objective-win summary { font-size: 9px; }
-  .playful-game .objective-win > p { right: auto; left: 0; width: min(240px, calc(100vw - 60px)); box-sizing: border-box; }
-  .playful-game .earned-gear-dock { left: max(12px, env(safe-area-inset-left)); bottom: max(12px, env(safe-area-inset-bottom)); width: 194px; padding: 8px; }
-  .playful-game .earned-gear-choices { gap: 4px; }
-  .playful-game .earned-gear-choices > button { padding: 5px 3px; }
-  .playful-game .earned-gear-label { font-size: 9px; }
-  .playful-game .earned-gear-description { display: none; }
-  .playful-game .gear-catalog-panel { width: 270px; }
-  .playful-game .reward-handoff { left: max(12px, env(safe-area-inset-left)); width: 230px; bottom: 244px; }
+.playful-game .earned-gear-dock { display: flex; align-items: center; gap: 4px; width: max-content; height: 44px; max-width: calc(100% - 24px); }
+.playful-game .earned-gear-choices { display: flex; align-items: center; gap: 4px; }
+.playful-game .earned-gear-choices > button {
+  display: grid;
+  box-sizing: border-box;
+  grid-template-columns: 16px minmax(0, 1fr);
+  grid-template-rows: 16px minmax(0, 1fr);
+  gap: 1px;
+  width: 50px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 3px 4px;
+  border: 1px solid #62758e99;
+  border-radius: 12px;
+  color: #dce7f1;
+  background: var(--play-panel, #1c2940f5);
+  cursor: pointer;
 }
+.playful-game .earned-gear-choices > button.is-selected { border-color: #d9bf85; background: #35455b; }
+.playful-game .earned-gear-icon,
+.playful-game .gear-catalog-icon,
+.playful-game .reward-handoff-icon { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; }
+.playful-game .earned-gear-icon > *,
+.playful-game .gear-catalog-icon > *,
+.playful-game .reward-handoff-icon > * { max-width: 100%; max-height: 100%; }
+.playful-game .earned-gear-label { grid-column: 1 / -1; grid-row: 2; align-self: center; font-size: 9px; font-weight: 650; line-height: 1; text-align: center; }
+.playful-game .earned-gear-count { align-self: center; text-align: right; }
+.playful-game .earned-gear-count kbd { display: none; }
+.playful-game .earned-gear-count b { font-size: 9px; line-height: 1; }
+.playful-game .gear-catalog { position: static; }
+.playful-game .gear-catalog > summary { justify-content: center; width: 44px; padding: 0; font-size: 10px; }
+.playful-game .gear-catalog-panel { bottom: calc(100% + 6px); padding: 7px; }
+.playful-game .gear-catalog-panel > button { display: grid; box-sizing: border-box; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 6px; width: 100%; min-height: 52px; padding: 5px 4px; border: 0; border-radius: 7px; color: #dce7f1; background: transparent; text-align: left; cursor: pointer; }
+.playful-game .gear-catalog-panel > button + button { border-top: 1px solid #657b9644; }
+.playful-game .gear-catalog-panel > button:disabled { color: #b8c7d7; opacity: 1; cursor: default; }
+.playful-game .gear-catalog-panel b { display: block; font-size: 10px; line-height: 1.25; }
+.playful-game .gear-catalog-panel kbd { color: #dec58d; font-size: 8px; }
+.playful-game .gear-catalog-panel small { display: block; margin-top: 2px; color: #b9ccde; font-size: 9px; line-height: 1.3; }
+.playful-game .gear-catalog-panel em { max-width: 4ch; color: #d8c79f; font-size: 9px; font-style: normal; text-align: center; }
+
+.playful-game .reward-handoff { display: flex; align-items: center; gap: 7px; width: max-content; max-width: calc(100% - 24px); min-height: 32px; padding: 5px 9px; border: 1px solid #9a815966; border-radius: 10px; color: #e5d2ac; background: #302e2bed; pointer-events: none; white-space: nowrap; }
+.playful-game .reward-handoff strong { min-width: 0; overflow: hidden; font-size: 11px; font-weight: 650; text-overflow: ellipsis; }
+.playful-game .reward-handoff > b { font-size: 11px; }
 
 @media (orientation: landscape) and (max-height: 540px) {
-  .playful-game .objective-strip { top: 10px; left: max(12px, env(safe-area-inset-left)); width: min(344px, calc(100% - 180px)); padding: 7px 10px; }
-  .playful-game .objective-strip-heading { flex-wrap: nowrap; }
-  .playful-game .objective-strip-heading > span { font-size: 9px; }
-  .playful-game .objective-next strong { margin-top: 3px; font-size: 12px; line-height: 1.25; }
-  .playful-game .objective-next p { margin-top: 3px; font-size: 10px; line-height: 1.3; }
-  .playful-game .objective-restoration { margin-top: 5px; font-size: 8px; }
-  .playful-game .objective-win > p { right: 0; left: auto; }
-  .playful-game .earned-gear-dock { left: max(12px, env(safe-area-inset-left)); width: 218px; padding: 6px 8px; }
-  .playful-game .earned-gear-heading > strong { font-size: 10px; }
-  .playful-game .earned-gear-choices { margin-top: 4px; }
-  .playful-game .earned-gear-choices > button { min-height: 44px; gap: 1px; grid-template-columns: 20px minmax(0, 1fr); }
-  .playful-game .earned-gear-icon { height: 22px; }
-  .playful-game .earned-gear-label { grid-column: 1 / -1; font-size: 9px; line-height: 1.15; }
-  .playful-game .earned-gear-count { flex-direction: row; justify-content: flex-end; gap: 3px; }
-  .playful-game .earned-gear-description { display: none; }
-  .playful-game .gear-catalog summary { padding: 2px 6px; font-size: 9px; }
-  /* Three short cards keep the popup above a 44px disclosure without
-     pushing it behind the floating header on 568×320 phones. */
-  .playful-game .gear-catalog-panel { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; width: min(420px, calc(100vw - max(12px, env(safe-area-inset-left)) - max(12px, env(safe-area-inset-right)))); padding: 7px; }
-  .playful-game .gear-catalog-panel > p { display: none; }
-  .playful-game .gear-catalog-panel > button { box-sizing: border-box; grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr auto; gap: 3px; min-height: 100px; padding: 6px; border: 1px solid #657b9666; border-radius: 8px; }
-  .playful-game .gear-catalog-icon { display: none; }
-  .playful-game .gear-catalog-panel em { max-width: none; color: #dfc58d; text-align: left; }
-  .playful-game .reward-handoff { bottom: 110px; width: 236px; padding: 8px; }
-  .playful-game .reward-handoff p { font-size: 9px; }
-}
-
-@media (orientation: landscape) and (max-height: 540px) and (max-width: 640px) {
-  .playful-game .objective-strip { width: min(320px, calc(100% - 150px)); }
-  .playful-game .earned-gear-dock { width: 186px; }
-  .playful-game .earned-gear-label { font-size: 8px; }
-}
-
-/* A single 58px rail clears the map row on the shortest supported phones.
-   Reserve 264px for Hollow actions plus a 12px gap, not just Warden controls. */
-@media (orientation: landscape) and (max-height: 340px) {
-  .playful-game .earned-gear-dock { display: flex; align-items: center; gap: 4px; width: min(268px, calc(100vw - max(12px, env(safe-area-inset-left)) - max(12px, env(safe-area-inset-right)) - 276px)); padding: 4px; }
-  .playful-game .earned-gear-dock:not(:has(.earned-gear-choices)) { width: auto; }
-  .playful-game .earned-gear-heading { flex: 0 0 60px; }
-  .playful-game .earned-gear-heading > strong,
-  .playful-game .earned-gear-empty,
-  .playful-game .earned-gear-description { display: none; }
-  .playful-game .gear-catalog { width: 100%; }
-  .playful-game .gear-catalog summary { min-height: 48px; width: 100%; padding: 2px 4px; font-size: 8px; }
-  .playful-game .earned-gear-choices { flex: 1; min-width: 0; margin-top: 0; gap: 4px; }
-  .playful-game .earned-gear-choices > button { box-sizing: border-box; min-width: 44px; min-height: 48px; height: 48px; padding: 3px 2px; grid-template-columns: 14px minmax(0, 1fr); grid-template-rows: 14px minmax(0, 1fr); gap: 1px; }
-  .playful-game .earned-gear-icon { height: 14px; }
-  .playful-game .earned-gear-label { font-size: 8px; line-height: 1.1; }
-  .playful-game .earned-gear-count { gap: 2px; }
-  .playful-game .earned-gear-count b { font-size: 8px; }
+  .playful-game .objective-strip { width: 176px; }
+  .playful-game .objective-pill { padding-inline: 8px; font-size: 10px; }
+  .playful-game .objective-goal-panel > strong { font-size: 12px; }
 }

@@ -166,7 +166,7 @@ test("includes the complete social-deduction simulation", async () => {
   assert.match(source, /FALSE ECHO/);
   assert.match(source, /rootwakeMove/);
   assert.match(source, /drawRootwakeOcclusion/);
-  assert.match(source, /LOCAL WARD/);
+  assert.match(source, /ctx.fill\("evenodd"\)/);
   assert.match(source, /sharesRootCell/);
   assert.match(source, /visibilityAlpha/);
   assert.match(source, /saturate\(\.34\) brightness\(\.72\)/);

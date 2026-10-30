@@ -43,10 +43,7 @@ const text = recorder => recorder.calls.filter(([method]) => method === "fillTex
 test("a shared restored shrine advertises a personal gear rite, never a globally sealed task", () => {
   const recorder = canvasRecorder();
   drawSanctumStatus(recorder.ctx, shrine, 20, false, true);
-  assert.ok(text(recorder).includes("GEAR READY"));
-  assert.ok(text(recorder).includes("E · PERSONAL RITE"));
-  assert.ok(!text(recorder).includes("SEALED"));
-  assert.ok(!text(recorder).includes("TASK READY"));
+  assert.deepEqual(text(recorder), ["E · Gear rite"]);
   assert.ok(!text(recorder).some(value => /player|impostor|contributor/i.test(value)));
 });
 
@@ -60,9 +57,8 @@ test("shared restoration keeps roots open while local reward claim seals only th
   drawForestSanctum(claimed.ctx, { ...shrine, completed: true }, 20, false, true);
   drawSanctumStatus(claimed.ctx, { ...shrine, completed: true }, 20, false, true);
   assert.ok(claimed.calls.some(call => JSON.stringify(call) === JSON.stringify(["bezierCurveTo", 24, 6, 4, -6, -8, -24])));
-  assert.ok(text(claimed).includes("SEALED"));
-  assert.ok(text(claimed).includes("REOPENS NEXT CALM"));
-  assert.ok(!text(claimed).some(value => value.includes("INTERACT") || value.includes("PERSONAL RITE")));
+  assert.deepEqual(text(claimed), ["Done · next Calm"]);
+  assert.ok(!text(claimed).some(value => value.startsWith("E ·")));
 });
 
 test("shared restoration leaves a steady crown rune and flowers without hiding available fireflies", () => {
@@ -83,10 +79,7 @@ test("shared restoration leaves a steady crown rune and flowers without hiding a
 test("a temporary shrine lock wins over a shared-restoration prompt without claiming the rite", () => {
   const recorder = canvasRecorder();
   drawSanctumStatus(recorder.ctx, shrine, 20, true, true);
-  assert.ok(text(recorder).includes("LOCKED"));
-  assert.ok(text(recorder).includes("SHRINE RESTING"));
-  assert.ok(!text(recorder).includes("GEAR READY"));
-  assert.ok(!text(recorder).includes("SEALED"));
+  assert.deepEqual(text(recorder), ["Resting"]);
   assert.equal(shrine.completed, false);
 });
 
@@ -105,8 +98,7 @@ test("all rewards retain safe rendering and backward-compatible optional restora
   const legacyShrine = { ...shrine };
   delete legacyShrine.teamRestored;
   drawSanctumStatus(legacy.ctx, legacyShrine, 20, false, true);
-  assert.ok(text(legacy).includes("TASK READY"));
-  assert.ok(text(legacy).includes("E · INTERACT"));
+  assert.deepEqual(text(legacy), ["E · Restore"]);
 });
 
 test("both completion kinds retain the same short, local, purely visual half-second pulse", () => {

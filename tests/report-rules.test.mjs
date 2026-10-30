@@ -118,12 +118,12 @@ test("body reports work during Ordeal one and during cooldown without allowing p
   assert.equal(room.phase, "DISCUSSION", "a new nearby body ignores all 60 seconds of cooldown");
 });
 
-test("report action is gated by authoritative availability, explains locks, and retains the R binding", async () => {
+test("report action is gated by authoritative availability, exposes cooldown reasons, and retains the R binding", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const control = await readFile(new URL("../app/report-action.tsx", import.meta.url), "utf8");
   assert.match(source, /<ReportAction allowed=\{snapshot.canReport\} label=\{snapshot.reportLabel\} hint=\{snapshot.reportHint\}/);
-  assert.match(control, /aria-disabled=\{!allowed\}/);
+  assert.match(control, /disabled=\{!allowed\}/);
   assert.match(control, /aria-label=\{hint\}/);
-  assert.match(control, /if \(allowed\) \{ setExplaining\(false\); onReport\(\); return; \}/);
+  assert.match(control, /if \(allowed\) onReport\(\)/);
   assert.match(source, /if \(event.code === "KeyR"\) this.report\(\)/);
 });

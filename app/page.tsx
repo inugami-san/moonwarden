@@ -5,7 +5,7 @@ import { MultiplayerClient, type MultiplayerState } from "./network";
 import type { NetMovement, NetPlayer, PairRitualState, S2CMessage } from "../server/game-types";
 import { FloatingJoystick } from "./floating-joystick";
 import { movementVector, type MoveVector } from "./joystick-input";
-import { PAIR_RITUAL_SECONDS, PairedRituals } from "../server/pair-ritual";
+import { PairedRituals } from "../server/pair-ritual";
 import { FieldNotebook, MeetingObservations } from "./field-notebook";
 import type { KnownName, ObservationNote } from "./field-notes";
 import { banishmentOutcome, type BanishmentOutcome } from "./banishment";
@@ -1592,10 +1592,8 @@ class OrdealEngine {
       if (!this.multiplayerClient) {
         this.flares.push({ x: this.human.x, y: this.human.y, life: 5, owner: "you" });
       }
-      this.flashMessage("Moonblossom planted — shared light holds for 5 seconds.");
     } else {
       this.itemActiveUntil = this.elapsed + (this.selectedItem === "FLASHLIGHT" ? 7 : 6);
-      this.flashMessage(this.selectedItem === "FLASHLIGHT" ? "Glowing Mushroom awakened. Aim its light with your cursor." : "Echo Bell ringing — listen for nearby movement.");
     }
     this.emit(true);
   }
@@ -1628,7 +1626,6 @@ class OrdealEngine {
         this.echoes.push({ ...point, angle: Math.atan2(this.mouse.y - this.human.y, this.mouse.x - this.human.x), until: this.elapsed + 2, nextAt: 0 });
       }
     }
-    this.flashMessage(ability === "MOON_SIGHT" ? "MOON SIGHT AWAKENED — all Warden positions and colors revealed!" : "ECHO LURE — a false rustle follows your aim. Special action spent.");
     this.emit(true);
   }
 
@@ -2590,7 +2587,7 @@ class OrdealEngine {
       for (const pocket of SHADE_POCKETS) {
         ctx.fillStyle = "rgba(27,46,89,.62)"; ctx.strokeStyle = "#b4d7fa"; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(pocket.x, pocket.y, SHADE_RADIUS, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = "#e1edff"; ctx.font = "700 10px sans-serif"; ctx.textAlign = "center"; ctx.fillText("MOON SHADE", pocket.x, pocket.y + 66);
+        if (dist(this.human, pocket) < SHADE_RADIUS + 15) { ctx.fillStyle = "#e1edff"; ctx.font = "700 10px sans-serif"; ctx.textAlign = "center"; ctx.fillText("Shade", pocket.x, pocket.y + 66); }
       }
       ctx.restore();
     }
@@ -2636,7 +2633,7 @@ class OrdealEngine {
     // Draw state badges above actors, but beneath visibility masks so a sealed
     // shrine stays readable without exposing other Rootwake chambers.
     for (const station of this.stations) {
-      if (!this.showHarmonizeInvitation(station)) drawSanctumStatus(ctx, station, this.elapsed, this.phase === "DISCUSSION", dist(station, this.human) < 128);
+      if (!this.showHarmonizeInvitation(station)) drawSanctumStatus(ctx, station, this.elapsed, this.phase === "DISCUSSION", dist(station, this.human) < 84);
     }
     this.drawParticles(ctx);
     const atmosphereView = {
@@ -2668,12 +2665,11 @@ class OrdealEngine {
       for (const x of ROOT_GATES) {
         ctx.strokeRect(x - 64, ROOT_GATE_Y - 28, 128, 56);
         ctx.fillStyle = open ? "#dfefb7" : "#bacff8";
-        ctx.fillText(open ? "DOOR OPEN" : "OPENS HALFWAY", x, ROOT_GATE_Y - 38);
+        if (dist(this.human, { x, y: ROOT_GATE_Y }) < 110) ctx.fillText(open ? "Open" : "Sealed", x, ROOT_GATE_Y - 38);
       }
       ctx.restore();
     }
     ctx.restore();
-    this.drawCanvasLabels(ctx);
   }
 
   drawSonarEchoes(ctx: CanvasRenderingContext2D) {
@@ -2758,7 +2754,6 @@ class OrdealEngine {
       ctx.fillStyle = `rgba(205,255,222,${strength * 0.82})`;
       ctx.font = "900 11px ui-monospace, monospace";
       ctx.textAlign = "left";
-      ctx.fillText(`CELL ${cell.index + 1}  •  LOCAL WARD`, cell.x + 16, cell.y + 24);
     } else {
       // Impostor sees the entire map during Root Cage and phases through root barriers
       ctx.strokeStyle = `rgba(108,255,181,${strength * (0.28 + pulse * 0.18)})`;
@@ -2767,7 +2762,6 @@ class OrdealEngine {
       ctx.fillStyle = `rgba(205,255,222,${strength * 0.9})`;
       ctx.font = "900 11px ui-monospace, monospace";
       ctx.textAlign = "left";
-      ctx.fillText(`CELL ${cell.index + 1}  •  THE HOLLOW ROOTWALK (FULL MAP VISION • PASS THROUGH ROOTS)`, ROOM.left + 16, ROOM.top + 24);
     }
     ctx.restore();
   }
@@ -2889,8 +2883,7 @@ class OrdealEngine {
       for (const p of route) this.bgCtx.lineTo(p.x, p.y);
       this.bgCtx.stroke();
     }
-    this.bgCtx.fillStyle = "#a5b4b2"; this.bgCtx.font = "700 11px sans-serif"; this.bgCtx.textAlign = "center";
-    this.bgCtx.fillText("OPEN FOREST LOOP", 700, 253); this.bgCtx.restore();
+    this.bgCtx.restore();
     this.bgCtx.save(); this.bgCtx.strokeStyle = "rgba(183,165,133,.14)"; this.bgCtx.lineWidth = 40; this.bgCtx.lineCap = "round";
     for (const station of this.stations) {
       const path = planRoute(CENTER, station, false, this.obstacles);
@@ -2958,7 +2951,7 @@ class OrdealEngine {
       ctx.save(); ctx.strokeStyle = this.phase === "ORDEAL" ? "#ffe0a2" : "#aebeff"; ctx.lineWidth = 2;
       ctx.setLineDash([7, 5]); ctx.beginPath(); ctx.ellipse(station.x, station.y + 20, 76, 40, 0, 0, Math.PI * 2); ctx.stroke();
       ctx.setLineDash([]); ctx.fillStyle = "#fff0c7"; ctx.font = "800 10px sans-serif"; ctx.textAlign = "center";
-      ctx.fillText(this.phase === "ORDEAL" ? "OVERGROWN · RISK A BLOOM" : "OVERGROWN · ORDEAL BONUS", station.x, station.y + 76); ctx.restore();
+      if (dist(station, this.human) < 128) ctx.fillText(this.phase === "ORDEAL" ? "Bloom" : "Overgrown", station.x, station.y + 76); ctx.restore();
     }
     if (invitation) {
       const duet = this.pairRitual?.stationId === station.label ? this.pairRitual : null;
@@ -3020,7 +3013,7 @@ class OrdealEngine {
     for (const side of [-1, 1]) { ctx.fillStyle = "#96b57b"; ctx.beginPath(); ctx.ellipse(side * 25, -18, 9, 3, side * -.6, 0, Math.PI * 2); ctx.fill(); }
     if (nearby) { ctx.strokeStyle = "#d7ecc280"; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(0, 20, 62, 35, 0, 0, Math.PI * 2); ctx.stroke(); }
     ctx.font = "700 10px Georgia, serif"; ctx.textAlign = "center";
-    ctx.fillStyle = nearby ? "#eff6d6" : "#d8e4c8"; ctx.fillText(nearby ? "R · CALL THE CIRCLE" : bellState.label === "Locked" ? "SEALED · FIRST ORDEAL" : bellState.label.endsWith("s") ? `BELL · ${bellState.label}` : "WARDEN BELL", 0, 47);
+    if (nearby) { ctx.fillStyle = "#eff6d6"; ctx.fillText(bellState.allowed ? "R · Meeting" : bellState.label, 0, 47); }
     ctx.restore();
   }
 
@@ -3100,24 +3093,12 @@ class OrdealEngine {
   }
 
   drawWorkingStatus(ctx: CanvasRenderingContext2D, x: number, badgeY: number) {
-    const pulse = 0.72 + Math.sin(this.elapsed * 5.2) * 0.28;
-    const text = "✦ WORKING SHRINE";
+    const pulse = this.reducedMotion ? .85 : 0.72 + Math.sin(this.elapsed * 5.2) * 0.28;
     ctx.save();
-    ctx.font = "800 10px ui-monospace, monospace";
-    ctx.textAlign = "center";
-    const width = Math.ceil(ctx.measureText(text).width) + 16;
-    const height = 18;
-    const rx = x - width / 2;
-    const ry = badgeY - 12;
     ctx.fillStyle = "rgba(8, 22, 18, 0.88)";
-    ctx.strokeStyle = `rgba(126, 244, 198, ${(0.55 * pulse).toFixed(2)})`;
-    ctx.lineWidth = 1.4;
-    ctx.beginPath();
-    ctx.roundRect(rx, ry, width, height, 9);
-    ctx.fill();
-    ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(x - 14, badgeY - 9, 28, 12, 6); ctx.fill();
     ctx.fillStyle = `rgba(216, 255, 234, ${(0.82 + 0.18 * pulse).toFixed(2)})`;
-    ctx.fillText(text, x, badgeY);
+    for (const offset of [-6, 0, 6]) { ctx.beginPath(); ctx.arc(x + offset, badgeY - 3, 1.8, 0, Math.PI * 2); ctx.fill(); }
     ctx.restore();
   }
 
@@ -3237,12 +3218,13 @@ class OrdealEngine {
     ctx.textAlign = "center";
     ctx.lineWidth = 4;
     ctx.strokeStyle = "rgba(5,10,15,.92)";
-    const privateRed = player.id === this.localPlayerId && this.human.role === "IMPOSTOR";
     const label = player.name;
     const labelY = Math.max(18, player.y - 76);
-    ctx.strokeText(label, x, labelY);
-    ctx.fillStyle = privateRed ? "#ff5362" : (colorMuted ? "#cfd8dc" : "#ffffff");
-    ctx.fillText(label, x, labelY);
+    if (player.id !== this.localPlayerId) {
+      ctx.strokeText(label, x, labelY);
+      ctx.fillStyle = colorMuted ? "#cfd8dc" : "#ffffff";
+      ctx.fillText(label, x, labelY);
+    }
     if (player.working && player.alive) {
       this.drawWorkingStatus(ctx, x, Math.max(16, labelY - 20));
     }
@@ -3482,68 +3464,6 @@ class OrdealEngine {
     drawForestObstacle(ctx, obs, this.elapsed, this.human, this.reducedMotion, obs.kind === "CRYSTAL_SPIRE" ? this.getCrystalBlink(obs.x) : 0);
   }
 
-  drawCanvasLabels(ctx: CanvasRenderingContext2D) {
-    // Ambient current Sanctuary Zone indicator in top-left of the arena
-    const currentZone = sanctuaryZoneName(this.human.x, this.human.y);
-    ctx.save();
-    ctx.font = "800 10px ui-monospace, monospace";
-    const zoneText = `✦ ${currentZone}`;
-    const zoneWidth = Math.ceil(ctx.measureText(zoneText).width) + 18;
-    ctx.fillStyle = "rgba(7, 19, 22, 0.76)";
-    ctx.strokeStyle = "rgba(158, 222, 196, 0.38)";
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.roundRect(this.viewWidth / 2 - zoneWidth / 2, this.viewHeight - 35, zoneWidth, 22, 6);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "rgba(218, 242, 226, 0.9)";
-    ctx.textAlign = "left";
-    ctx.fillText(zoneText, this.viewWidth / 2 - zoneWidth / 2 + 9, this.viewHeight - 20);
-    ctx.restore();
-
-    if (this.phase === "COUNTDOWN") {
-      // The accessible HTML preparation banner leaves the paths and cell warnings visible.
-      ctx.fillStyle = "#e4edc7";
-      ctx.font = "700 13px ui-monospace, monospace";
-      ctx.textAlign = "center";
-      ctx.fillText("MEMORIZE NEARBY WARDENS • PREPARE YOUR GEAR", this.viewWidth / 2, this.viewHeight - 48);
-    }
-    if (this.phase === "CALM" && this.human.trueColor && this.human.color !== this.human.trueColor) {
-      ctx.fillStyle = "rgba(139,233,253,.95)";
-      ctx.font = "900 12px ui-monospace, monospace";
-      ctx.textAlign = "center";
-      ctx.fillText("MIRROR GLAMOUR • SWAPPED COLOR PERSISTS UNTIL MEETING", this.viewWidth / 2, this.viewHeight - 49);
-    }
-    if (this.phase === "ORDEAL") {
-      const moonSightActive = this.human.role === "IMPOSTOR" && this.elapsed < this.moonSightUntil;
-      let label = "THICK SEA FOG • IDENTITIES CONCEALED";
-      let labelColor = "rgba(181,244,233,.9)";
-      if (this.hazard === "BLACKOUT") {
-        label = "TOTAL BLACKOUT • LIGHT REQUIRED";
-        labelColor = "rgba(242,205,66,.9)";
-      } else if (this.hazard === "MOONGLARE") {
-        label = "MOON GLARE • IDENTITIES BLEACHED";
-        labelColor = "rgba(51,63,78,.94)";
-      } else if (this.hazard === "ROOTWAKE") {
-        label = rootGatesOpen(this.phaseTime) ? "ROOTWAKE • MOON DOORS ARE OPEN" : "ROOTWAKE • DOORS OPEN HALFWAY";
-        labelColor = "rgba(137,245,170,.96)";
-      } else if (this.hazard === "PHANTOMS") {
-        label = "PHANTOM PROCESSION • TRUST YOUR ECHO BELL";
-        labelColor = "rgba(172,159,255,.96)";
-      } else if (this.hazard === "MIRROR_POOL") {
-        label = "MIRROR POOL • BUMPS SWAP COLORS, NOT CONTROLS";
-        labelColor = "rgba(139,233,253,.96)";
-      }
-      if (moonSightActive) {
-        label = "MOON SIGHT • LIVING AURAS EXPOSED";
-        labelColor = "rgba(239,151,255,.96)";
-      }
-      ctx.fillStyle = labelColor;
-      ctx.font = "900 13px ui-monospace, monospace";
-      ctx.textAlign = "center";
-      ctx.fillText(label, this.viewWidth / 2, this.viewHeight - 49);
-    }
-  }
 }
 
 function Logo() {
@@ -5290,9 +5210,10 @@ function Game({
     setMusicEnabled(true);
     primeBackgroundMusic();
   };
+  const hudBlocked = !!meeting || !!puzzle || !!roleReveal || !!deathReveal || !!result || !!banishment || navigationExpanded || notebookOpen || settingsOpen || landscapeRequired;
 
   return (
-    <main className="game-shell playful-game" data-phase={snapshot.phase} onPointerDownCapture={() => { void engineRef.current?.audio.unlock(); }} onKeyDownCapture={() => { void engineRef.current?.audio.unlock(); }}
+    <main className="game-shell playful-game" data-phase={snapshot.phase} data-focus-overlay={hudBlocked} onPointerDownCapture={() => { void engineRef.current?.audio.unlock(); }} onKeyDownCapture={() => { void engineRef.current?.audio.unlock(); }}
       onClickCapture={event => { const target = event.target; if (target instanceof Element && target.closest("button:not(:disabled), summary")) engineRef.current?.audio.cue("ui"); }}>
       <header className="game-nav">
         <Logo />
@@ -5303,6 +5224,7 @@ function Game({
         </div>
       </header>
       <GameplaySettings open={settingsOpen} onOpenChange={setSettingsOpen} enabled={!meeting && !puzzle && !roleReveal && !deathReveal && !result && !landscapeRequired}
+        privacyControl={<AnalyticsSettingsButton compact />}
         soundEnabled={soundEnabled} musicEnabled={musicEnabled} lowGlare={lowGlare}
         onSoundToggle={async () => setSoundEnabled(await engineRef.current?.audio.toggle() ?? false)} onMusicToggle={toggleBackgroundMusic}
         onGlareToggle={() => { const next = !lowGlare; setLowGlare(next); if (engineRef.current) engineRef.current.lowGlare = next; }} onExit={onExit} />
@@ -5335,10 +5257,10 @@ function Game({
           destinationLabel={mapLayout.stations.find(station => station.id === snapshot.navigation.destinationId)?.label.toLowerCase()}
           allies={(hollowAllies ?? []).filter(id => id !== snapshot.localPlayerId).map(id => initialPlayers?.find(p => p.id === id)?.name).filter(Boolean).join(", ")} />
 
-        <div className="crew-count"><GameGlyph name="people" /><b>{snapshot.living}<small> / {snapshot.total}</small></b><span>in the circle</span></div>
-        {chaosMoonsway && <div className="chaos-match-badge">CHAOS · MOONSWAY ON</div>}
+        <div className="crew-count" aria-label={`${snapshot.living} of ${snapshot.total} cats alive`}><GameGlyph name="people" /><b>{snapshot.living}<small> / {snapshot.total}</small></b></div>
+        {chaosMoonsway && <div className="chaos-match-badge" title="Chaos mode: reporter votes may shift">Chaos</div>}
 
-        {snapshot.message && !(snapshot.phase === "COUNTDOWN" && snapshot.message.startsWith(`${HAZARD_LABELS[snapshot.hazard]} INCOMING`)) && <div className="toast-message">{snapshot.message}</div>}
+        {snapshot.message && !snapshot.rewardNotice && !snapshot.taskFailure && !(snapshot.phase === "COUNTDOWN" && snapshot.message.startsWith(`${HAZARD_LABELS[snapshot.hazard]} INCOMING`)) && <div className="toast-message" role="status">{snapshot.message}</div>}
         {snapshot.soundCaption && <div className="sound-caption" role="status" aria-live="polite">♬ {snapshot.soundCaption}</div>}
 
         {snapshot.rewardNotice && (
@@ -5350,18 +5272,18 @@ function Game({
           onSelect={item => engineRef.current?.selectItem(item)} renderIcon={item => <ItemIcon item={item} />}
           disabled={!snapshot.humanAlive || !!meeting || !!puzzle || !!roleReveal || !!deathReveal || !!result || navigationExpanded || notebookOpen || settingsOpen || landscapeRequired} />
 
-        <div className="action-dock" aria-label="Game actions">
-          {snapshot.utility && (snapshot.utility.charge > 0 || snapshot.utility.cooldown > 0) && <button className={`action use ${snapshot.utility.charge && !snapshot.utility.cooldown ? "ready" : ""}`} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || !snapshot.utility.charge || snapshot.utility.cooldown > 0} title={`${UTILITY_LABELS[snapshot.utility.kind]}: aim with your movement direction. One shrine-earned charge; 18s cooldown. Both roles can use it.`} onClick={() => engineRef.current?.useUtility()}><kbd>G</kbd><GameGlyph name="spark" /><span>{snapshot.utility.cooldown ? `${snapshot.utility.cooldown}s` : UTILITY_LABELS[snapshot.utility.kind]}</span></button>}
-          <ReportAction allowed={snapshot.canReport} label={snapshot.reportLabel} hint={snapshot.reportHint} onReport={() => engineRef.current?.report()} />
-          {snapshot.role === "IMPOSTOR" && <details className="hollow-tricks" data-no-joystick><summary><GameGlyph name="veil" /><span>Tricks</span></summary><div className="hollow-tricks-panel" aria-label="Advanced Hollow actions"><small>One special action per Ordeal: Sight or Echo.</small>
-          <button className={`action sight ${snapshot.canUseMoonSight || snapshot.moonSightActive ? "ready" : ""}`} onClick={() => engineRef.current?.useMoonSight()} disabled={snapshot.phase !== "ORDEAL" || !snapshot.canUseMoonSight} title="Moon Sight: briefly reveal living cats during an Ordeal"><kbd>V</kbd><GameGlyph name="sight" /><span>{snapshot.moonSightActive ? "Seeing" : "Sight"}</span></button>
-          {snapshot.role === "IMPOSTOR" && <button className={`action sight ${snapshot.canUseMoonSight ? "ready" : ""}`} title="Aim, then create a two-second false rustle. Shares one charge with Sight." onClick={() => engineRef.current?.useEchoLure()} disabled={!snapshot.canUseMoonSight}><kbd>C</kbd><GameGlyph name="echo" /><span>Echo</span></button>}
-          {snapshot.role === "IMPOSTOR" && <button className={`action kill veiled ${snapshot.canKill && !snapshot.stealthCooldown && !snapshot.stealthOrdealsLeft ? "ready" : ""}`} title="Veiled Bite: uses your strike; fallen cat appears 8s later. Cooldown: 45s and two Ordeal starts." onClick={() => engineRef.current?.kill(true)} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.stealthCooldown > 0 || snapshot.stealthOrdealsLeft > 0}><kbd>X</kbd><GameGlyph name="veil" /><span>{snapshot.stealthCooldown ? `${snapshot.stealthCooldown}s` : snapshot.stealthOrdealsLeft ? `${snapshot.stealthOrdealsLeft} rounds` : "Veiled bite"}</span></button>}
-          </div></details>}
-          {snapshot.role === "IMPOSTOR" && <button className={`action kill ${snapshot.canKill ? "ready" : ""}`} onClick={() => engineRef.current?.kill()} disabled={!snapshot.humanAlive || snapshot.phase !== "ORDEAL" || snapshot.killSpent || snapshot.killCooldown > 0} title="Bite a nearby cat. One strike per Ordeal."><kbd>Q</kbd><GameGlyph name="bite" /><span>{snapshot.killSpent ? "Spent" : snapshot.killCooldown > 0 ? `${Math.ceil(snapshot.killCooldown)}s` : "Bite"}</span></button>}
-          {snapshot.charges[snapshot.selectedItem] > 0 && <button className={`action use ${snapshot.phase === "ORDEAL" ? "ready" : ""}`} data-first-gear={firstGearCue}
+        <div className="action-dock" aria-label="Game actions" data-no-joystick inert={hudBlocked}>
+          {snapshot.humanAlive && snapshot.phase === "ORDEAL" && snapshot.utility && (snapshot.utility.charge > 0 || snapshot.utility.cooldown > 0) && <button className={`action use ${snapshot.utility.charge && !snapshot.utility.cooldown ? "ready" : ""}`} disabled={!snapshot.utility.charge || snapshot.utility.cooldown > 0} aria-label={`${UTILITY_LABELS[snapshot.utility.kind]}${snapshot.utility.cooldown ? `, ${snapshot.utility.cooldown} seconds remaining` : ""}`} onClick={() => engineRef.current?.useUtility()}><kbd>G</kbd><GameGlyph name="paw" /><span>{snapshot.utility.cooldown ? `${snapshot.utility.cooldown}s` : snapshot.utility.kind === "WISP_STEP" ? "Dash" : "Roots"}</span></button>}
+          {snapshot.humanAlive && (snapshot.canReport || snapshot.reportLabel !== "Locked") && <ReportAction allowed={snapshot.canReport} label={snapshot.reportLabel} hint={snapshot.reportHint} onReport={() => engineRef.current?.report()} />}
+          {snapshot.humanAlive && snapshot.role === "IMPOSTOR" && snapshot.phase === "ORDEAL" && <>
+            <button className={`action sight ${snapshot.canUseMoonSight || snapshot.moonSightActive ? "ready" : ""}`} onClick={() => engineRef.current?.useMoonSight()} disabled={!snapshot.canUseMoonSight} aria-label={snapshot.moonSightActive ? "Moon Sight active" : "Moon Sight"}><kbd>V</kbd><GameGlyph name="sight" /><span>{snapshot.moonSightActive ? "Seeing" : "Sight"}</span></button>
+            <button className={`action sight ${snapshot.canUseMoonSight ? "ready" : ""}`} aria-label="Echo Lure" onClick={() => engineRef.current?.useEchoLure()} disabled={!snapshot.canUseMoonSight}><kbd>C</kbd><GameGlyph name="echo" /><span>Echo</span></button>
+            <button className={`action kill veiled ${snapshot.canKill && !snapshot.stealthCooldown && !snapshot.stealthOrdealsLeft ? "ready" : ""}`} aria-label="Veiled Bite" onClick={() => engineRef.current?.kill(true)} disabled={snapshot.killSpent || snapshot.killCooldown > 0 || snapshot.stealthCooldown > 0 || snapshot.stealthOrdealsLeft > 0}><kbd>X</kbd><GameGlyph name="veil" /><span>{snapshot.stealthCooldown ? `${snapshot.stealthCooldown}s` : snapshot.stealthOrdealsLeft ? `${snapshot.stealthOrdealsLeft} rounds` : "Veil"}</span></button>
+            <button className={`action kill ${snapshot.canKill ? "ready" : ""}`} onClick={() => engineRef.current?.kill()} disabled={snapshot.killSpent || snapshot.killCooldown > 0} aria-label="Bite a nearby cat"><kbd>Q</kbd><GameGlyph name="bite" /><span>{snapshot.killSpent ? "Spent" : snapshot.killCooldown > 0 ? `${Math.ceil(snapshot.killCooldown)}s` : "Bite"}</span></button>
+          </>}
+          {snapshot.humanAlive && snapshot.phase === "ORDEAL" && snapshot.charges[snapshot.selectedItem] > 0 && <button className="action use ready" data-first-gear={firstGearCue}
             onClick={() => { setFirstGearCue(false); engineRef.current?.useItem(); }} disabled={!snapshot.humanAlive} aria-label={`Use ${ITEM_LABELS[snapshot.selectedItem]}`}
-            title={snapshot.phase === "ORDEAL" ? `Use ${ITEM_LABELS[snapshot.selectedItem]}` : "Save your gear—Use activates during an Ordeal."}><kbd>F</kbd><GameGlyph name="spark" /><span>{snapshot.phase === "ORDEAL" ? "Use" : "Ordeal gear"}</span></button>}
+            ><kbd>F</kbd><ItemIcon item={snapshot.selectedItem} /><span>Use</span></button>}
         </div>
 
         {snapshot.taskPrompt && (
@@ -5379,31 +5301,20 @@ function Game({
               onKeyUp={event => { if (["Space", "Enter"].includes(event.code)) engineRef.current?.setTouch("KeyE", false); }}
             >
               <kbd>E</kbd>
-              <span><b>{snapshot.taskMode === "PUZZLE" ? (snapshot.role === "IMPOSTOR" ? "Fake ritual" : "Restore shrine") : (snapshot.role === "IMPOSTOR" ? "Hold to fake ritual" : "Hold to restore")}</b><small>{snapshot.stationStatus?.label} · {snapshot.stationStatus?.overgrown && snapshot.phase === "ORDEAL" ? "Dangerous bloom · stay exposed" : snapshot.taskMode === "HOLD" ? "Stay still · earn gear" : "Complete a puzzle · earn gear"}</small></span><GameGlyph name="spark" />
+              <span><b>{snapshot.taskMode === "PUZZLE" ? (snapshot.role === "IMPOSTOR" ? "Fake ritual" : "Restore") : (snapshot.role === "IMPOSTOR" ? "Hold to fake" : "Hold to restore")}</b></span>
             </button>
-            {snapshot.taskMode === "HOLD" && <TaskHoldGauge progress={snapshot.taskHoldProgress} holding={snapshot.taskHolding} />}
-          </div>
-        )}
-
-        {snapshot.stationStatus?.completed && snapshot.phase !== "DISCUSSION" && (
-          <div className="station-sealed-prompt" role="status">
-            <span>✓</span><div><b>All done here!</b><small>{snapshot.stationStatus.label} reopens next round. Your gear stays.</small></div>
-          </div>
-        )}
-
-        {snapshot.taskPrompt && !puzzle && !roleReveal && <div className="duet-controls" data-no-joystick>
-          <button type="button" className="paired-ritual-button" aria-pressed={!!snapshot.pairRitual}
-            title="Join a duet, stay still, and take turns playing the lit rune. Both earn gear. Your chant is audible; a Hollow can join too. Move or press H again to leave."
+            <button type="button" className="paired-ritual-button" aria-pressed={!!snapshot.pairRitual} aria-label={snapshot.pairRitual ? "Leave duet" : "Join a duet"}
             onClick={() => engineRef.current?.setPairRitual(!snapshot.pairRitual)}>
-            <span><kbd>H</kbd> {snapshot.pairRitual ? "Leave duet" : "Join a duet"}</span>
-            <small>{snapshot.pairRitual ? `${snapshot.pairRitual.participants}/2 ready · ${snapshot.pairRitual.beats ?? 0}/4 notes` : `Take turns · at least ${PAIR_RITUAL_SECONDS}s · audible nearby`}</small>
+            <span><kbd>H</kbd> {snapshot.pairRitual ? "Leave" : "Duet"}</span>
             <i style={{ width: `${(snapshot.pairRitual?.progress ?? 0) * 100}%` }} />
           </button>
+          {snapshot.taskMode === "HOLD" && (snapshot.taskHolding || snapshot.taskHoldProgress > 0) && <TaskHoldGauge progress={snapshot.taskHoldProgress} holding={snapshot.taskHolding} />}
           {snapshot.pairRitual && <div className="duet-runes" role="group" aria-label="Duet runes">
-            <small role="status">{(snapshot.pairRitual.beats ?? 0) >= 4 ? "Hold still…" : snapshot.pairRitual.participants < 2 ? "Waiting for a companion…" : snapshot.pairRitual.nextPlayerId === snapshot.localPlayerId ? "Your turn: play the lit rune" : "Your companion’s turn"}</small>
+            <small role="status">{(snapshot.pairRitual.beats ?? 0) >= 4 ? "Hold still…" : snapshot.pairRitual.participants < 2 ? "Waiting for a companion…" : snapshot.pairRitual.nextPlayerId === snapshot.localPlayerId ? "Your turn" : "Companion’s turn"}</small>
             {["☀ Sun · J", "☾ Moon · K"].map((label, rune) => <button key={rune} type="button" disabled={snapshot.pairRitual?.nextPlayerId !== snapshot.localPlayerId || snapshot.pairRitual?.rune !== rune || (snapshot.pairRitual?.beats ?? 0) >= 4} onClick={() => engineRef.current?.pulsePairRune(rune)}>{label}</button>)}
           </div>}
-        </div>}
+          </div>
+        )}
         <FloatingJoystick surfaceRef={stageRef} onVector={handleMoveVector} enabled={snapshot.humanAlive && !meeting && !puzzle && !roleReveal && !deathReveal && !result && !navigationExpanded && !notebookOpen && !settingsOpen && !landscapeRequired && (!networkState || networkState.connected)} />
       </section>
 
@@ -5433,7 +5344,6 @@ function Game({
           <span aria-hidden="true">☾</span>
           <div className="kill-notice-copy">
             <strong>A Warden has fallen</strong>
-            <small>Stay alert. The hunt continues.</small>
           </div>
         </div>
       )}

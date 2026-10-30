@@ -1,6 +1,34 @@
 # Moonwarden — agent handoff and pending work
 
-Updated: 2026-10-29 (Asia/Manila).
+Updated: 2026-10-30 (Asia/Manila).
+
+## Current work: v0.7.1 quiet HUD — release requested
+
+User requested fewer gameplay labels, direct skill taps without extra menus or
+tooltips, then immediate Vercel production deployment. `clarity.css` owns the
+final HUD positions: compact Forest pill, 44px Map/Notes icons, owned gear only,
+small direct Ordeal actions. No persistent bottom controls rail or repeated
+canvas banners; nearby shrine action/duet share one row. Hold progress appears
+only while attuning and duet rune controls only after joining.
+
+Hollow Sight/Echo/Veil/Bite buttons call the same engine methods directly. No
+Tricks disclosure, native title tooltips, or success instruction toasts on skill
+use. Reporting uses a native disabled cooldown button, remains hidden before
+unlock unless a body is reportable, and preserves all server rules and R input.
+Help and Privacy settings remain intentionally available from Settings. Do not
+reintroduce persistent instructions to solve discoverability; the private intro
+and optional help already explain these controls.
+
+Browser review at 844x390 confirmed the quiet Calm HUD and one-tap Moon Sight
+during Rootwake (Sight/Echo both spent afterward, no popup). Browser error log
+was empty. 80 UI checks plus 116 focused HUD/report/hold/navigation/shrine/sight/
+feedback/release checks passed; TypeScript, scoped ESLint and diff checks passed.
+No full multiplayer playtest is claimed. Protocol
+stays `silverpine-trust-v8`; existing Render backend does not need a redeploy.
+Unrelated `prototypes/` remains excluded from Git/deployment.
+
+The previous verified production release is recorded below. Replace this
+section's pending status with the exact source/deployment proof after promotion.
 
 ## Current frontend: v0.7.0 — LIVE and verified
 

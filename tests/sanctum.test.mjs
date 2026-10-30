@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { GameServerRegistry } from "../server/game-room.ts";
 import { drawForestSanctum, drawSanctumStatus, sanctumPulse } from "../app/sanctum-art.ts";
-import { CALM_SECONDS, STATIONS } from "../server/sanctuary-map.ts";
+import { CALM_SECONDS } from "../server/sanctuary-map.ts";
 
 function canvasRecorder() {
   const calls = [], stack = [];
@@ -61,28 +61,28 @@ test("forest sanctums render every reward and availability state without mutatin
   }
 });
 
-test("sealed shrines keep a raised completion badge even outside interaction range", () => {
+test("claimed shrines keep a small checkmark but no distant text plaque", () => {
   const sealed = Object.freeze({ ...shrine, completed: true, completedAt: 10 });
   const { ctx, calls } = canvasRecorder();
   drawSanctumStatus(ctx, sealed, 30, false, false);
-  const badge = calls.find(([method, text]) => method === "fillText" && text === "SEALED");
+  const badge = calls.find(([method, x, , radius]) => method === "arc" && x === 0 && radius === 10);
   assert.ok(badge, "completed state is persistent, not only a half-second pulse");
-  assert.ok(badge[3] < -50, "completion badge sits above a nearby slime");
-  assert.equal(calls.filter(([method]) => method === "fillText").length, 1, "distant badges stay compact");
+  assert.ok(badge[2] < -50, "completion marker sits above a nearby cat");
+  assert.equal(calls.filter(([method]) => method === "fillText" || method === "strokeText").length, 0, "distant markers never repeat labels");
+  assert.equal(calls.filter(([method]) => method === "quadraticCurveTo").length, 0, "no large status plate remains");
 
   const near = canvasRecorder();
   drawSanctumStatus(near.ctx, sealed, 30, true, true);
-  assert.ok(near.calls.some(([method, text]) => method === "fillText" && text === "SEALED"), "a meeting never erases completed state");
-  assert.ok(near.calls.some(([method, text]) => method === "fillText" && text === "REOPENS NEXT CALM"));
-  assert.ok(!near.calls.some(([method, text]) => method === "fillText" && text.includes("INTERACT")), "sealed stations never advertise interaction");
+  assert.deepEqual(near.calls.filter(([method]) => method === "fillText").map(([, text]) => text), ["Done · next Calm"], "a meeting never erases the personal done cue");
+  assert.ok(!near.calls.some(([method, text]) => method === "fillText" && text.startsWith("E ·")), "claimed stations never advertise interaction");
 });
 
 test("ready, temporarily locked, and sealed sanctums have distinct status prompts", () => {
-  for (const [locked, expected] of [[false, "TASK READY"], [true, "LOCKED"]]) {
+  for (const [locked, expected] of [[false, "E · Restore"], [true, "Resting"]]) {
     const { ctx, calls } = canvasRecorder();
     drawSanctumStatus(ctx, shrine, 10, locked, true);
     assert.ok(calls.some(([method, text]) => method === "fillText" && text === expected));
-    assert.equal(calls.some(([method, text]) => method === "fillText" && text === "E · INTERACT"), !locked);
+    assert.equal(calls.filter(([method]) => method === "fillText").length, 1);
   }
   const distant = canvasRecorder();
   drawSanctumStatus(distant.ctx, shrine, 10, false, false);
@@ -92,9 +92,9 @@ test("ready, temporarily locked, and sealed sanctums have distinct status prompt
 test("north-shrine completion badges sit below the HUD instead of behind the ward meter", () => {
   const { ctx, calls } = canvasRecorder();
   drawSanctumStatus(ctx, { ...shrine, y: 104, completed: true }, 30, false, true);
-  const badge = calls.find(([method, text]) => method === "fillText" && text === "SEALED");
-  assert.ok(badge[3] > 45, "north badges use the approach side of the shrine");
-  assert.ok(calls.some(([method, text, , y]) => method === "fillText" && text === "STAR ALTAR" && y > 80));
+  const badge = calls.find(([method, x, , radius]) => method === "arc" && x === 0 && radius === 10);
+  assert.ok(badge[2] > 45, "north markers use the approach side of the shrine");
+  assert.ok(calls.some(([method, text, , y]) => method === "fillText" && text === "Done · next Calm" && y > 80));
 });
 
 test("completed shrine light is steady after the 0.5-second bloom while ready fireflies remain lively", () => {

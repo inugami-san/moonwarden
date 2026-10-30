@@ -1,5 +1,3 @@
-import { PAIR_RITUAL_SECONDS } from "../server/pair-ritual";
-
 export type HarmonizeInvitationState = {
   /** Only the local player's own duet intent, never inferred from nearby actors. */
   participating: boolean;
@@ -12,12 +10,10 @@ export type HarmonizeInvitationState = {
 };
 
 const TAU = Math.PI * 2;
-const READY_LABELS = ["0/2 READY · H TO LEAVE", "1/2 READY · H TO LEAVE", "2/2 READY · H TO LEAVE"] as const;
-const RISK_LABEL = `${PAIR_RITUAL_SECONDS}s MIN · AUDIBLE NEARBY`;
 const TURN_LABELS = ["YOUR TURN · SUN J", "YOUR TURN · MOON K"] as const;
 
 /** Presentation extents relative to the shrine; not interaction or collision bounds. */
-export const HARMONIZE_INVITATION_BOUNDS = Object.freeze({ left: -76, top: 22, right: 76, bottom: 74 });
+export const HARMONIZE_INVITATION_BOUNDS = Object.freeze({ left: -76, top: 22, right: 76, bottom: 64 });
 
 function drawPad(ctx: CanvasRenderingContext2D, x: number, moon: boolean, occupied: boolean, current: boolean, pulse: number) {
   ctx.save();
@@ -83,13 +79,12 @@ export function drawHarmonizeInvitation(
   const notesComplete = Number.isFinite(state.beats) && state.beats! >= 4;
   const activeRune = state.participating && count === 2 && !notesComplete && (state.rune === 0 || state.rune === 1) ? state.rune : -1;
   const pulse = reducedMotion || !Number.isFinite(elapsed) ? .5 : .5 + Math.sin(elapsed * 2) * .5;
-  const title = state.participating ? READY_LABELS[count] : "H · JOIN DUET";
-  const detail = !state.participating ? RISK_LABEL
-    : count < 2 ? "COMPANION WELCOME · AUDIBLE"
-    : notesComplete ? "HOLD STILL · AUDIBLE NEARBY"
+  const detail = !state.participating ? null
+    : count < 2 ? "WAITING FOR PARTNER"
+    : notesComplete ? "HOLD STILL"
     : activeRune >= 0 && state.yourTurn === true ? TURN_LABELS[activeRune === 0 ? 0 : 1]
-    : activeRune >= 0 && state.yourTurn === false ? "COMPANION'S TURN · LISTEN"
-    : "TAKE TURNS · AUDIBLE NEARBY";
+    : activeRune >= 0 && state.yourTurn === false ? "PARTNER'S TURN"
+    : "TAKE TURNS";
 
   ctx.save(); ctx.translate(station.x, station.y);
   ctx.lineCap = "round"; ctx.lineJoin = "round";
@@ -98,11 +93,13 @@ export function drawHarmonizeInvitation(
   drawPad(ctx, -39, false, count > 0, activeRune === 0, pulse);
   drawPad(ctx, 39, true, count > 1, activeRune === 1, pulse);
 
-  ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
-  ctx.font = "800 9px ui-monospace, monospace";
-  ctx.strokeStyle = "#101d27"; ctx.lineWidth = 3.5; ctx.fillStyle = "#f0e5c9";
-  ctx.strokeText(title, 0, 59); ctx.fillText(title, 0, 59);
-  ctx.font = "600 8px ui-monospace, monospace"; ctx.fillStyle = "#d4ded3";
-  ctx.strokeText(detail, 0, 71); ctx.fillText(detail, 0, 71);
+  // The HUD/guide owns joining, duration and risk instructions. Only a joined
+  // participant needs one private, timely cue next to the lit rune pad.
+  if (detail) {
+    ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+    ctx.font = "600 9px ui-monospace, monospace";
+    ctx.strokeStyle = "#101d27"; ctx.lineWidth = 3; ctx.fillStyle = "#e7dfc8";
+    ctx.strokeText(detail, 0, 59); ctx.fillText(detail, 0, 59);
+  }
   ctx.restore();
 }

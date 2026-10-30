@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { drawHarmonizeInvitation, HARMONIZE_INVITATION_BOUNDS } from "../app/harmonize-invitation.ts";
-import { PAIR_RITUAL_SECONDS } from "../server/pair-ritual.ts";
 
 function canvasRecorder() {
   const calls = [], stack = [], state = { globalAlpha: .75 };
@@ -41,13 +40,14 @@ function render(state, elapsed = 20, reducedMotion = false) {
   return recorder;
 }
 
-test("the unjoined invitation has two physical rune pads and states duration and audible risk", () => {
+test("the unjoined invitation is two quiet physical rune pads without repeated instructions", () => {
   const recorder = render({ participating: false });
-  assert.deepEqual(labels(recorder), ["H · JOIN DUET", `${PAIR_RITUAL_SECONDS}s MIN · AUDIBLE NEARBY`]);
+  assert.deepEqual(labels(recorder), []);
   for (const x of [-39, 39]) {
     assert.ok(recorder.calls.some(([method, px, py, rx, ry]) => method === "ellipse" && px === x && py === 37 && rx === 16 && ry === 8.5));
   }
   assert.ok(HARMONIZE_INVITATION_BOUNDS.left > -84 && HARMONIZE_INVITATION_BOUNDS.right < 84);
+  assert.equal(HARMONIZE_INVITATION_BOUNDS.bottom, 64);
   assert.ok(recorder.calls.length < 180, "small bounded vector drawing");
 });
 
@@ -61,25 +61,29 @@ test("private remote counts and turns are ignored when the local player is not p
 test("a single local voice invites a companion and only the vacant pad softly pulses", () => {
   const first = render({ participating: true, participants: 1 }, 0);
   const later = render({ participating: true, participants: 1 }, .5);
-  assert.deepEqual(labels(first), ["1/2 READY · H TO LEAVE", "COMPANION WELCOME · AUDIBLE"]);
+  assert.deepEqual(labels(first), ["WAITING FOR PARTNER"]);
   const halo = first.calls.filter(([method, , , rx]) => method === "ellipse" && rx === 19);
   assert.equal(halo.length, 1);
   assert.equal(halo[0][1], 39, "only the vacant second place pulses");
   assert.notDeepEqual(first.calls, later.calls);
 });
 
-test("the local duet count and turn are explicit, with no participant names or role colors", () => {
+test("a joined duet gets one private turn cue, with no repeated count or risk labels", () => {
   for (const rune of [0, 1]) {
     const yours = render({ participating: true, participants: 2, rune, yourTurn: true, beats: 1 });
     const theirs = render({ participating: true, participants: 2, rune, yourTurn: false, beats: 1 });
-    assert.equal(labels(yours)[0], "2/2 READY · H TO LEAVE");
-    assert.equal(labels(yours)[1], rune === 0 ? "YOUR TURN · SUN J" : "YOUR TURN · MOON K");
-    assert.equal(labels(theirs)[1], "COMPANION'S TURN · LISTEN");
+    assert.deepEqual(labels(yours), [rune === 0 ? "YOUR TURN · SUN J" : "YOUR TURN · MOON K"]);
+    assert.deepEqual(labels(theirs), ["PARTNER'S TURN"]);
     const ring = yours.calls.filter(([method, , , radius]) => method === "ellipse" && radius === 19);
     assert.equal(ring.length, 1);
     assert.equal(ring[0][1], rune === 0 ? -39 : 39);
   }
-  assert.equal(labels(render({ participating: true, participants: 2, beats: 4, rune: 0, yourTurn: true }))[1], "HOLD STILL · AUDIBLE NEARBY");
+  assert.deepEqual(labels(render({ participating: true, participants: 2, beats: 4, rune: 0, yourTurn: true })), ["HOLD STILL"]);
+  for (const participating of [false, true]) for (const participants of [0, 1, 2]) {
+    const text = labels(render({ participating, participants, rune: 0, yourTurn: true }));
+    assert.ok(text.length <= 1);
+    assert.ok(text.every(label => !/READY|AUDIBLE|MIN|H TO LEAVE|JOIN DUET/.test(label)));
+  }
 });
 
 test("reduced motion is fully static, and completed notes do not keep flashing a rune", () => {
@@ -92,10 +96,11 @@ test("reduced motion is fully static, and completed notes do not keep flashing a
 test("invalid optional state stays finite, clamped, and honest instead of inventing a companion", () => {
   for (const participants of [undefined, NaN, Infinity, -2, 0, .5, 1, 1.9, 2, 8]) {
     const recorder = render({ participating: true, participants, beats: NaN, rune: Infinity }, NaN);
-    assert.ok(/^\d\/2 READY/.test(labels(recorder)[0]));
+    assert.equal(labels(recorder).length, 1);
+    assert.ok(["WAITING FOR PARTNER", "TAKE TURNS"].includes(labels(recorder)[0]));
     assert.ok(!labels(recorder).some(label => label.startsWith("YOUR TURN")));
   }
-  assert.equal(labels(render({ participating: true, participants: NaN }))[0], "0/2 READY · H TO LEAVE");
+  assert.equal(labels(render({ participating: true, participants: NaN }))[0], "WAITING FOR PARTNER");
   for (const point of [{ x: NaN, y: 0 }, { x: 0, y: Infinity }]) {
     const recorder = canvasRecorder();
     drawHarmonizeInvitation(recorder.ctx, point, { participating: false }, 0);

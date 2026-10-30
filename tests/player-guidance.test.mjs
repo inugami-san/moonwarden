@@ -67,37 +67,58 @@ test("guidance cannot leak an injected enemy roster or treat guesses as evidence
   assert.doesNotMatch(source, /setInterval|setTimeout|addEventListener|players:|bodies:/);
 });
 
-test("the earned list hides empty slots without renumbering original 1/2/3 shortcuts", () => {
+test("earned gear disappears until earned, then shows only compact labels and the original shortcuts", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(earnedGear({ FLASHLIGHT: 0, FLARE: 4, SONAR: 2 }))), [{ item: "FLARE", shortcut: 2, charges: 4 }, { item: "SONAR", shortcut: 3, charges: 2 }]);
-  assert.equal(earnedGear(empty).length, 0);
-  const html = markup(EarnedGearDock, { charges: { ...empty, SONAR: 2 }, selectedItem: "SONAR", onSelect() {}, renderIcon });
-  const main = html.slice(html.indexOf('class="earned-gear-choices"'));
-  assert.match(main, /Echo Bell/);
-  assert.match(main, /key 3/);
+  const props = { charges: empty, selectedItem: "FLASHLIGHT", onSelect() {}, renderIcon };
+  assert.equal(EarnedGearDock(props), null);
+  assert.equal(markup(EarnedGearDock, props), "");
+  const html = markup(EarnedGearDock, { ...props, charges: { ...empty, SONAR: 2 }, selectedItem: "SONAR" });
+  const start = html.indexOf('class="earned-gear-choices"');
+  const main = html.slice(start, html.indexOf("</div>", start));
+  assert.match(main, /class="earned-gear-label">Echo<\/span>/);
+  assert.match(main, /aria-keyshortcuts="3"/);
+  assert.match(main, /Equip Echo Bell, 2 charges, key 3/);
+  assert.match(main, /title="Echo Bell · Key 3/);
   assert.doesNotMatch(main, /Glowing Mushroom|Moonblossom/);
-  assert.match(html, /<summary>More gear<\/summary>/);
+  assert.match(html, /<summary aria-label="Gear information and all items">Info<\/summary>/);
   for (const label of ["Glowing Mushroom", "Moonblossom", "Echo Bell"]) assert.ok(html.includes(label));
-  assert.match(html, /Equipped:/);
-  assert.doesNotMatch(markup(EarnedGearDock, { charges: { ...empty, SONAR: 1 }, selectedItem: "SONAR", onSelect() {}, renderIcon, showSelectedDescription: false }), /Equipped:/);
-});
-
-test("new surfaces keep text labels, native keyboard controls, and safe restoration values", () => {
-  const html = markup(ObjectiveStrip, { ...input(), progress: Infinity });
-  assert.match(html, /<summary>How to win<\/summary>/);
-  assert.match(html, /role="status" aria-live="polite" aria-atomic="true"/);
-  assert.match(html, /<progress value="0" max="100" aria-label="Forest restoration"/);
-  assert.match(markup(ObjectiveStrip, { ...input(), progress: 230 }), /<progress value="100"/);
-  const emptyHtml = markup(EarnedGearDock, { charges: empty, selectedItem: "FLASHLIGHT", onSelect() {}, renderIcon });
-  assert.match(emptyHtml, /Complete a shrine/);
-  assert.doesNotMatch(emptyHtml, /class="earned-gear-choices"/);
-  const disabled = markup(EarnedGearDock, { charges: { FLASHLIGHT: 1, FLARE: 1, SONAR: 1 }, selectedItem: "FLARE", onSelect() {}, renderIcon, disabled: true });
-  assert.equal((disabled.match(/disabled=""/g) ?? []).length, 6);
+  assert.doesNotMatch(html, /<p|earned-gear-heading|earned-gear-empty|earned-gear-description|Equipped:/);
   assert.equal(GEAR_ORDER.length, 3);
-  assert.match(markup(ObjectiveStrip, { ...input({ role: "IMPOSTOR" }), progress: 20, allies: "Mochi" }), /Your fellow Hollows: Mochi/);
-  assert.doesNotMatch(markup(ObjectiveStrip, { ...input(), progress: 20, allies: "Mochi" }), /Mochi/);
 });
 
-test("gear selection calls the existing selection action with its original item kind", () => {
+test("the entire persistent objective is one native Forest summary with no exposed role or guidance paragraph", () => {
+  const html = markup(ObjectiveStrip, { ...input({ role: "IMPOSTOR" }), progress: 37, allies: "Mochi" });
+  assert.match(html, /^<details class="objective-strip"/);
+  assert.equal((html.match(/<details/g) ?? []).length, 1);
+  assert.equal((html.match(/<summary/g) ?? []).length, 1);
+  assert.doesNotMatch(html.slice(0, html.indexOf(">") + 1), /open=/);
+  const summary = html.slice(html.indexOf("<summary"), html.indexOf("</summary>"));
+  assert.match(summary, /Forest 37% restored\. Open your goal and help/);
+  assert.match(summary, /<span>Forest<\/span>/);
+  assert.match(summary, /<progress value="37" max="100" aria-label="Forest restoration"/);
+  assert.doesNotMatch(summary, /Hollow|Warden|Mochi|ritual|How to win|<p(?:\s|>)/);
+  assert.match(html, /class="objective-goal-panel"/);
+  assert.match(html, /Hollow · your secret role/);
+  assert.match(html, /Blend in with a shrine ritual/);
+  assert.match(html, /match or outnumber/);
+  assert.match(html, /Your fellow Hollows: Mochi/);
+  assert.doesNotMatch(markup(ObjectiveStrip, { ...input(), progress: 37, allies: "Mochi" }), /Mochi/);
+});
+
+test("restoration stays clamped and plain-language without changing the helper's victory rules", () => {
+  assert.match(markup(ObjectiveStrip, { ...input(), progress: Infinity }), /<progress value="0"/);
+  assert.match(markup(ObjectiveStrip, { ...input(), progress: 230 }), /<progress value="100"/);
+  for (const role of ["CREWMATE", "IMPOSTOR"]) {
+    const html = markup(ObjectiveStrip, { ...input({ role }), progress: 37 });
+    assert.match(html, /aria-label="Forest restoration"/);
+    assert.doesNotMatch(html, /moonwards?/i);
+  }
+  assert.match(roleWinSummary("CREWMATE"), /restoring the forest to 100%.*voting out every Hollow/);
+  assert.match(roleWinSummary("IMPOSTOR"), /match or outnumber the Wardens after a cat falls/);
+  assert.match(playerGuidance(input()).detail, /restore the forest/);
+});
+
+test("compact gear forwards selection and disabled state without changing original item kinds", () => {
   const selected = [];
   const tree = EarnedGearDock({ charges: { ...empty, SONAR: 2 }, selectedItem: "SONAR", onSelect: item => selected.push(item), renderIcon });
   const visit = element => {
@@ -107,84 +128,51 @@ test("gear selection calls the existing selection action with its original item 
   };
   visit(tree);
   assert.deepEqual(selected, ["SONAR"]);
+  const disabled = markup(EarnedGearDock, { charges: { FLASHLIGHT: 1, FLARE: 1, SONAR: 1 }, selectedItem: "FLARE", onSelect() {}, renderIcon, disabled: true });
+  assert.equal((disabled.match(/disabled=""/g) ?? []).length, 6);
+  for (const label of ["Light", "Bloom", "Echo"]) assert.ok(disabled.includes('class="earned-gear-label">' + label));
+  for (const showSelectedDescription of [true, false]) assert.doesNotMatch(markup(EarnedGearDock, { charges: { ...empty, SONAR: 1 }, selectedItem: "SONAR", onSelect() {}, renderIcon, showSelectedDescription }), /<p|Equipped:/);
 });
 
-test("reward handoff leads with earned gear without exact attributable gauge changes", () => {
-  for (const role of ["CREWMATE", "IMPOSTOR"]) {
-    const html = markup(RewardHandoff, { role, item: "SONAR", station: "Frost Font", icon: renderIcon("SONAR") });
-    assert.match(html, /Echo Bell earned/);
-    assert.match(html, /Frost Font/);
-    assert.match(html, /movement echoes/);
-    assert.doesNotMatch(html, /\d%|queued|settle|four seconds|siphon/i);
-  }
+test("reward handoff is one short item-plus-one line with no role, station or gauge attribution", () => {
+  const props = { item: "SONAR", station: "Frost Font", icon: renderIcon("SONAR") };
+  const warden = markup(RewardHandoff, { ...props, role: "CREWMATE" });
+  const hollow = markup(RewardHandoff, { ...props, role: "IMPOSTOR" });
+  assert.equal(warden, hollow);
+  assert.match(warden, /role="status" aria-live="polite" aria-atomic="true"/);
+  assert.match(warden, /<strong>Echo Bell<\/strong><b>\+1<\/b>/);
+  assert.match(warden, /one charge earned/);
+  assert.doesNotMatch(warden, /<p|<small|Frost Font|Hollow|fake ritual|\d%|queued|settle|siphon/i);
 });
 
-test("scoped layout preserves labels, safe-area insets, and phone landscape composition", async () => {
+test("collapsed HUD has only 44px controls, short item labels, and no owned outer offsets", async () => {
   const css = await readFile(new URL("../app/player-guidance.css", import.meta.url), "utf8");
-  assert.match(css, /\.playful-game \.objective-strip/);
-  assert.match(css, /safe-area-inset-left/);
-  assert.match(css, /safe-area-inset-bottom/);
-  assert.match(css, /orientation: landscape\) and \(max-height: 540px/);
-  assert.doesNotMatch(css, /overflow(?:-y)?:\s*(?:scroll|auto)/);
+  assert.match(css, /\.objective-strip\s*\{\s*width: 190px; height: 44px/);
+  assert.match(css, /\.objective-pill,[\s\S]*?\.gear-catalog > summary\s*\{[^}]*min-width: 44px[^}]*min-height: 44px[^}]*height: 44px/);
+  assert.match(css, /\.earned-gear-dock\s*\{[^}]*height: 44px/);
+  assert.match(css, /\.earned-gear-choices > button\s*\{[^}]*width: 50px[^}]*min-width: 44px[^}]*height: 44px/);
+  assert.match(css, /\.objective-strip\[open\],[\s\S]*?z-index: 14/);
   assert.doesNotMatch(css, /earned-gear-label\s*\{[^}]*display:\s*none/);
-});
-
-test("restoration guidance uses one plain-language forest label without changing victory rules", () => {
-  for (const role of ["CREWMATE", "IMPOSTOR"]) {
-    const html = markup(ObjectiveStrip, { ...input({ role }), progress: 37 });
-    assert.match(html, /<span>Forest restored<\/span>/);
-    assert.match(html, /aria-label="Forest restoration"/);
-    assert.doesNotMatch(html, /moonwards?/i);
-  }
-  assert.match(roleWinSummary("CREWMATE"), /restoring the forest to 100%.*voting out every Hollow/);
-  assert.match(roleWinSummary("IMPOSTOR"), /match or outnumber the Wardens after a cat falls/);
-  assert.match(playerGuidance(input()).detail, /restore the forest/);
-});
-
-test("both native disclosure controls retain at least 44px touch targets at every breakpoint", async () => {
-  const css = await readFile(new URL("../app/player-guidance.css", import.meta.url), "utf8");
-  const disclosures = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selector]) => /\.(?:objective-win|gear-catalog) summary(?:\s|,|$)/.test(selector.trim()));
-  assert.ok(disclosures.some(([, selector, declarations]) => selector.includes(".objective-win summary") && selector.includes(".gear-catalog summary") && /min-width:\s*44px/.test(declarations) && /min-height:\s*44px/.test(declarations)));
-  for (const [, selector, declarations] of disclosures) {
-    const minimum = declarations.match(/min-height:\s*([\d.]+)px/);
-    if (minimum) assert.ok(Number(minimum[1]) >= 44, `${selector.trim()} must not shrink the disclosure target`);
+  assert.doesNotMatch(css, /overflow(?:-y)?:\s*(?:auto|scroll)/);
+  for (const [, selector, declarations] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    if (selector.split(",").some(part => /^\s*\.playful-game \.(?:objective-strip|earned-gear-dock|reward-handoff)\s*$/.test(part))) {
+      assert.doesNotMatch(declarations, /(?:^|;)\s*(?:top|bottom|left|right|inset):/, "the parent HUD places its own edge controls");
+    }
   }
 });
 
-test("short-landscape catalog budgets three labeled cards within phone viewport bounds", async () => {
+test("edge popovers fit phone landscape without taking the center or colliding with the floating header", async () => {
   const css = await readFile(new URL("../app/player-guidance.css", import.meta.url), "utf8");
-  const compact = css.slice(css.indexOf("@media (orientation: landscape) and (max-height: 540px)"));
-  assert.match(compact, /gear-catalog-panel\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
-  assert.match(compact, /width:\s*min\(420px, calc\(100vw[^;]+safe-area-inset-right/);
-  assert.match(compact, /gear-catalog-panel > button\s*\{[^}]*min-height:\s*100px/);
-  assert.doesNotMatch(compact, /gear-catalog-panel (?:small|b)\s*\{[^}]*display:\s*none/);
-  // 100px cards + 7px panel padding and border leave the catalog below the
-  // 48px floating nav even with three earned choices and the 44px summary.
-  for (const [width, height] of [[568, 320], [667, 375], [844, 390]]) {
-    const panelWidth = Math.min(420, width - 24);
-    const panelHeight = 100 + 14 + 2;
-    const dockHeight = height <= 340 ? 48 + 8 + 2 : 44 + 4 + 56 + 12 + 2;
-    assert.ok(12 + panelWidth <= width - 12);
-    assert.ok(height - 12 - dockHeight - 8 - panelHeight >= 48, `${width}×${height} leaves the floating header clear`);
+  assert.match(css, /width: min\(260px, calc\(100vw[^;]+safe-area-inset-right/);
+  assert.match(css, /objective-goal-panel\s*\{\s*top: calc\(100% \+ 6px\)/);
+  assert.match(css, /gear-catalog-panel\s*\{\s*bottom: calc\(100% \+ 6px\)/);
+  assert.match(css, /gear-catalog-panel > button\s*\{[^}]*min-height: 52px/);
+  for (const [width, height] of [[568, 320], [844, 390], [1440, 900]]) {
+    const inset = 12, popupWidth = 260, dockHeight = 44, catalogHeight = 3 * 52 + 14 + 2;
+    const gearWidth = 3 * 50 + 2 * 4 + 4 + 44;
+    assert.ok(inset + popupWidth < width / 2, "expanded information stays on the left edge, not over the center");
+    assert.ok(height - inset - dockHeight - 6 - catalogHeight >= 48, "catalog clears the floating header");
+    assert.ok(width - inset - 264 - (inset + gearWidth) >= 12, "all earned gear clears a full Hollow action bar");
+    assert.ok(48 + 10 + 44 + 6 + 190 <= height - inset, "goal/help copy has a short-landscape vertical budget");
   }
-});
-
-test("320px landscape gear stays in one touch-sized row below the map and left of Hollow actions", async () => {
-  const css = await readFile(new URL("../app/player-guidance.css", import.meta.url), "utf8");
-  const rail = css.slice(css.indexOf("@media (orientation: landscape) and (max-height: 340px)"));
-  assert.match(rail, /earned-gear-dock\s*\{[^}]*display: flex[^}]*width: min\(268px,[^}]*- 276px\)[^}]*padding: 4px/);
-  assert.match(rail, /earned-gear-dock:not\(:has\(\.earned-gear-choices\)\)\s*\{\s*width: auto/);
-  assert.match(rail, /earned-gear-heading > strong,[\s\S]*?earned-gear-empty,[\s\S]*?earned-gear-description\s*\{\s*display: none/);
-  assert.match(rail, /gear-catalog summary\s*\{[^}]*min-height: 48px/);
-  assert.match(rail, /earned-gear-choices > button\s*\{[^}]*min-width: 44px[^}]*min-height: 48px[^}]*height: 48px/);
-  assert.doesNotMatch(rail, /earned-gear-label\s*\{[^}]*display:\s*none/);
-  assert.doesNotMatch(rail, /gear-catalog-panel/);
-  const viewport = { width: 568, height: 320 };
-  const inset = 12, dockHeight = 48 + 2 * 4 + 2, dockWidth = 268;
-  const mapBottom = 229, actionWidth = 264;
-  assert.ok(viewport.height - inset - dockHeight > mapBottom, "58px rail clears the observed map row");
-  assert.equal(viewport.width - inset - actionWidth - (inset + dockWidth), 12, "Hollow actions retain a 12px gap");
-  assert.ok(dockWidth - 10 - 60 - 4 - 8 >= 3 * 44, "all three earned buttons remain touch sized");
-  assert.ok(viewport.height - inset - dockHeight - 8 - 116 >= 48, "catalog remains below the floating header");
-  assert.equal(390 <= 340, false, "ordinary 844×390 composition does not enter this breakpoint");
 });

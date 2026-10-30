@@ -44,10 +44,11 @@ test("garden patches bake once per tier, stay role-blind and keep reduced-motion
 
 test("Harmonize explains its alternating-note, exposed and noisy bargain", async () => {
   assert.equal(PAIR_RITUAL_SECONDS, 3);
-  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /Take turns · at least \$\{PAIR_RITUAL_SECONDS\}s · audible nearby/);
-  assert.match(page, /a Hollow can join too/);
-  assert.match(page, /Both earn gear/);
+  const controls = await readFile(new URL("../app/gameplay-controls.tsx", import.meta.url), "utf8");
+  assert.match(controls, /<details className="play-control-guide">/);
+  assert.match(controls, /take turns.*at least \{PAIR_RITUAL_SECONDS\}s/);
+  assert.match(controls, /audible nearby; a Hollow can join too/);
+  assert.match(controls, /Both earn gear faster/);
   const art = await readFile(new URL("../app/restoration-art.ts", import.meta.url), "utf8");
   assert.doesNotMatch(art, /role|fl[a]res.push|SOUND_CUE|sightAt|Math.random/);
 });

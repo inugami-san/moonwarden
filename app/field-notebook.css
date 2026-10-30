@@ -22,3 +22,5 @@
 .meeting-observations .observation-composer { grid-template-columns: 1fr 1fr; }
 .meeting-observations .observation-composer label:first-child, .meeting-observations .observation-actions { grid-column: 1 / -1; }
 @media (max-width: 760px) { .notebook-open { top: 134px; right: 9px; font-size: 10px; padding: 6px 9px; } .notebook-open kbd { display: none; } }
+.notebook-open.notebook-icon, .playful-game .notebook-open.notebook-icon { display: grid; place-items: center; width: 44px; min-width: 44px; height: 44px; min-height: 44px; gap: 0; padding: 0; border-radius: 13px; }
+.notebook-open.notebook-icon:focus-visible { outline: 3px solid #dfcf9f; outline-offset: 3px; }

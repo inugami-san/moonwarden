@@ -76,3 +76,28 @@ test("navigation UI uses a native modal, input-safe shortcuts and no entity-bear
   assert.match(source, /event\.key === "Escape"/);
   assert.match(source, /onExpandedChange/);
 });
+
+test("resting map is one labeled icon and minimap pinning is an intentional map option", async () => {
+  const source = await readFile(new URL("../app/navigation-map.tsx", import.meta.url), "utf8");
+  assert.match(source, /className="forest-map-open forest-map-icon"/);
+  assert.match(source, /aria-label="Open forest map" title="Forest map \(M\)" aria-keyshortcuts="M"/);
+  assert.doesNotMatch(source, /<span>Forest map<\/span>|aria-label=.*Show minimap|\{compactOpen \? "−" : "\+"\}/);
+  assert.match(source, /compactOpen \? <button[^\n]+aria-label="Hide minimap"/);
+  assert.match(source, /<details className="forest-map-options"><summary>Map options<\/summary>/);
+  assert.match(source, /Keep minimap open while exploring/);
+  assert.match(source, /onChange=\{event => setCompactOpen\(event.target.checked\)\}/);
+  const css = await readFile(new URL("../app/navigation-map.css", import.meta.url), "utf8");
+  assert.match(css, /\.playful-game \.forest-map-dock\.forest-map-tools:not\(\.is-open\)[^{]+\{ width: 44px; min-width: 44px; height: 44px/);
+});
+
+test("field notebook utility keeps its shortcut and private modal without a text plate", async () => {
+  const source = await readFile(new URL("../app/field-notebook.tsx", import.meta.url), "utf8");
+  assert.match(source, /className="notebook-open notebook-icon"/);
+  assert.match(source, /aria-label="Field notes" title="Field notes \(N\)" aria-keyshortcuts="N"/);
+  assert.doesNotMatch(source, /▤ Field notes|<kbd>N<\/kbd>/);
+  assert.match(source, /event.code !== "KeyN"/);
+  assert.match(source, /dialog.showModal\(\)/);
+  assert.match(source, /not verified evidence/);
+  const css = await readFile(new URL("../app/field-notebook.css", import.meta.url), "utf8");
+  assert.match(css, /\.playful-game \.notebook-open\.notebook-icon[^}]+width: 44px[^}]+height: 44px/);
+});

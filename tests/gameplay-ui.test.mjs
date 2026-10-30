@@ -100,3 +100,24 @@ test("minimap is collapsed by default and motion/press styles stay scoped to gam
   assert.match(css, /safe-area-inset-bottom/);
   assert.doesNotMatch(css, /https?:\/\//, "the HUD doesn't load external fonts, art or scripts");
 });
+
+test("quiet gameplay keeps skill activation direct and guidance explicitly optional", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const actions = source.slice(source.indexOf('<div className="action-dock"'), source.indexOf('{snapshot.taskPrompt && ('));
+  assert.doesNotMatch(actions, /<details|<summary|title=|role="dialog"/);
+  for (const method of ["useUtility", "useMoonSight", "useEchoLure", "kill", "useItem"]) assert.ok(actions.includes(`engineRef.current?.${method}(`));
+  assert.match(actions, /inert=\{hudBlocked\}/);
+  assert.match(actions, /snapshot.phase === "ORDEAL"/);
+  assert.match(actions, /snapshot.canReport \|\| snapshot.reportLabel !== "Locked"/);
+  assert.doesNotMatch(source, /drawCanvasLabels|station-sealed-prompt|WORKING SHRINE|OPEN FOREST LOOP/);
+  assert.match(source, /snapshot.taskHolding \|\| snapshot.taskHoldProgress > 0/);
+  const controls = await readFile(new URL("../app/gameplay-controls.tsx", import.meta.url), "utf8");
+  assert.match(controls, /<details className="play-control-guide">/);
+  assert.match(controls, /share one special action per Ordeal/);
+  assert.match(controls, /privacyControl/);
+  const css = await readFile(new URL("../app/clarity.css", import.meta.url), "utf8");
+  assert.match(css, /min-width: 44px/);
+  assert.match(css, /data-focus-overlay="true"/);
+  assert.match(css, /game-footer:has\(.mw-privacy-game-button\) \{ display: none/);
+  assert.match(css, /\.playful-game \.earned-gear-choices > button \{ width: 44px/);
+});

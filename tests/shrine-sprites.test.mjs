@@ -164,13 +164,14 @@ test("render path uses cached image/glow blits and never grants visibility", asy
   assert.doesNotMatch(source, /shadowBlur|setInterval|requestAnimationFrame|players|canSee/);
 });
 
-test("live shrine wrapper keeps the painted activation, half-second pulse and raised sealed badge", () => {
+test("live shrine wrapper keeps activation and its pulse with a small text-free completion marker", () => {
   const target = Object.freeze({ ...station, completed: true, teamRestored: true, completedAt: 10 });
   const recorder = canvas();
   drawForestSanctum(recorder.ctx, target, 10.25, false, true);
   drawSanctumStatus(recorder.ctx, target, 10.25, false, false);
   assert.equal(recorder.calls.filter(([method]) => method === "drawImage").length, 3);
   assert.ok(recorder.calls.some(([method, x, y, radius]) => method === "arc" && x === 0 && y === 0 && radius === sanctumPulse(10.25, 10).radius));
-  assert.ok(recorder.calls.some(([method, value, , y]) => method === "fillText" && value === "SEALED" && y < -85), "badge stays above taller shrine artwork");
+  assert.ok(recorder.calls.some(([method, x, y, radius]) => method === "arc" && x === 0 && radius === 10 && y < -85), "checkmark stays above taller shrine artwork");
+  assert.ok(!recorder.calls.some(([method]) => method === "fillText" || method === "strokeText"), "no distant text survives the art-ready branch");
   assert.equal(recorder.stack.length, 0); assert.deepEqual(recorder.state, { globalAlpha: 1 });
 });

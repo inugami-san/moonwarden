@@ -171,6 +171,6 @@ test("expanded background draws finite geometry and restores all Canvas state", 
   drawMoonGlade(ctx);
   assert.equal(stack.length, 0); assert.deepEqual(state, { globalAlpha: 1 });
   assert.ok(calls.some(([method, x, y, width, height]) => method === "fillRect" && x === 0 && y === 0 && width === WORLD_WIDTH && height === WORLD_HEIGHT));
-  for (const zone of SANCTUARY_CLEARINGS) assert.ok(calls.some(([method, label]) => method === "fillText" && label === zone.label));
+  assert.ok(!calls.some(([method]) => method === "fillText"), "landmark names live in the minimap, never baked over the floor");
   assert.ok(!calls.some(([method]) => method === "drawImage"), "native floor rendering needs no asset fetches");
 });

@@ -1,7 +1,7 @@
 .forest-cinematic-backdrop { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: -1; background: linear-gradient(#0b142a80, #12213855 40%, #0b172cdd), url('/art/forest/menu-grove-v1.webp') center 58% / cover; }
 .forest-cinematic-backdrop[data-tone="HOLLOW"] { background-image: linear-gradient(#1a132abb, #34263b88 40%, #140f22ef), url('/art/forest/menu-grove-v1.webp'); }
 .forest-cinematic-backdrop[data-tone="NEUTRAL"] { background-image: linear-gradient(#0c172cbb, #15253899 40%, #0b172cef), url('/art/forest/menu-grove-v1.webp'); }
-.forest-cinematic-moon { position: absolute; width: clamp(80px, 13vw, 160px); aspect-ratio: 1; left: calc(50% - 70px); top: 10%; border-radius: 50%; background: #ede3bb; box-shadow: 0 0 80px 22px #d3e5bf28, inset 8px -8px 15px #bdc9c25c; opacity: .68; }
+.forest-cinematic-moon { position: absolute; width: clamp(80px, 13vw, 160px); aspect-ratio: 1; right: 8%; top: 14%; border-radius: 50%; background: #ede3bb; box-shadow: 0 0 80px 22px #d3e5bf28, inset 8px -8px 15px #bdc9c25c; opacity: .68; }
 .forest-cinematic-backdrop[data-tone="HOLLOW"] .forest-cinematic-moon::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; background: #251b32; transform: translate(13%, -5%); box-shadow: -8px 7px 24px #debdd22a; animation: forest-cinematic-eclipse 2.8s ease-out both; }
 .forest-cinematic-mist { position: absolute; inset: 48% -10% -5%; background: radial-gradient(ellipse at 24% 58%, #a4cec726, transparent 45%), radial-gradient(ellipse at 78% 70%, #b5c1d822, transparent 48%); filter: blur(18px); animation: forest-cinematic-mist 4.8s ease-out both; }
 .forest-cinematic-branches { position: absolute; inset: 0; width: 100%; height: 100%; color: #091a24; opacity: .65; }
@@ -19,6 +19,7 @@
 .role-reveal-forest { --role-accent: #e1d2a6; position: fixed; inset: 0; z-index: 30; isolation: isolate; display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 430px); align-items: center; gap: clamp(24px, 6vw, 90px); height: 100dvh; overflow: hidden; padding: max(26px, env(safe-area-inset-top)) max(6vw, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(6vw, env(safe-area-inset-left)); color: #f1eddf; font-family: var(--font-geist-sans), sans-serif; background: #101e30; animation: role-forest-arrive .42s ease-out both; }
 .role-reveal-forest *, .role-reveal-forest *::before, .role-reveal-forest *::after { box-sizing: border-box; }
 .role-reveal-hollow { --role-accent: #e0becf; }
+.role-reveal-forest .forest-cinematic-moon { left: 25%; right: auto; top: 10%; }
 .role-reveal-portrait { position: relative; width: min(100%, 480px); aspect-ratio: 1; justify-self: center; align-self: center; animation: role-cat-arrive 1.2s ease-out both; }
 .role-reveal-portrait .slime-portrait { position: absolute; width: 100%; height: 100%; inset: 0; display: block; filter: drop-shadow(0 14px 20px #07101a8c); }
 .role-reveal-portrait canvas { position: absolute; width: 100%; height: 100%; inset: 0; }
